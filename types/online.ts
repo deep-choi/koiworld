@@ -1,14 +1,11 @@
 /**
  * 온라인 시스템 관련 타입 정의
- * Firestore 데이터베이스 구조와 일치
+ * Supabase 전환 중 기존 UI 타입 호환을 위해 유지
  */
 
 import { Koi, PondTheme } from '../types';
 
-// ============================================
-// Firestore Timestamp 타입 (Firebase SDK)
-// ============================================
-import { Timestamp } from 'firebase/firestore';
+export type TimestampLike = string | number | Date | null;
 
 // ============================================
 // 1. 사용자 정보 (users/{userId})
@@ -17,8 +14,8 @@ import { Timestamp } from 'firebase/firestore';
 /** 사용자 프로필 */
 export interface UserProfile {
     nickname: string;
-    createdAt: Timestamp;
-    lastLogin: Timestamp;
+    createdAt: TimestampLike;
+    lastLogin: TimestampLike;
 }
 
 /** 사용자 게임 데이터 (온라인 저장용) */
@@ -58,9 +55,9 @@ export interface SerializedKoi {
     stamina?: number;
 }
 
-/** Firestore users/{userId} 문서 전체 구조 */
-export interface FirestoreUserDocument {
-    uid?: string;            // 문서 ID (식별용)
+/** 온라인 사용자 스냅샷 구조 */
+export interface CloudUserDocument {
+    uid?: string;            // 행 ID (식별용)
     profile: UserProfile;
     gameData: UserGameData;
     ap: number;              // 광고 포인트
@@ -74,7 +71,7 @@ export interface FirestoreUserDocument {
 /** 세션 정보 (동시접속 방지용) */
 export interface SessionData {
     deviceId: string;
-    lastActive: Timestamp;
+    lastActive: TimestampLike;
     isOnline: boolean;
 }
 
@@ -87,7 +84,7 @@ export type ListingStatus = 'active' | 'sold' | 'expired' | 'cancelled';
 
 /** 경매 목록 아이템 */
 export interface MarketplaceListing {
-    id?: string;              // Firestore 문서 ID (클라이언트에서 사용)
+    id?: string;              // 행 ID (클라이언트에서 사용)
     sellerId: string;
     sellerNickname: string;
     koiData: SerializedKoi;   // 잉어 전체 정보
@@ -98,8 +95,8 @@ export interface MarketplaceListing {
     currentBidderId: string | null;  // 현재 최고 입찰자
     currentBidderNickname: string | null;
     bidCount: number;         // 입찰 횟수
-    createdAt: Timestamp;
-    expiresAt: Timestamp;     // 경매 종료 시간
+    createdAt: TimestampLike;
+    expiresAt: TimestampLike;     // 경매 종료 시간
     status: ListingStatus;
 }
 
@@ -109,11 +106,11 @@ export interface MarketplaceListing {
 
 /** 입찰 정보 */
 export interface Bid {
-    id?: string;              // Firestore 문서 ID
+    id?: string;              // 행 ID
     bidderId: string;
     bidderNickname: string;
     amount: number;           // 입찰 금액 (AP)
-    timestamp: Timestamp;
+    timestamp: TimestampLike;
 }
 
 // ============================================
@@ -125,14 +122,14 @@ export type TransactionType = 'purchase' | 'bid_win' | 'ad_reward' | 'listing_sa
 
 /** 거래 기록 */
 export interface Transaction {
-    id?: string;              // Firestore 문서 ID
+    id?: string;              // 행 ID
     type: TransactionType;
     userId: string;
     amount: number;           // AP 변동량 (+/-)
     fee?: number;             // 수수료 (5%)
     listingId?: string;       // 관련 경매 ID
     description?: string;     // 거래 설명
-    timestamp: Timestamp;
+    timestamp: TimestampLike;
 }
 
 // ============================================
@@ -182,7 +179,7 @@ export interface MarketplaceFilter {
 }
 
 // ============================================
-// Cloud Functions 호출 타입
+// 서버 RPC 호출 타입
 // ============================================
 
 /** 즉시 구매 요청 */

@@ -1,8 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import './AuthModal.css';
-import { isInAppBrowser, isMobile } from '../utils/userAgent';
-import { clearLocalGameSaves, resumeLocalGameSave, suppressLocalGameSave } from '../services/localSave';
+import { isInAppBrowser } from '../utils/userAgent';
+import { resumeLocalGameSave, suppressLocalGameSave } from '../services/localSave';
 
 interface AuthModalProps {
     isOpen: boolean;
@@ -12,6 +12,7 @@ interface AuthModalProps {
 
 export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onGuestPlay }) => {
     const { login, user, loading } = useAuth();
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     if (!isOpen) return null;
     if (loading) {
@@ -33,17 +34,28 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onGuestPl
     }
 
     const handleGoogleLogin = async () => {
+        if (isSubmitting) return;
+
         try {
+            setIsSubmitting(true);
             suppressLocalGameSave();
             await login();
-            clearLocalGameSaves();
-            onClose();
-            // 모바일(로그인 리다이렉트 사용)이 아닐 경우에만 새로고침
-            if (!isMobile()) {
-                window.location.reload();
-            }
         } catch (error) {
+            console.error("Google login failed:", error);
             resumeLocalGameSave();
+            setIsSubmitting(false);
+            const message = error instanceof Error ? error.message : '';
+
+            if (message.includes('provider is not enabled')) {
+                alert("구글 로그인이 아직 Supabase 대시보드에서 활성화되지 않았습니다. Authentication > Providers > Google에서 먼저 켜주세요.");
+                return;
+            }
+
+            if (message.includes('redirect') || message.includes('callback')) {
+                alert("구글 로그인 리디렉트 설정이 맞지 않습니다. Supabase Redirect URL과 Google OAuth callback 설정을 확인해주세요.");
+                return;
+            }
+
             alert("로그인 실패: 다시 시도해주세요.");
         }
     };
@@ -75,7 +87,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onGuestPl
                         </div>
                     )}
 
-                    <button className="auth-btn google" onClick={handleGoogleLogin}>
+                    <button className="auth-btn google" onClick={handleGoogleLogin} disabled={isSubmitting}>
                         Google로 로그인
                     </button>
 

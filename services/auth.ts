@@ -1,42 +1,76 @@
-import { signInWithPopup, signOut, User, onAuthStateChanged, getRedirectResult } from 'firebase/auth';
-import { auth, googleProvider } from './firebase';
+import type { User as SupabaseUser } from '@supabase/supabase-js';
+import {
+    getCurrentSession,
+    signInWithGoogle as signInWithSupabaseGoogle,
+    signOut as signOutFromSupabase,
+    subscribeToAuthChanges as subscribeToSupabaseAuthChanges,
+} from './supabase';
 
-// 리다이렉트 결과 처리 (모바일 웹 로그인 후 복귀 시 실행)
-export const checkRedirectResult = async () => {
+export interface AppUser {
+    uid: string;
+    email: string | null;
+    displayName: string | null;
+    photoURL: string | null;
+    rawUser: SupabaseUser;
+}
+
+const toAppUser = (user: SupabaseUser | null): AppUser | null => {
+    if (!user) {
+        return null;
+    }
+
+    const metadata = user.user_metadata ?? {};
+    const displayName =
+        (typeof metadata.full_name === 'string' && metadata.full_name.trim()) ||
+        (typeof metadata.name === 'string' && metadata.name.trim()) ||
+        (typeof user.email === 'string' ? user.email.split('@')[0] : null) ||
+        null;
+
+    const photoURL =
+        (typeof metadata.avatar_url === 'string' && metadata.avatar_url) ||
+        (typeof metadata.picture === 'string' && metadata.picture) ||
+        null;
+
+    return {
+        uid: user.id,
+        email: user.email ?? null,
+        displayName,
+        photoURL,
+        rawUser: user,
+    };
+};
+
+// Supabase OAuth는 리다이렉트 후 세션에 복구되므로 현재 세션을 그대로 읽습니다.
+export const checkRedirectResult = async (): Promise<AppUser | null> => {
     try {
-        const result = await getRedirectResult(auth);
-        if (result) {
-            return result.user;
-        }
+        const session = await getCurrentSession();
+        return toAppUser(session?.user ?? null);
     } catch (error) {
-        console.error("Redirect Login Result Error:", error);
-        // 여기서 에러를 throw하거나 UI에 표시할 수 있도록 리턴
+        console.error("Auth Redirect Error:", error);
         throw error;
     }
 };
 
-// 로그인
-export const loginWithGoogle = async () => {
+export const loginWithGoogle = async (): Promise<void> => {
     try {
-        // 웹 환경: 팝업 방식 사용 (리다이렉트는 도메인 불일치 이슈 발생)
-        await signInWithPopup(auth, googleProvider);
+        await signInWithSupabaseGoogle();
     } catch (error) {
         console.error("Google Login Error:", error);
         throw error;
     }
 };
 
-// 로그아웃
-export const logout = async () => {
+export const logout = async (): Promise<void> => {
     try {
-        await signOut(auth);
+        await signOutFromSupabase();
     } catch (error) {
         console.error("Logout Error:", error);
         throw error;
     }
 };
 
-// 인증 상태 감지 리스너
-export const subscribeToAuthChanges = (callback: (user: User | null) => void) => {
-    return onAuthStateChanged(auth, callback);
+export const subscribeToAuthChanges = (callback: (user: AppUser | null) => void) => {
+    return subscribeToSupabaseAuthChanges((_event, session) => {
+        callback(toAppUser(session?.user ?? null));
+    });
 };

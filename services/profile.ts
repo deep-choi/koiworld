@@ -1,7 +1,4 @@
-import { doc, getDoc, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore';
-import { db } from './firebase';
-
-const USERS_COLLECTION = 'users';
+import { fetchMyProfile, getCurrentUser, upsertProfileContext } from './supabase';
 
 const buildDefaultNickname = (userId: string, displayName?: string | null, email?: string | null) => {
     const name = displayName?.trim();
@@ -18,52 +15,36 @@ export const ensureUserProfileNickname = async (
     displayName?: string | null,
     email?: string | null,
 ): Promise<string> => {
-    const userRef = doc(db, USERS_COLLECTION, userId);
-    const snap = await getDoc(userRef);
-
     const fallbackNickname = buildDefaultNickname(userId, displayName, email);
-
-    if (!snap.exists()) {
-        await setDoc(userRef, {
-            profile: {
-                nickname: fallbackNickname,
-                createdAt: serverTimestamp(),
-                lastLogin: serverTimestamp(),
-            },
-            ap: 0,
-            kois: [],
-        }, { merge: true });
-        return fallbackNickname;
+    const currentUser = await getCurrentUser();
+    if (!currentUser || currentUser.id !== userId) {
+        throw new Error('Authenticated Supabase user does not match the requested profile.');
     }
 
-    const data: any = snap.data();
-    const existingNickname = typeof data?.profile?.nickname === 'string' ? data.profile.nickname.trim() : '';
+    const existingProfile = await fetchMyProfile();
+    const existingNickname = existingProfile?.nickname?.trim() ?? '';
 
     if (existingNickname) {
-        // 이미 닉네임이 있으면 바로 반환 (불필요한 lastLogin 업데이트 제거로 속도 개선)
+        await upsertProfileContext({ touchLastLogin: true });
         return existingNickname;
     }
 
-    // 닉네임이 비어있거나 없는 경우 기본값으로 채움
-    await setDoc(userRef, {
-        profile: {
-            nickname: fallbackNickname,
-            createdAt: serverTimestamp(),
-            lastLogin: serverTimestamp(),
-        },
-        ap: 0,
-        kois: [],
-    }, { merge: true });
-    return fallbackNickname;
+    const profile = await upsertProfileContext({
+        nickname: fallbackNickname,
+        touchLastLogin: true,
+    });
+    return profile.nickname;
 };
 
 export const updateUserNickname = async (userId: string, nickname: string): Promise<void> => {
-    const userRef = doc(db, USERS_COLLECTION, userId);
-    const trimmed = nickname.trim();
-    await setDoc(userRef, {
-        profile: {
-            nickname: trimmed,
-        },
-    }, { merge: true });
-};
+    const currentUser = await getCurrentUser();
+    if (!currentUser || currentUser.id !== userId) {
+        throw new Error('Authenticated Supabase user does not match the requested profile.');
+    }
 
+    const trimmed = nickname.trim();
+    await upsertProfileContext({
+        nickname: trimmed,
+        touchLastLogin: false,
+    });
+};

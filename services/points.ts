@@ -1,68 +1,46 @@
-import { db } from './firebase';
-import { doc, getDoc, onSnapshot, setDoc, updateDoc, increment } from 'firebase/firestore';
+import { fetchMyProfile, getCurrentUser, setClientApBalance, subscribeToMyProfile } from './supabase';
 
-const COLLECTION = 'users';
+const assertCurrentUser = async (userId: string) => {
+    const currentUser = await getCurrentUser();
+    if (!currentUser || currentUser.id !== userId) {
+        throw new Error('Authenticated Supabase user does not match the requested profile.');
+    }
+};
 
 export const getAPBalance = async (userId: string): Promise<number> => {
-    const userRef = doc(db, COLLECTION, userId);
-    const snap = await getDoc(userRef);
-
-    if (snap.exists()) {
-        return snap.data().ap || 0;
-    }
-    return 0;
+    await assertCurrentUser(userId);
+    const profile = await fetchMyProfile();
+    return profile?.ap ?? 0;
 };
 
 export const listenToAPBalance = (userId: string, onUpdate: (ap: number) => void) => {
-    const userRef = doc(db, COLLECTION, userId);
-
-    return onSnapshot(userRef, (snap) => {
-        if (!snap.exists()) {
-            onUpdate(0);
-            return;
-        }
-
-        const ap = snap.data().ap;
-        onUpdate(typeof ap === 'number' ? ap : 0);
+    let unsubscribe = () => {};
+    void subscribeToMyProfile(userId, (profile) => {
+        onUpdate(profile?.ap ?? 0);
+    }).then((cleanup) => {
+        unsubscribe = cleanup;
+    }).catch((error) => {
+        console.error('Failed to subscribe to Supabase AP balance:', error);
     });
+
+    return () => unsubscribe();
 };
 
 export const addAP = async (userId: string, amount: number): Promise<void> => {
-    const userRef = doc(db, COLLECTION, userId);
-    const snap = await getDoc(userRef);
-
-    if (snap.exists()) {
-        // 문서가 있으면 업데이트
-        await updateDoc(userRef, {
-            ap: increment(amount)
-        });
-    } else {
-        // 문서가 없으면 생성
-        await setDoc(userRef, {
-            ap: amount,
-            createdAt: new Date()
-        });
-    }
+    const current = await getAPBalance(userId);
+    await setAPBalance(userId, current + amount);
 };
 
 export const deductAP = async (userId: string, amount: number): Promise<boolean> => {
-    const userRef = doc(db, COLLECTION, userId);
-    const snap = await getDoc(userRef);
-
-    if (snap.exists()) {
-        const currentAP = snap.data().ap || 0;
-        if (currentAP >= amount) {
-            await updateDoc(userRef, {
-                ap: increment(-amount)
-            });
-            return true;
-        }
+    const current = await getAPBalance(userId);
+    if (current >= amount) {
+        await setAPBalance(userId, current - amount);
+        return true;
     }
     return false;
 };
+
 export const setAPBalance = async (userId: string, amount: number): Promise<void> => {
-    const userRef = doc(db, COLLECTION, userId);
-    await updateDoc(userRef, {
-        ap: amount
-    });
+    await assertCurrentUser(userId);
+    await setClientApBalance(amount);
 };

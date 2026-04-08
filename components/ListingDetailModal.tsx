@@ -48,7 +48,7 @@ export const ListingDetailModal: React.FC<ListingDetailModalProps> = ({
         return () => unsubscribe();
     }, [listing.id]);
 
-    const TRANSACTION_FEE_RATE = 0; // 수수료 제거
+    const TRANSACTION_FEE_RATE = 0.05;
 
     const requiredBuyNowAp = useMemo(() => {
         if (typeof liveListing.buyNowPrice !== 'number' || liveListing.buyNowPrice <= 0) return Infinity;

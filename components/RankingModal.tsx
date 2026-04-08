@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { X, Trophy, Medal, RotateCw, AlertCircle, Award } from 'lucide-react';
-import { getRankings } from '../services/firestore';
-import { FirestoreUserDocument } from '../types/online';
+import { getRankings } from '../services/cloudData';
+import { CloudUserDocument } from '../types/online';
 
 interface RankingModalProps {
     isOpen: boolean;
@@ -17,7 +17,7 @@ type RankingTab = 'trophy' | 'achievement';
 
 export const RankingModal: React.FC<RankingModalProps> = ({ isOpen, onClose, userNickname, myHonorPoints, isLoggedIn, currUserId, myAchievementPoints = 0 }) => {
     const [activeTab, setActiveTab] = useState<RankingTab>('trophy');
-    const [rankings, setRankings] = useState<FirestoreUserDocument[]>([]);
+    const [rankings, setRankings] = useState<CloudUserDocument[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -121,7 +121,7 @@ export const RankingModal: React.FC<RankingModalProps> = ({ isOpen, onClose, use
                                 <p className="text-red-400 font-bold">오류 발생</p>
                                 <p className="text-gray-500 text-xs mt-1 leading-relaxed">
                                     {error.includes('index') ?
-                                        'Firestore 색인이 필요합니다. 개발자 콘솔(F12)의 링크를 클릭하여 색인을 생성해주세요.' :
+                                        '랭킹 쿼리 구성이 잘못되었습니다. Supabase SQL과 정렬 필드를 확인해주세요.' :
                                         '서버와의 통신이 원활하지 않습니다. 잠시 후 다시 시도해주세요.'}
                                 </p>
                             </div>

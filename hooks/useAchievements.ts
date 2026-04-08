@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Achievement, AchievementState, Koi } from '../types';
 import { ACHIEVEMENTS, checkUnlockableAchievements } from '../utils/achievements';
-import { updateUserGameData } from '../services/firestore';
+import { updateUserGameData } from '../services/cloudData';
 
 export const useAchievements = (
     userId: string | undefined,
@@ -16,7 +16,7 @@ export const useAchievements = (
 
     const [isLoaded, setIsLoaded] = useState(false);
 
-    // Load initial data (Priority: Firestore > LocalStorage)
+    // Load initial data (Priority: cloud snapshot > localStorage)
     useEffect(() => {
         if (!userId) {
             setIsLoaded(false);
@@ -26,7 +26,7 @@ export const useAchievements = (
         const key = `koi_garden_achievements_${userId}`;
 
         if (initialData) {
-            // Load from Firestore data passed from App.tsx
+            // Load from cloud data passed from App.tsx
             const total = initialData.claimedIds.reduce((sum, id) => {
                 const ach = ACHIEVEMENTS.find(a => a.id === id);
                 return sum + (ach?.reward.achievementPoints || 0);
@@ -47,7 +47,7 @@ export const useAchievements = (
                 totalPoints: total,
             }));
         } else {
-            // Check LocalStorage if no Firestore data (for offline/migration)
+            // Check localStorage if cloud data is unavailable
             const saved = localStorage.getItem(key);
             if (saved) {
                 try {

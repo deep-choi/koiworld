@@ -1,9 +1,8 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { User } from 'firebase/auth';
-import { subscribeToAuthChanges, loginWithGoogle, logout, checkRedirectResult } from '../services/auth';
+import { AppUser, subscribeToAuthChanges, loginWithGoogle, logout, checkRedirectResult } from '../services/auth';
 
 interface AuthContextType {
-    user: User | null;
+    user: AppUser | null;
     loading: boolean;
     login: () => Promise<void>;
     logout: () => Promise<void>;
@@ -12,22 +11,28 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-    const [user, setUser] = useState<User | null>(null);
+    const [user, setUser] = useState<AppUser | null>(null);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
+        let isMounted = true;
+
         // 리다이렉트 결과 확인 (모바일 웹 로그인 에러 처리용)
-        checkRedirectResult().catch(error => {
+        checkRedirectResult().then((restoredUser) => {
+            if (!isMounted || !restoredUser) return;
+            setUser(restoredUser);
+        }).catch(error => {
             console.error("Auth Redirect Error:", error);
             // 필요하다면 여기서 에러 상태를 state에 저장해 알림 표시 가능
         });
 
         const unsubscribe = subscribeToAuthChanges((currentUser) => {
+            if (!isMounted) return;
             setUser(currentUser);
             setLoading(false);
         });
 
-        // 1.5s Fallback Timeout: Force loading completion if Firebase is slow
+        // 1.5s fallback: avoid blocking the UI forever if session restore is slow
         const timeoutId = setTimeout(() => {
             setLoading(prev => {
                 if (prev) return false;
@@ -36,6 +41,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }, 1500);
 
         return () => {
+            isMounted = false;
             clearTimeout(timeoutId);
             unsubscribe();
         };

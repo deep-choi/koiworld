@@ -29,9 +29,6 @@ import { APDisplay } from './components/APDisplay';
 import { AdRewardModal } from './components/AdRewardModal';
 import { AdType, getAdReward, initializeAds, showRewardAd } from './services/ads';
 import { listenToAPBalance, setAPBalance } from './services/points';
-import { httpsCallable } from 'firebase/functions';
-import { db, functions } from './services/firebase';
-import { doc, getDoc, onSnapshot, setDoc } from 'firebase/firestore';
 import { MarketplaceModal } from './components/MarketplaceModal';
 import { CreateListingModal } from './components/CreateListingModal';
 import { ListingDetailModal } from './components/ListingDetailModal';
@@ -43,6 +40,7 @@ import { ensureUserProfileNickname, updateUserNickname } from './services/profil
 import { RankingModal } from './components/RankingModal';
 import { useAchievements } from './hooks/useAchievements';
 import { AchievementModal } from './components/AchievementModal';
+import { subscribeToPendingKoiClaims } from './services/supabase';
 
 interface Animation {
   id: number;
@@ -400,7 +398,7 @@ export const App: React.FC = () => {
           }
         }
 
-        // verifiedNickname(Firestore에 저장된 명칭)으로 로컬 상태 업데이트
+        // 서버에 저장된 닉네임으로 로컬 상태 업데이트
         setUserNickname(verifiedNickname);
 
         // 실시간 구독 설정 (이후 변경사항 감지용)
@@ -465,57 +463,53 @@ export const App: React.FC = () => {
   }, [user, isCloudSyncReady]);
 
   // --- Koi Claimer Effect ---
-  // 구매하거나 취소되어 root 'kois' 필드에 들어온 잉어를 안전하게 연못으로 수령합니다.
+  // 구매하거나 취소되어 pending_koi_claims에 쌓인 잉어를 안전하게 연못으로 수령합니다.
   useEffect(() => {
     if (!user || !isCloudSyncReady) return;
 
-    const userRef = doc(db, 'users', user.uid);
-    const unsubscribe = onSnapshot(userRef, async (snap) => {
-      if (!snap.exists()) return;
-      const userData = snap.data();
-      const claimableKois = userData.kois as Koi[] | undefined;
+    let unsubscribe = () => {};
 
-      if (claimableKois && claimableKois.length > 0) {
-        console.log(`[Claimer] ${claimableKois.length} claimable koi(s) found! Moving to pond...`);
+    void subscribeToPendingKoiClaims(user.uid, async (claims) => {
+      if (!claims.length) return;
 
-        // 1. 현재 연못 상태 업데이트
-        const currentPonds = pondsRef.current;
-        const targetPondId = activePondIdRef.current;
-        const targetPond = currentPonds[targetPondId];
-        if (targetPond) {
-          const updatedPonds: Ponds = {
-            ...currentPonds,
-            [targetPondId]: {
-              ...targetPond,
-              kois: [...targetPond.kois, ...claimableKois]
-            }
-          };
-          setPonds(updatedPonds);
-          pondsRef.current = updatedPonds;
-          setNotification({ message: `${claimableKois.length}마리의 잉어를 수령했습니다!`, type: 'success' });
+      const claimableKois = claims.map((claim) => claim.koi_json as Koi);
+      console.log(`[Claimer] ${claimableKois.length} claimable koi(s) found! Moving to pond...`);
 
-          // 2. 서버의 root 'kois' 필드 비우기 (중복 수령 방지)
-          try {
-            await setDoc(userRef, { kois: [] }, { merge: true });
-            console.log('[Claimer] Server claimed kois cleared successfully.');
+      const currentPonds = pondsRef.current;
+      const targetPondId = activePondIdRef.current;
+      const targetPond = currentPonds[targetPondId];
+      if (!targetPond) return;
 
-            // 3. 즉시 저장 (데이터 유실 방지)
-            const baseState = gameStateRef.current;
-            if (!baseState) return;
-            const stateToSave: SavedGameState = {
-              ...baseState,
-              ponds: updatedPonds
-            };
-            const payload = JSON.stringify(stateToSave);
-            localStorage.setItem(SAVE_GAME_KEY, payload);
-            lastLocalSavePayloadRef.current = payload;
-            await saveGameToCloud(user.uid, stateToSave);
-            lastCloudSavePayloadRef.current = payload;
-          } catch (error: any) {
-            console.error('[Claimer] Failed to clear claimed kois or sync:', error);
-          }
+      const updatedPonds: Ponds = {
+        ...currentPonds,
+        [targetPondId]: {
+          ...targetPond,
+          kois: [...targetPond.kois, ...claimableKois]
         }
+      };
+      setPonds(updatedPonds);
+      pondsRef.current = updatedPonds;
+      setNotification({ message: `${claimableKois.length}마리의 잉어를 수령했습니다!`, type: 'success' });
+
+      try {
+        const baseState = gameStateRef.current;
+        if (!baseState) return;
+        const stateToSave: SavedGameState = {
+          ...baseState,
+          ponds: updatedPonds
+        };
+        const payload = JSON.stringify(stateToSave);
+        localStorage.setItem(SAVE_GAME_KEY, payload);
+        lastLocalSavePayloadRef.current = payload;
+        await saveGameToCloud(user.uid, stateToSave);
+        lastCloudSavePayloadRef.current = payload;
+      } catch (error: any) {
+        console.error('[Claimer] Failed to sync claimed kois:', error);
       }
+    }).then((cleanup) => {
+      unsubscribe = cleanup;
+    }).catch((error) => {
+      console.error('[Claimer] Failed to subscribe to pending koi claims:', error);
     });
 
     return () => unsubscribe();
@@ -584,19 +578,17 @@ export const App: React.FC = () => {
 
       if (success) {
         const rewardAmount = 200; // 고정 200 AP
+        const nextAP = adPoints + rewardAmount;
 
         // 로컬 상태 즉시 업데이트 (로그인 여부와 관계없이)
-        setAdPoints(prev => prev + rewardAmount);
+        setAdPoints(nextAP);
         setNotification({ message: `+${rewardAmount} AP 획득!`, type: 'success' });
         setIsAdModalOpen(false);
 
-        // 로그인 상태면 Firestore에도 즉시 저장 (백그라운드에서)
+        // 로그인 상태면 Supabase 프로필에도 즉시 저장 (백그라운드에서)
         if (user) {
           try {
-            const userRef = doc(db, 'users', user.uid);
-            const snap = await getDoc(userRef);
-            const currentAp = snap.exists() ? (snap.data()?.ap ?? 0) : 0;
-            await setDoc(userRef, { ap: currentAp + rewardAmount }, { merge: true });
+            await setAPBalance(user.uid, nextAP);
           } catch (e) {
             console.error('Failed to sync AP to cloud:', e);
             // 실패해도 로컬 상태는 이미 업데이트됨
@@ -619,11 +611,11 @@ export const App: React.FC = () => {
     console.log('[Marketplace] Listing created atomically. Updating local state and pausing sync...');
     isMarketplaceOperationPending.current = true; // 자동 저장 일시 중지
 
-    // 등록 비용 차감 (로컬 + Firestore 동시 업데이트)
+    // 등록 비용 차감 (로컬 + 서버 동기화)
     const nextAP = Math.max(0, adPoints - listingFee);
     setAdPoints(nextAP);
 
-    // Firestore에도 즉시 동기화 (리스너가 덮어쓰지 않도록)
+    // 서버에도 즉시 동기화 (리스너가 덮어쓰지 않도록)
     if (user) {
       try {
         await setAPBalance(user.uid, nextAP);
@@ -703,11 +695,11 @@ export const App: React.FC = () => {
       return;
     }
 
-    // AP 차감 (로컬 + Firestore 동시 업데이트)
+    // AP 차감 (로컬 + 서버 동기화)
     const nextAP = adPoints - CLEANING_COST;
     setAdPoints(nextAP);
 
-    // Firestore에도 즉시 동기화 (리스너가 덮어쓰지 않도록)
+    // 서버에도 즉시 동기화 (리스너가 덮어쓰지 않도록)
     if (user) {
       try {
         await setAPBalance(user.uid, nextAP);

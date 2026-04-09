@@ -133,58 +133,21 @@ const ensureData = <T,>(data: T | null, error: { message: string } | null | unde
     return data;
 };
 
-const preflightOAuthUrl = async (url: string): Promise<void> => {
-    const response = await fetch(url, {
-        method: 'GET',
-        redirect: 'manual',
-        headers: {
-            Accept: 'application/json',
-        },
-    });
-
-    if (response.type === 'opaqueredirect') {
-        return;
-    }
-
-    if (response.ok || (response.status >= 300 && response.status < 400)) {
-        return;
-    }
-
-    let message = 'OAuth provider validation failed.';
-
-    try {
-        const payload = await response.json() as { msg?: string; message?: string };
-        message = payload.msg ?? payload.message ?? message;
-    } catch {
-        // Ignore JSON parse failures and fall back to a generic message.
-    }
-
-    throw new Error(message);
-};
-
 export const signInWithGoogle = async (): Promise<void> => {
     const redirectUrl = new URL(window.location.href);
     redirectUrl.search = '';
     redirectUrl.hash = '';
 
-    const { data, error } = await supabase.auth.signInWithOAuth({
+    const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
             redirectTo: redirectUrl.toString(),
-            skipBrowserRedirect: true,
         },
     });
 
     if (error) {
         throw error;
     }
-
-    if (!data?.url) {
-        throw new Error('Google OAuth URL could not be created.');
-    }
-
-    await preflightOAuthUrl(data.url);
-    window.location.assign(data.url);
 };
 
 export const signOut = async (): Promise<void> => {
@@ -289,12 +252,21 @@ export const fetchMyProfile = async (): Promise<ProfileSnapshot | null> => {
 
 export const saveGameState = async (
     state: SavedGameState,
-    achievementPoints = 0
+    achievementPoints?: number | null
 ): Promise<GameStateRow> => {
+    const resolvedHonorPoints =
+        typeof state.honorPoints === 'number'
+            ? state.honorPoints
+            : null;
+    const resolvedAchievementPoints =
+        typeof achievementPoints === 'number'
+            ? achievementPoints
+            : (typeof state.achievementPoints === 'number' ? state.achievementPoints : null);
+
     const { data, error } = await supabase.rpc('sync_game_state', {
         p_state: state,
-        p_honor_points: state.honorPoints ?? 0,
-        p_achievement_points: achievementPoints,
+        p_honor_points: resolvedHonorPoints,
+        p_achievement_points: resolvedAchievementPoints,
     });
 
     return ensureData(data, error) as GameStateRow;
@@ -408,9 +380,19 @@ export const claimAdReward = async (verificationToken: string, adType: '15s' | '
     return ensureData(data, error);
 };
 
-export const claimPendingKois = async (): Promise<PendingKoiClaim[]> => {
-    const { data, error } = await supabase.rpc('claim_pending_kois');
+export const fetchPendingKoiClaims = async (): Promise<PendingKoiClaim[]> => {
+    const { data, error } = await supabase.rpc('list_pending_koi_claims');
     return ensureData(data, error) as PendingKoiClaim[];
+};
+
+export const finalizePendingKoiClaims = async (claimIds: string[]): Promise<number> => {
+    if (!claimIds.length) return 0;
+
+    const { data, error } = await supabase.rpc('finalize_pending_koi_claims', {
+        p_claim_ids: claimIds,
+    });
+
+    return ensureData(data, error) as number;
 };
 
 export const fetchRankings = async (
@@ -538,7 +520,7 @@ export const subscribeToPendingKoiClaims = async (
     onUpdate: (claims: PendingKoiClaim[]) => void
 ): Promise<() => void> => {
     const refresh = async () => {
-        const claims = await claimPendingKois();
+        const claims = await fetchPendingKoiClaims();
         onUpdate(claims);
     };
 

@@ -40,7 +40,7 @@ import { ensureUserProfileNickname, updateUserNickname } from './services/profil
 import { RankingModal } from './components/RankingModal';
 import { useAchievements } from './hooks/useAchievements';
 import { AchievementModal } from './components/AchievementModal';
-import { subscribeToPendingKoiClaims } from './services/supabase';
+import { finalizePendingKoiClaims, subscribeToPendingKoiClaims } from './services/supabase';
 
 interface Animation {
   id: number;
@@ -147,7 +147,7 @@ export const App: React.FC = () => {
   const [isCloudSyncReady, setIsCloudSyncReady] = useState(false);
 
   // Achievement System
-  const [initialAchievementData, setInitialAchievementData] = useState<{ unlockedIds: string[]; claimedIds: string[]; } | null>(null);
+  const [initialAchievementData, setInitialAchievementData] = useState<{ unlockedIds: string[]; claimedIds: string[]; } | null>(() => savedState?.achievements ?? null);
   const {
     achievements,
     unlockedIds,
@@ -218,6 +218,7 @@ export const App: React.FC = () => {
     });
   };
   const isMarketplaceOperationPending = useRef(false);
+  const pendingClaimIdsInFlightRef = useRef<Set<string>>(new Set());
   const feedingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const feedingDelayTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastPointerPosRef = useRef<{ x: number, y: number } | null>(null);
@@ -326,7 +327,6 @@ export const App: React.FC = () => {
     if (!user) {
       setAdPoints(0);
       setUserNickname('');
-      setInitialAchievementData(null);
       lastCloudSavePayloadRef.current = null;
       lastAchievementCheckKeyRef.current = '';
     }
@@ -361,11 +361,16 @@ export const App: React.FC = () => {
       cornCount,
       medicineCount,
       honorPoints,
+      achievementPoints: achievementScore,
+      achievements: {
+        unlockedIds,
+        claimedIds,
+      },
       koiNameCounter,
     };
     pondsRef.current = ponds;
     activePondIdRef.current = activePondId;
-  }, [ponds, activePondId, zenPoints, adPoints, foodCount, cornCount, medicineCount, honorPoints, koiNameCounter]);
+  }, [ponds, activePondId, zenPoints, adPoints, foodCount, cornCount, medicineCount, honorPoints, achievementScore, unlockedIds, claimedIds, koiNameCounter]);
 
   // Session & Cloud Sync Logic (통합 최적화: 모든 사용자 데이터를 병렬로 1회 로드)
   useEffect(() => {
@@ -472,39 +477,110 @@ export const App: React.FC = () => {
     void subscribeToPendingKoiClaims(user.uid, async (claims) => {
       if (!claims.length) return;
 
-      const claimableKois = claims.map((claim) => claim.koi_json as Koi);
-      console.log(`[Claimer] ${claimableKois.length} claimable koi(s) found! Moving to pond...`);
-
       const currentPonds = pondsRef.current;
       const targetPondId = activePondIdRef.current;
       const targetPond = currentPonds[targetPondId];
       if (!targetPond) return;
 
-      const updatedPonds: Ponds = {
-        ...currentPonds,
-        [targetPondId]: {
-          ...targetPond,
-          kois: [...targetPond.kois, ...claimableKois]
+      const inFlightClaimIds = pendingClaimIdsInFlightRef.current;
+      const pendingClaims = claims.filter((claim) => !inFlightClaimIds.has(claim.claim_id));
+      if (!pendingClaims.length) return;
+
+      const ownedKoiIds = new Set<string>();
+      Object.values(currentPonds).forEach((pond) => {
+        pond.kois.forEach((koi) => ownedKoiIds.add(koi.id));
+      });
+
+      const claimIdsToFinalize: string[] = [];
+      const acceptedKois: Koi[] = [];
+      let deferredClaimCount = 0;
+      let remainingCapacity = Math.max(0, 30 - targetPond.kois.length);
+
+      pendingClaims.forEach((claim) => {
+        const koi = claim.koi_json as Koi;
+        if (!koi?.id) {
+          claimIdsToFinalize.push(claim.claim_id);
+          return;
         }
-      };
-      setPonds(updatedPonds);
-      pondsRef.current = updatedPonds;
-      setNotification({ message: `${claimableKois.length}마리의 잉어를 수령했습니다!`, type: 'success' });
+
+        if (ownedKoiIds.has(koi.id)) {
+          claimIdsToFinalize.push(claim.claim_id);
+          return;
+        }
+
+        if (remainingCapacity <= 0) {
+          deferredClaimCount += 1;
+          return;
+        }
+
+        remainingCapacity -= 1;
+        ownedKoiIds.add(koi.id);
+        acceptedKois.push(koi);
+        claimIdsToFinalize.push(claim.claim_id);
+      });
+
+      if (!claimIdsToFinalize.length) {
+        if (deferredClaimCount > 0) {
+          setNotification({
+            message: `연못이 가득 차 ${deferredClaimCount}마리의 잉어가 수령 대기 중입니다.`,
+            type: 'info'
+          });
+        }
+        return;
+      }
+
+      claimIdsToFinalize.forEach((claimId) => inFlightClaimIds.add(claimId));
 
       try {
-        const baseState = gameStateRef.current;
-        if (!baseState) return;
-        const stateToSave: SavedGameState = {
-          ...baseState,
-          ponds: updatedPonds
-        };
-        const payload = JSON.stringify(stateToSave);
-        localStorage.setItem(SAVE_GAME_KEY, payload);
-        lastLocalSavePayloadRef.current = payload;
-        await saveGameToCloud(user.uid, stateToSave);
-        lastCloudSavePayloadRef.current = payload;
+        if (acceptedKois.length > 0) {
+          const baseState = gameStateRef.current;
+          if (!baseState) {
+            throw new Error('Game state is not ready for pending koi sync.');
+          }
+
+          const updatedPonds: Ponds = {
+            ...currentPonds,
+            [targetPondId]: {
+              ...targetPond,
+              kois: [...targetPond.kois, ...acceptedKois]
+            }
+          };
+          const stateToSave: SavedGameState = {
+            ...baseState,
+            ponds: updatedPonds
+          };
+          const payload = JSON.stringify(stateToSave);
+          localStorage.setItem(SAVE_GAME_KEY, payload);
+          lastLocalSavePayloadRef.current = payload;
+          await saveGameToCloud(user.uid, stateToSave);
+          lastCloudSavePayloadRef.current = payload;
+          gameStateRef.current = stateToSave;
+          pondsRef.current = updatedPonds;
+          setPonds(updatedPonds);
+        }
+
+        await finalizePendingKoiClaims(claimIdsToFinalize);
+
+        if (acceptedKois.length > 0) {
+          let message = `${acceptedKois.length}마리의 잉어를 수령했습니다!`;
+          if (deferredClaimCount > 0) {
+            message += ` 연못이 가득 차 ${deferredClaimCount}마리는 대기 중입니다.`;
+          }
+          setNotification({ message, type: deferredClaimCount > 0 ? 'info' : 'success' });
+        } else if (deferredClaimCount > 0) {
+          setNotification({
+            message: `연못이 가득 차 ${deferredClaimCount}마리의 잉어가 수령 대기 중입니다.`,
+            type: 'info'
+          });
+        }
       } catch (error: any) {
         console.error('[Claimer] Failed to sync claimed kois:', error);
+        setNotification({
+          message: '잉어 수령 동기화에 실패했습니다. 잠시 후 다시 시도해주세요.',
+          type: 'error'
+        });
+      } finally {
+        claimIdsToFinalize.forEach((claimId) => inFlightClaimIds.delete(claimId));
       }
     }).then((cleanup) => {
       unsubscribe = cleanup;
@@ -736,6 +812,11 @@ export const App: React.FC = () => {
       cornCount: 0,
       medicineCount: 0,
       honorPoints: 0,
+      achievementPoints: 0,
+      achievements: {
+        unlockedIds: [],
+        claimedIds: [],
+      },
       koiNameCounter: 3,
     };
 
@@ -765,6 +846,7 @@ export const App: React.FC = () => {
   const handleLogoutCleanup = () => {
     setZenPoints(2000);
     setAdPoints(400);
+    setInitialAchievementData(null);
     resetPonds();
   };
 
@@ -777,6 +859,9 @@ export const App: React.FC = () => {
     setMedicineCount(loadedState.medicineCount || 0);
     setHonorPoints(loadedState.honorPoints || 0);
     setKoiNameCounter(loadedState.koiNameCounter);
+    if (loadedState.achievements) {
+      setInitialAchievementData(loadedState.achievements);
+    }
     setNotification({ message: "게임을 불러왔습니다.", type: 'success' });
   };
 

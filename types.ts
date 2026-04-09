@@ -164,6 +164,11 @@ export interface SavedGameState {
   cornCount?: number; // Premium food
   medicineCount?: number; // New item
   honorPoints?: number; // Honor Trophies
+  achievementPoints?: number; // Achievement score for rankings
+  achievements?: {
+    unlockedIds: string[];
+    claimedIds: string[];
+  };
   koiNameCounter: number;
   timestamp?: number; // Added for display
 }

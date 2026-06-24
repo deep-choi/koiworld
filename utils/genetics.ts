@@ -110,8 +110,8 @@ export const calculateKoiValue = (koi: Koi): number => {
 
     const phenotype = getPhenotype(genetics.baseColorGenes);
 
-    // 1. Base value (Reduced from 100 to 50)
-    value += 50;
+    // 1. Base value
+    value += 120;
 
     // 2. Value from Phenotype Rarity (Multiplier reduced 50 -> 15)
     value += (GENE_RARITY[phenotype] || 1) * 15;
@@ -150,10 +150,12 @@ export const calculateKoiValue = (koi: Koi): number => {
     const spotColorValue = genetics.spots.reduce((sum, spot) => sum + (GENE_RARITY[spot.color] || 1), 0);
     value += spotTierBonus + (spotColorValue * 2);
 
-    // 7. Value from Spot Phenotype (Saturation Extremes)
-    const spotPheno = calculateSpotPhenotype(genetics.spotPhenotypeGenes, koi);
-    const spotSatDiff = Math.abs(spotPheno.colorSaturation - 50);
-    value += spotSatDiff * 6; // 채도만 반영 (이전: *3 -> *6 User Request)
+    // 7. Value from intrinsic spot saturation extremes.
+    // calculateSpotPhenotype returns 0-1, so convert to 0-100 before scoring.
+    const spotPheno = calculateSpotPhenotype(genetics.spotPhenotypeGenes);
+    const spotSaturationPercent = spotPheno.colorSaturation * 100;
+    const spotSatDiff = Math.abs(spotSaturationPercent - 50);
+    value += spotSatDiff * 6;
 
     // 8. Multiplier for growth stage (Halved AGAIN per user request)
     // 8. Multiplier for growth stage
@@ -180,7 +182,7 @@ export const calculateKoiValue = (koi: Koi): number => {
     return Math.floor(value);
 };
 
-const SPOT_COLOR_MUTATION_CHANCE = 0.01;
+const SPOT_COLOR_MUTATION_CHANCE = 0.04;
 const SIZE_MUTATION_AMOUNT = 5; // Variation in spot size during breeding (Not related to koi size)
 const LIGHTNESS_MUTATION_CHANCE = 0.2;
 const LIGHTNESS_MUTATION_AMOUNT = 5;
@@ -305,9 +307,7 @@ export const breedKoi = (genetics1: KoiGenetics, genetics2: KoiGenetics): { gene
 
     const n = baseCount;
 
-    // User Request (Final):
-    // 1. Decrease chance ~30% (deleteWeight = 0.5)
-    // 2. Increase chance halves every tier starting from 4 spots (Tier 1)
+    // Keep early spot growth brisk, then taper without turning high-spot breeding into a wall.
 
     // Tier calculation: n / 4
     // 0-3 (T0) -> Base Chance
@@ -315,15 +315,9 @@ export const breedKoi = (genetics1: KoiGenetics, genetics2: KoiGenetics): { gene
     // 8-11 (T2) -> 25% chance
     const tier = Math.floor(n / 4);
 
-    // 추가 확률: 기본 15%, 1티어(4개)부터 절반으로 감소 시작
-    // tier 0 -> 1.0
-    // tier 1 -> 0.5^1 = 0.5
-    // tier 2 -> 0.5^2 = 0.25
-    const difficultyMultiplier = tier < 1 ? 1.0 : Math.pow(0.5, tier);
-    const addWeight = 0.15 * difficultyMultiplier;
-
-    // 삭제 확률: 30% 목표 (상대적 가중치 설정)
-    const deleteWeight = 0.5;
+    const isEarlySpotCount = tier < 1;
+    const addWeight = isEarlySpotCount ? 0.4 : Math.max(0.05, 0.3 * Math.pow(0.5, tier));
+    const deleteWeight = isEarlySpotCount ? 0.2 : 0.4;
 
     // 유지 확률: 기본값
     const keepWeight = 1.0;

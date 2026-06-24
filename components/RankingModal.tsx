@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { X, Trophy, Medal, RotateCw, AlertCircle, Award } from 'lucide-react';
+import { X, Trophy, Medal, RotateCw, AlertCircle, Award, User } from 'lucide-react';
 import { getRankings } from '../services/cloudData';
 import { CloudUserDocument } from '../types/online';
 
@@ -14,6 +14,17 @@ interface RankingModalProps {
 }
 
 type RankingTab = 'trophy' | 'achievement';
+
+const getProfileImageUrl = (photoURL?: string | null) => {
+    const trimmed = photoURL?.trim();
+    if (!trimmed) return null;
+    return trimmed.replace(/^http:\/\//i, 'https://');
+};
+
+const getInitial = (nickname?: string | null) => {
+    const trimmed = nickname?.trim();
+    return trimmed ? trimmed.slice(0, 1).toUpperCase() : null;
+};
 
 export const RankingModal: React.FC<RankingModalProps> = ({ isOpen, onClose, userNickname, myHonorPoints, isLoggedIn, currUserId, myAchievementPoints = 0 }) => {
     const [activeTab, setActiveTab] = useState<RankingTab>('trophy');
@@ -121,7 +132,7 @@ export const RankingModal: React.FC<RankingModalProps> = ({ isOpen, onClose, use
                                 <p className="text-red-400 font-bold">오류 발생</p>
                                 <p className="text-gray-500 text-xs mt-1 leading-relaxed">
                                     {error.includes('index') ?
-                                        '랭킹 쿼리 구성이 잘못되었습니다. Supabase SQL과 정렬 필드를 확인해주세요.' :
+                                        '랭킹 쿼리 구성이 잘못되었습니다. Firestore 인덱스를 확인해주세요.' :
                                         '서버와의 통신이 원활하지 않습니다. 잠시 후 다시 시도해주세요.'}
                                 </p>
                             </div>
@@ -144,10 +155,13 @@ export const RankingModal: React.FC<RankingModalProps> = ({ isOpen, onClose, use
                                 const displayValue = activeTab === 'trophy'
                                     ? (user.gameData?.honorPoints || 0)
                                     : (user.gameData?.achievementPoints || 0);
+                                const nickname = user.profile?.nickname || `게스트_${user.uid?.slice(0, 5) || '???'}`;
+                                const photoURL = getProfileImageUrl(user.profile?.photoURL);
+                                const initial = getInitial(nickname);
 
                                 return (
                                     <div
-                                        key={index}
+                                        key={user.uid || index}
                                         className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${isCurrentUser
                                             ? activeTab === 'trophy' ? 'ring-2 ring-yellow-400 bg-yellow-400/20' : 'ring-2 ring-purple-400 bg-purple-400/20'
                                             : rank === 1 ? 'bg-yellow-400/10 border-yellow-400/30' :
@@ -163,9 +177,27 @@ export const RankingModal: React.FC<RankingModalProps> = ({ isOpen, onClose, use
                                                         <span className="text-gray-500 font-bold">{rank}</span>}
                                         </div>
 
+                                        <div className={`w-9 h-9 rounded-full overflow-hidden shrink-0 border bg-gray-900 flex items-center justify-center ${isCurrentUser
+                                            ? activeTab === 'trophy' ? 'border-yellow-300/70' : 'border-purple-300/70'
+                                            : 'border-white/10'
+                                            }`}>
+                                            {photoURL ? (
+                                                <img
+                                                    src={photoURL}
+                                                    alt={`${nickname} 프로필`}
+                                                    className="w-full h-full object-cover"
+                                                    referrerPolicy="no-referrer"
+                                                />
+                                            ) : initial ? (
+                                                <span className="text-xs font-black text-gray-200">{initial}</span>
+                                            ) : (
+                                                <User size={17} className="text-gray-500" />
+                                            )}
+                                        </div>
+
                                         <div className="flex-1 min-w-0">
                                             <div className={`text-sm font-bold truncate ${isCurrentUser ? 'text-white' : 'text-gray-200'}`}>
-                                                {user.profile?.nickname || `게스트_${user.uid?.slice(0, 5) || '???'}`}
+                                                {nickname}
                                                 {isCurrentUser && <span className={`ml-2 text-[10px] px-1.5 py-0.5 rounded uppercase ${activeTab === 'trophy' ? 'bg-yellow-600' : 'bg-purple-600'}`}>Me</span>}
                                             </div>
                                         </div>

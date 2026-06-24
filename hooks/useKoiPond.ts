@@ -4,8 +4,8 @@ import { Koi, GeneType, Ponds, GrowthStage, Decoration, DecorationType, PondThem
 import { audioManager } from '../utils/audio';
 import { createFixedSpotPhenotypeGenes } from '../utils/genetics';
 
-const POINTS_TO_JUVENILE = 20;
-const POINTS_TO_ADULT = 20;
+const POINTS_TO_JUVENILE = 15;
+const POINTS_TO_ADULT = 15;
 const EATING_DISTANCE = 2;
 const FEED_COOLDOWN_MS = 3000;
 

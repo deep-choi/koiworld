@@ -45,14 +45,17 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onGuestPl
             resumeLocalGameSave();
             setIsSubmitting(false);
             const message = error instanceof Error ? error.message : '';
+            const code = typeof error === 'object' && error && 'code' in error
+                ? String((error as { code?: string }).code)
+                : '';
 
-            if (message.includes('provider is not enabled')) {
-                alert("구글 로그인이 아직 Supabase 대시보드에서 활성화되지 않았습니다. Authentication > Providers > Google에서 먼저 켜주세요.");
+            if (code === 'auth/operation-not-allowed') {
+                alert("Firebase Authentication에서 Google 로그인을 먼저 활성화해주세요.");
                 return;
             }
 
-            if (message.includes('redirect') || message.includes('callback')) {
-                alert("구글 로그인 리디렉트 설정이 맞지 않습니다. Supabase Redirect URL과 Google OAuth callback 설정을 확인해주세요.");
+            if (code === 'auth/unauthorized-domain' || message.includes('unauthorized-domain')) {
+                alert("Firebase Authentication Authorized domains에 현재 도메인을 추가해야 합니다.");
                 return;
             }
 
@@ -63,7 +66,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onGuestPl
     return (
         <div className="auth-modal-overlay">
             <div className="auth-modal-content">
-                <h1 className="auth-title">Koi Garden</h1>
+                <h1 className="auth-title">Koiworld</h1>
                 <div className="auth-modal-body">
                     <p className="auth-description">
                         아름다운 잉어들과 함께하는 힐링의 시간<br />

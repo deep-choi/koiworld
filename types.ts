@@ -159,42 +159,17 @@ export interface SavedGameState {
   ponds: Ponds;
   activePondId: string;
   zenPoints: number;
-  adPoints?: number; // Ad Points
   foodCount: number;
   cornCount?: number; // Premium food
   medicineCount?: number; // New item
   honorPoints?: number; // Honor Trophies
+  achievementPoints?: number; // Achievement score for rankings
+  achievements?: {
+    unlockedIds: string[];
+    claimedIds: string[];
+  };
   koiNameCounter: number;
   timestamp?: number; // Added for display
 }
 
 export type Ponds = Record<string, PondData>;
-
-// ============================================
-// Marketplace Types
-// ============================================
-
-export interface MarketplaceListing {
-  id: string; // Document ID
-  sellerId: string;
-  sellerNickname: string; // For display
-  koiData: Koi; // Full koi data
-  startPrice: number; // 시작가 (AP)
-  buyNowPrice?: number; // 즉시 구매가 (AP) - 없으면 즉시 구매 불가
-  currentBid: number; // 현재 최고 입찰가 (AP)
-  currentBidderId?: string | null; // 현재 최고 입찰자
-  currentBidderNickname?: string | null; // 현재 최고 입찰자 닉네임
-  bidCount?: number; // 총 입찰 수
-  createdAt: number; // Timestamp
-  expiresAt: number; // Timestamp
-  status: 'active' | 'sold' | 'expired' | 'cancelled';
-}
-
-export interface MarketplaceBid {
-  id: string;
-  listingId: string;
-  bidderId: string;
-  bidderNickname: string;
-  amount: number;
-  timestamp: number;
-}

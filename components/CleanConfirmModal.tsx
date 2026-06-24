@@ -5,11 +5,11 @@ interface CleanConfirmModalProps {
     onClose: () => void;
     onConfirm: () => void;
     cost: number;
-    adPoints: number;
+    zenPoints: number;
 }
 
-export const CleanConfirmModal: React.FC<CleanConfirmModalProps> = ({ onClose, onConfirm, cost, adPoints }) => {
-    const canAfford = adPoints >= cost;
+export const CleanConfirmModal: React.FC<CleanConfirmModalProps> = ({ onClose, onConfirm, cost, zenPoints }) => {
+    const canAfford = zenPoints >= cost;
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
@@ -37,18 +37,18 @@ export const CleanConfirmModal: React.FC<CleanConfirmModalProps> = ({ onClose, o
 
                     <div className="bg-gray-800/50 rounded-lg p-3 w-full border border-gray-700 mt-2">
                         <div className="flex justify-between items-center text-sm">
-                            <span className="text-gray-400">보유 포인트</span>
-                            <span className="font-bold text-yellow-400">{adPoints.toLocaleString()} AP</span>
+                            <span className="text-gray-400">보유 ZP</span>
+                            <span className="font-bold text-yellow-400">{zenPoints.toLocaleString()} ZP</span>
                         </div>
                         <div className="flex justify-between items-center text-sm mt-1">
-                            <span className="text-gray-400">필요 포인트</span>
-                            <span className="font-bold text-red-400">-{cost.toLocaleString()} AP</span>
+                            <span className="text-gray-400">필요 ZP</span>
+                            <span className="font-bold text-red-400">-{cost.toLocaleString()} ZP</span>
                         </div>
                         <div className="h-px bg-gray-700 my-2" />
                         <div className="flex justify-between items-center text-sm font-bold">
                             <span className="text-gray-300">청소 후 잔액</span>
                             <span className={`${canAfford ? 'text-green-400' : 'text-red-500'}`}>
-                                {(adPoints - cost).toLocaleString()} AP
+                                {(zenPoints - cost).toLocaleString()} ZP
                             </span>
                         </div>
                     </div>
@@ -73,7 +73,7 @@ export const CleanConfirmModal: React.FC<CleanConfirmModalProps> = ({ onClose, o
                         </button>
                     </div>
                     {!canAfford && (
-                        <p className="text-xs text-red-400 font-bold">포인트가 부족합니다.</p>
+                        <p className="text-xs text-red-400 font-bold">젠 포인트가 부족합니다.</p>
                     )}
                 </div>
             </div>

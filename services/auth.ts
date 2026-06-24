@@ -1,50 +1,44 @@
-import type { User as SupabaseUser } from '@supabase/supabase-js';
 import {
-    getCurrentSession,
-    signInWithGoogle as signInWithSupabaseGoogle,
-    signOut as signOutFromSupabase,
-    subscribeToAuthChanges as subscribeToSupabaseAuthChanges,
-} from './supabase';
+    User as FirebaseUser,
+    getRedirectResult,
+    onAuthStateChanged,
+    signInWithPopup,
+    signInWithRedirect,
+    signOut as signOutFromFirebase,
+} from 'firebase/auth';
+import { auth, googleProvider } from './firebase';
 
 export interface AppUser {
     uid: string;
     email: string | null;
     displayName: string | null;
     photoURL: string | null;
-    rawUser: SupabaseUser;
+    rawUser: FirebaseUser;
 }
 
-const toAppUser = (user: SupabaseUser | null): AppUser | null => {
+const toAppUser = (user: FirebaseUser | null): AppUser | null => {
     if (!user) {
         return null;
     }
 
-    const metadata = user.user_metadata ?? {};
     const displayName =
-        (typeof metadata.full_name === 'string' && metadata.full_name.trim()) ||
-        (typeof metadata.name === 'string' && metadata.name.trim()) ||
+        user.displayName?.trim() ||
         (typeof user.email === 'string' ? user.email.split('@')[0] : null) ||
         null;
 
-    const photoURL =
-        (typeof metadata.avatar_url === 'string' && metadata.avatar_url) ||
-        (typeof metadata.picture === 'string' && metadata.picture) ||
-        null;
-
     return {
-        uid: user.id,
+        uid: user.uid,
         email: user.email ?? null,
         displayName,
-        photoURL,
+        photoURL: user.photoURL ?? null,
         rawUser: user,
     };
 };
 
-// Supabase OAuth는 리다이렉트 후 세션에 복구되므로 현재 세션을 그대로 읽습니다.
 export const checkRedirectResult = async (): Promise<AppUser | null> => {
     try {
-        const session = await getCurrentSession();
-        return toAppUser(session?.user ?? null);
+        const result = await getRedirectResult(auth);
+        return toAppUser(result?.user ?? auth.currentUser);
     } catch (error) {
         console.error("Auth Redirect Error:", error);
         throw error;
@@ -53,16 +47,30 @@ export const checkRedirectResult = async (): Promise<AppUser | null> => {
 
 export const loginWithGoogle = async (): Promise<void> => {
     try {
-        await signInWithSupabaseGoogle();
+        await signInWithPopup(auth, googleProvider);
     } catch (error) {
         console.error("Google Login Error:", error);
+        const code = typeof error === 'object' && error && 'code' in error
+            ? String((error as { code?: string }).code)
+            : '';
+
+        if (
+            code === 'auth/popup-blocked' ||
+            code === 'auth/cancelled-popup-request' ||
+            code === 'auth/operation-not-supported-in-this-environment' ||
+            code === 'auth/web-storage-unsupported'
+        ) {
+            await signInWithRedirect(auth, googleProvider);
+            return;
+        }
+
         throw error;
     }
 };
 
 export const logout = async (): Promise<void> => {
     try {
-        await signOutFromSupabase();
+        await signOutFromFirebase(auth);
     } catch (error) {
         console.error("Logout Error:", error);
         throw error;
@@ -70,7 +78,5 @@ export const logout = async (): Promise<void> => {
 };
 
 export const subscribeToAuthChanges = (callback: (user: AppUser | null) => void) => {
-    return subscribeToSupabaseAuthChanges((_event, session) => {
-        callback(toAppUser(session?.user ?? null));
-    });
+    return onAuthStateChanged(auth, (user) => callback(toAppUser(user)));
 };

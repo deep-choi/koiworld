@@ -1,0 +1,44 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    function validRanking(userId) {
+      return request.resource.data.keys().hasOnly([
+          'uid',
+          'nickname',
+          'photoURL',
+          'honorPoints',
+          'achievementPoints',
+          'updatedAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'uid',
+          'honorPoints',
+          'achievementPoints'
+        ])
+        && request.resource.data.uid == userId
+        && request.resource.data.honorPoints is number
+        && request.resource.data.achievementPoints is number
+        && (!('nickname' in request.resource.data) || request.resource.data.nickname is string)
+        && (!('photoURL' in request.resource.data) || request.resource.data.photoURL == null || request.resource.data.photoURL is string);
+    }
+
+    match /users/{userId} {
+      allow read, create, update, delete: if isOwner(userId);
+    }
+
+    match /rankings/{userId} {
+      allow read: if true;
+      allow create, update: if isOwner(userId) && validRanking(userId);
+      allow delete: if isOwner(userId);
+    }
+  }
+}

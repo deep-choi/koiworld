@@ -1,4 +1,4 @@
-const CACHE_NAME = 'koi-garden-v2';
+const CACHE_NAME = 'koiworld-v1';
 const ASSETS_TO_CACHE = [
     '/',
     '/index.html',

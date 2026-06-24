@@ -141,7 +141,7 @@ export const AccountModal: React.FC<AccountModalProps> = ({
                             </button>
                         </div>
                         {error && <p className="text-red-400 text-xs mt-1">{error}</p>}
-                        <p className="text-[10px] text-gray-600">장터 및 랭킹 시스템에 표시되는 이름입니다.</p>
+                        <p className="text-[10px] text-gray-600">랭킹 시스템에 표시되는 이름입니다.</p>
                     </div>
 
                     {/* Footer Actions */}

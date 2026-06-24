@@ -22,25 +22,15 @@ import { SpotGeneticsDebugPanel } from './components/debug/SpotGeneticsDebugPane
 // --- New Feature Imports ---
 import { useAuth } from './contexts/AuthContext';
 import { AuthModal } from './components/AuthModal';
-import { startSession, listenToActiveDevice } from './services/session';
-import { saveGameToCloud, loadUserDataOnce } from './services/sync';
+import { startSession } from './services/session';
+import { saveGameToCloud, loadUserDataOnce, listenToGameData } from './services/sync';
 import { SessionConflictModal } from './components/SessionConflictModal';
-import { APDisplay } from './components/APDisplay';
-import { AdRewardModal } from './components/AdRewardModal';
-import { AdType, getAdReward, initializeAds, showRewardAd } from './services/ads';
-import { listenToAPBalance, setAPBalance } from './services/points';
-import { MarketplaceModal } from './components/MarketplaceModal';
-import { CreateListingModal } from './components/CreateListingModal';
-import { ListingDetailModal } from './components/ListingDetailModal';
-import { createListing, createListingAtomic, fetchUserActiveListings } from './services/marketplace';
 import { MedicineConfirmModal } from './components/MedicineConfirmModal';
-import { MarketplaceListing } from './types';
 import { FORCE_CLEAR_KEY, SAVE_GAME_KEY, clearLocalGameSaves, suppressLocalGameSave } from './services/localSave';
 import { ensureUserProfileNickname, updateUserNickname } from './services/profile';
 import { RankingModal } from './components/RankingModal';
 import { useAchievements } from './hooks/useAchievements';
 import { AchievementModal } from './components/AchievementModal';
-import { subscribeToPendingKoiClaims } from './services/supabase';
 
 interface Animation {
   id: number;
@@ -55,7 +45,7 @@ const FOOD_PACK_AMOUNT = 50;
 const CORN_PACK_PRICE = 500; // Premium food
 const CORN_PACK_AMOUNT = 20; // Fewer quantity but 3x effect
 const MEDICINE_PRICE = 3000;
-const CLEANING_COST = 100;
+const CLEANING_COST = 500;
 const FOOD_LARGE_PACK_PRICE = 1000;
 const FOOD_LARGE_PACK_AMOUNT = 250;
 const CORN_LARGE_PACK_PRICE = 2500;
@@ -129,25 +119,13 @@ export const App: React.FC = () => {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const { user, loading: authLoading, logout: logoutFromContext } = useAuth();
 
-  // AP (Ad Points) State
-  const [adPoints, setAdPoints] = useState(savedState?.adPoints ?? 400);
-  const [isAdModalOpen, setIsAdModalOpen] = useState(false);
-  const [isWatchingAd, setIsWatchingAd] = useState(false);
-  const [adWatchProgress, setAdWatchProgress] = useState(0);
-
-  // Marketplace State
-  const [isMarketplaceOpen, setIsMarketplaceOpen] = useState(false);
-  const [isCreateListingOpen, setIsCreateListingOpen] = useState(false);
-  const [selectedListing, setSelectedListing] = useState<MarketplaceListing | null>(null);
-  const [marketplaceRefreshKey, setMarketplaceRefreshKey] = useState(0);
-
   // Session & Sync State
   const [isConflictOpen, setIsConflictOpen] = useState(false);
   const [userNickname, setUserNickname] = useState<string>('');
   const [isCloudSyncReady, setIsCloudSyncReady] = useState(false);
 
   // Achievement System
-  const [initialAchievementData, setInitialAchievementData] = useState<{ unlockedIds: string[]; claimedIds: string[]; } | null>(null);
+  const [initialAchievementData, setInitialAchievementData] = useState<{ unlockedIds: string[]; claimedIds: string[]; } | null>(() => savedState?.achievements ?? null);
   const {
     achievements,
     unlockedIds,
@@ -217,7 +195,6 @@ export const App: React.FC = () => {
       audioManager.playSFX('coin');
     });
   };
-  const isMarketplaceOperationPending = useRef(false);
   const feedingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const feedingDelayTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastPointerPosRef = useRef<{ x: number, y: number } | null>(null);
@@ -239,8 +216,6 @@ export const App: React.FC = () => {
 
   // Latest state refs for interval access
   const latestFoodCountsRef = useRef({ food: foodCount, corn: cornCount, type: selectedFoodType });
-  const pondsRef = useRef(ponds);
-  const activePondIdRef = useRef(activePondId);
   const lastLocalSavePayloadRef = useRef<string | null>(null);
   const lastCloudSavePayloadRef = useRef<string | null>(null);
 
@@ -296,10 +271,6 @@ export const App: React.FC = () => {
   // --- Effects for New Features ---
 
   // Initialize web ads
-  useEffect(() => {
-    initializeAds();
-  }, []);
-
   // Auth check
   useEffect(() => {
     if (!authLoading && !user) {
@@ -320,13 +291,10 @@ export const App: React.FC = () => {
     return () => window.removeEventListener('storage', handleStorage);
   }, []);
 
-  // AP balance와 Nickname은 initSession에서 통합 로드됨
-  // 로그아웃 시 초기화만 처리
+  // 로그아웃 시 사용자별 상태만 초기화
   useEffect(() => {
     if (!user) {
-      setAdPoints(0);
       setUserNickname('');
-      setInitialAchievementData(null);
       lastCloudSavePayloadRef.current = null;
       lastAchievementCheckKeyRef.current = '';
     }
@@ -356,21 +324,21 @@ export const App: React.FC = () => {
       ponds,
       activePondId,
       zenPoints,
-      adPoints,
       foodCount,
       cornCount,
       medicineCount,
       honorPoints,
+      achievementPoints: achievementScore,
+      achievements: {
+        unlockedIds,
+        claimedIds,
+      },
       koiNameCounter,
     };
-    pondsRef.current = ponds;
-    activePondIdRef.current = activePondId;
-  }, [ponds, activePondId, zenPoints, adPoints, foodCount, cornCount, medicineCount, honorPoints, koiNameCounter]);
+  }, [ponds, activePondId, zenPoints, foodCount, cornCount, medicineCount, honorPoints, achievementScore, unlockedIds, claimedIds, koiNameCounter]);
 
   // Session & Cloud Sync Logic (통합 최적화: 모든 사용자 데이터를 병렬로 1회 로드)
   useEffect(() => {
-    let unsubscribeSession: (() => void) | undefined;
-    let unsubscribeAP: (() => void) | undefined;
     let cancelled = false;
 
     const initSession = async () => {
@@ -385,14 +353,13 @@ export const App: React.FC = () => {
         const [, userData, verifiedNickname] = await Promise.all([
           startSession(user.uid),
           loadUserDataOnce(user.uid),
-          ensureUserProfileNickname(user.uid, user.displayName, user.email)
+          ensureUserProfileNickname(user.uid, user.displayName, user.email, user.photoURL)
         ]);
         if (cancelled) return;
 
         // 통합 데이터에서 한번에 설정
         if (userData) {
-          if (userData.gameData) handleLoadGame(userData.gameData);
-          setAdPoints(userData.ap);
+          if (userData.gameData) handleLoadGame(userData.gameData, { markAsSynced: true });
           if (userData.achievements) {
             setInitialAchievementData(userData.achievements);
           }
@@ -400,12 +367,6 @@ export const App: React.FC = () => {
 
         // 서버에 저장된 닉네임으로 로컬 상태 업데이트
         setUserNickname(verifiedNickname);
-
-        // 실시간 구독 설정 (이후 변경사항 감지용)
-        unsubscribeSession = listenToActiveDevice(user.uid, () => {
-          setIsConflictOpen(true);
-        });
-        unsubscribeAP = listenToAPBalance(user.uid, setAdPoints);
 
         cloudReady = true;
       } catch (error) {
@@ -418,8 +379,6 @@ export const App: React.FC = () => {
     initSession();
     return () => {
       cancelled = true;
-      if (unsubscribeSession) unsubscribeSession();
-      if (unsubscribeAP) unsubscribeAP();
     };
   }, [user]);
 
@@ -443,16 +402,16 @@ export const App: React.FC = () => {
 
       // Cloud save only when payload changes.
       if (!user || !isCloudSyncReady) return;
-      if (isMarketplaceOperationPending.current) {
-        console.log('[Marketplace] Periodic cloud save skipped due to pending operation.');
-        return;
-      }
       if (payload === lastCloudSavePayloadRef.current) return;
 
+      const previousCloudPayload = lastCloudSavePayloadRef.current;
+      lastCloudSavePayloadRef.current = payload;
       try {
         await saveGameToCloud(user.uid, currentState);
-        lastCloudSavePayloadRef.current = payload;
       } catch (error: any) {
+        if (lastCloudSavePayloadRef.current === payload) {
+          lastCloudSavePayloadRef.current = previousCloudPayload;
+        }
         if (error.code !== 'unavailable') {
           console.error("Cloud save failed:", error);
         }
@@ -462,102 +421,6 @@ export const App: React.FC = () => {
     return () => clearInterval(saveInterval);
   }, [user, isCloudSyncReady]);
 
-  // --- Koi Claimer Effect ---
-  // 구매하거나 취소되어 pending_koi_claims에 쌓인 잉어를 안전하게 연못으로 수령합니다.
-  useEffect(() => {
-    if (!user || !isCloudSyncReady) return;
-
-    let unsubscribe = () => {};
-
-    void subscribeToPendingKoiClaims(user.uid, async (claims) => {
-      if (!claims.length) return;
-
-      const claimableKois = claims.map((claim) => claim.koi_json as Koi);
-      console.log(`[Claimer] ${claimableKois.length} claimable koi(s) found! Moving to pond...`);
-
-      const currentPonds = pondsRef.current;
-      const targetPondId = activePondIdRef.current;
-      const targetPond = currentPonds[targetPondId];
-      if (!targetPond) return;
-
-      const updatedPonds: Ponds = {
-        ...currentPonds,
-        [targetPondId]: {
-          ...targetPond,
-          kois: [...targetPond.kois, ...claimableKois]
-        }
-      };
-      setPonds(updatedPonds);
-      pondsRef.current = updatedPonds;
-      setNotification({ message: `${claimableKois.length}마리의 잉어를 수령했습니다!`, type: 'success' });
-
-      try {
-        const baseState = gameStateRef.current;
-        if (!baseState) return;
-        const stateToSave: SavedGameState = {
-          ...baseState,
-          ponds: updatedPonds
-        };
-        const payload = JSON.stringify(stateToSave);
-        localStorage.setItem(SAVE_GAME_KEY, payload);
-        lastLocalSavePayloadRef.current = payload;
-        await saveGameToCloud(user.uid, stateToSave);
-        lastCloudSavePayloadRef.current = payload;
-      } catch (error: any) {
-        console.error('[Claimer] Failed to sync claimed kois:', error);
-      }
-    }).then((cleanup) => {
-      unsubscribe = cleanup;
-    }).catch((error) => {
-      console.error('[Claimer] Failed to subscribe to pending koi claims:', error);
-    });
-
-    return () => unsubscribe();
-  }, [user, isCloudSyncReady]);
-
-  // --- Shadow Koi Cleanup ---
-  // 등록 중 오류가 발생하여 등록은 되었으나 연못에서 안 사라진 경우를 대비한 2차 보정
-  useEffect(() => {
-    if (!user || !isCloudSyncReady || isMarketplaceOperationPending.current) return;
-
-    const unsubscribe = fetchUserActiveListings(user.uid, (listings) => {
-      const activeListingKoiIds = new Set(listings.map(l => l.koiData.id));
-      const currentPonds = pondsRef.current;
-
-      let hasShadowKoi = false;
-      Object.values(currentPonds).forEach(pond => {
-        if (pond.kois.some(koi => activeListingKoiIds.has(koi.id))) {
-          hasShadowKoi = true;
-        }
-      });
-
-      if (hasShadowKoi) {
-        console.log('[Marketplace] Shadow koi detected. Cleaning up pond automatically...');
-        setPonds(prev => {
-          const next = { ...prev };
-          Object.keys(next).forEach(pondId => {
-            const pond = next[pondId];
-            const filteredKois = pond.kois.filter(koi => !activeListingKoiIds.has(koi.id));
-            if (pond.kois.length !== filteredKois.length) {
-              next[pondId] = { ...pond, kois: filteredKois };
-            }
-          });
-
-          // 보정된 상태를 ref에 즉시 반영
-          gameStateRef.current = {
-            ...gameStateRef.current!,
-            ponds: next
-          };
-          pondsRef.current = next;
-
-          return next;
-        });
-      }
-    });
-
-    return () => unsubscribe();
-  }, [user, isCloudSyncReady]);
-
   const handleSaveNickname = useCallback(async (nickname: string) => {
     if (!user) return;
     const trimmed = nickname.trim();
@@ -565,119 +428,6 @@ export const App: React.FC = () => {
     setUserNickname(trimmed);
     setNotification({ message: '닉네임이 저장되었습니다.', type: 'success' });
   }, [user]);
-
-  // Ad watching handler - 임시 시스템: 15초 후 200 AP 지급 (에드센스 승인 전)
-  const handleWatchAd = async (_adType: AdType) => {
-    setIsWatchingAd(true);
-
-    try {
-      // 15초 대기 (mock 광고 시청 시뮬레이션)
-      const success = await showRewardAd();
-
-      setIsWatchingAd(false);
-
-      if (success) {
-        const rewardAmount = 200; // 고정 200 AP
-        const nextAP = adPoints + rewardAmount;
-
-        // 로컬 상태 즉시 업데이트 (로그인 여부와 관계없이)
-        setAdPoints(nextAP);
-        setNotification({ message: `+${rewardAmount} AP 획득!`, type: 'success' });
-        setIsAdModalOpen(false);
-
-        // 로그인 상태면 Supabase 프로필에도 즉시 저장 (백그라운드에서)
-        if (user) {
-          try {
-            await setAPBalance(user.uid, nextAP);
-          } catch (e) {
-            console.error('Failed to sync AP to cloud:', e);
-            // 실패해도 로컬 상태는 이미 업데이트됨
-          }
-        }
-      } else {
-        setNotification({ message: '광고 시청이 완료되지 않았습니다.', type: 'error' });
-      }
-    } catch (error) {
-      console.error('Ad watch failed:', error);
-      setIsWatchingAd(false);
-      setNotification({ message: '광고 로드 실패', type: 'error' });
-    }
-  };
-
-
-  // Marketplace Handlers
-
-  const handleListingCreated = async (koiId: string, listingFee: number) => {
-    console.log('[Marketplace] Listing created atomically. Updating local state and pausing sync...');
-    isMarketplaceOperationPending.current = true; // 자동 저장 일시 중지
-
-    // 등록 비용 차감 (로컬 + 서버 동기화)
-    const nextAP = Math.max(0, adPoints - listingFee);
-    setAdPoints(nextAP);
-
-    // 서버에도 즉시 동기화 (리스너가 덮어쓰지 않도록)
-    if (user) {
-      try {
-        await setAPBalance(user.uid, nextAP);
-      } catch (e) {
-        console.error('Failed to sync AP deduction to cloud:', e);
-      }
-    }
-
-    setPonds(prev => {
-      const next = { ...prev };
-      Object.keys(next).forEach(pondId => {
-        next[pondId] = {
-          ...next[pondId],
-          kois: next[pondId].kois.filter(k => k.id !== koiId)
-        };
-      });
-
-      // 즉시 ref 업데이트하여 다음 주기 저장 방지
-      gameStateRef.current = {
-        ...gameStateRef.current!,
-        ponds: next
-      };
-
-      return next;
-    });
-
-    setMarketplaceRefreshKey(prev => prev + 1);
-    setNotification({ message: `잉어를 장터에 등록했습니다! (등록비 ${listingFee} AP)`, type: 'success' });
-
-    // 3초 후 자동 저장 재개
-    setTimeout(() => {
-      isMarketplaceOperationPending.current = false;
-      console.log('[Marketplace] Resuming periodic saves after listing created.');
-    }, 3000);
-  };
-
-  const handleBuySuccess = async (koi?: Koi) => {
-    console.log('[Marketplace] Buy success. Refreshing marketplace and pausing sync...');
-    isMarketplaceOperationPending.current = true;
-
-    setMarketplaceRefreshKey(prev => prev + 1);
-    setSelectedListing(null);
-    audioManager.playSFX('purchase');
-    setNotification({ message: `입양 절차가 진행 중입니다. 잠시만 기다려주세요.`, type: 'info' });
-
-    setTimeout(() => {
-      isMarketplaceOperationPending.current = false;
-    }, 3000);
-  };
-
-  const handleCancelSuccess = async (koi: Koi) => {
-    console.log('[Marketplace] Cancel success. Refreshing marketplace and pausing sync...');
-    isMarketplaceOperationPending.current = true;
-
-    setMarketplaceRefreshKey(prev => prev + 1);
-    setSelectedListing(null);
-    setNotification({ message: '판매 취소 요청이 완료되었습니다.', type: 'info' });
-
-    setTimeout(() => {
-      isMarketplaceOperationPending.current = false;
-    }, 3000);
-  };
 
   const handleCleanPond = () => {
     const activePond = ponds[activePondId];
@@ -689,28 +439,16 @@ export const App: React.FC = () => {
   };
 
   const confirmCleanPond = async () => {
-    if (adPoints < CLEANING_COST) {
-      setNotification({ message: `AP가 부족합니다! (${CLEANING_COST.toLocaleString()} AP 필요)`, type: 'error' });
+    if (zenPoints < CLEANING_COST) {
+      setNotification({ message: `젠 포인트가 부족합니다! (${CLEANING_COST.toLocaleString()} ZP 필요)`, type: 'error' });
       setIsCleanConfirmOpen(false);
       return;
     }
 
-    // AP 차감 (로컬 + 서버 동기화)
-    const nextAP = adPoints - CLEANING_COST;
-    setAdPoints(nextAP);
-
-    // 서버에도 즉시 동기화 (리스너가 덮어쓰지 않도록)
-    if (user) {
-      try {
-        await setAPBalance(user.uid, nextAP);
-      } catch (e) {
-        console.error('Failed to sync AP deduction to cloud:', e);
-      }
-    }
-
+    setZenPoints(prev => Math.max(0, prev - CLEANING_COST));
     audioManager.playSFX('click');
     cleanPond();
-    setNotification({ message: '연못을 청소했습니다!', type: 'success' });
+    setNotification({ message: `연못을 청소했습니다! (-${CLEANING_COST.toLocaleString()} ZP)`, type: 'success' });
     setIsCleanConfirmOpen(false);
   };
 
@@ -731,23 +469,24 @@ export const App: React.FC = () => {
       ponds: createInitialPonds(),
       activePondId: 'pond-1',
       zenPoints: import.meta.env.DEV ? 10000 : 2000,
-      adPoints: 400,
       foodCount: 20,
       cornCount: 0,
       medicineCount: 0,
       honorPoints: 0,
+      achievementPoints: 0,
+      achievements: {
+        unlockedIds: [],
+        claimedIds: [],
+      },
       koiNameCounter: 3,
     };
 
     if (user) {
-      // 로그인 상태: 클라우드에 즉시 초기화 상태 저장 및 AP 리셋
+      // 로그인 상태: 클라우드에 즉시 초기화 상태 저장
       try {
-        await Promise.all([
-          saveGameToCloud(user.uid, initialState),
-          setAPBalance(user.uid, 400)
-        ]);
+        await saveGameToCloud(user.uid, initialState);
       } catch (error) {
-        console.error("Failed to reset cloud game state or AP:", error);
+        console.error("Failed to reset cloud game state:", error);
         if (!window.confirm("클라우드 초기화에 실패했습니다. 그래도 진행하시겠습니까? (다시 로드될 가능성이 있습니다)")) {
           return false;
         }
@@ -764,11 +503,22 @@ export const App: React.FC = () => {
 
   const handleLogoutCleanup = () => {
     setZenPoints(2000);
-    setAdPoints(400);
+    setInitialAchievementData(null);
     resetPonds();
   };
 
-  const handleLoadGame = (loadedState: SavedGameState) => {
+  const handleLoadGame = (loadedState: SavedGameState, options: { silent?: boolean; markAsSynced?: boolean } = {}) => {
+    if (options.markAsSynced) {
+      const payload = JSON.stringify(loadedState);
+      try {
+        localStorage.setItem(SAVE_GAME_KEY, payload);
+        lastLocalSavePayloadRef.current = payload;
+      } catch (error) {
+        console.error("Failed to persist synced game state locally:", error);
+      }
+      lastCloudSavePayloadRef.current = payload;
+    }
+
     setPonds(loadedState.ponds);
     setActivePondId(loadedState.activePondId);
     setZenPoints(loadedState.zenPoints);
@@ -777,8 +527,31 @@ export const App: React.FC = () => {
     setMedicineCount(loadedState.medicineCount || 0);
     setHonorPoints(loadedState.honorPoints || 0);
     setKoiNameCounter(loadedState.koiNameCounter);
-    setNotification({ message: "게임을 불러왔습니다.", type: 'success' });
+    if (loadedState.achievements) {
+      setInitialAchievementData(loadedState.achievements);
+    }
+    if (!options.silent) {
+      setNotification({ message: "게임을 불러왔습니다.", type: 'success' });
+    }
   };
+
+  useEffect(() => {
+    if (!user || !isCloudSyncReady) return;
+
+    return listenToGameData(user.uid, (cloudState) => {
+      const cloudPayload = JSON.stringify(cloudState);
+      if (cloudPayload === lastCloudSavePayloadRef.current) return;
+
+      const currentState = gameStateRef.current;
+      const currentPayload = currentState ? JSON.stringify(currentState) : null;
+      if (cloudPayload === currentPayload) {
+        lastCloudSavePayloadRef.current = cloudPayload;
+        return;
+      }
+
+      handleLoadGame(cloudState, { silent: true, markAsSynced: true });
+    });
+  }, [user?.uid, isCloudSyncReady]);
 
   const handleUpdateKoi = (koiId: string, updates: { genetics?: Partial<KoiGenetics>; growthStage?: GrowthStage }) => {
     setPonds((prev: Ponds) => {
@@ -1025,15 +798,18 @@ export const App: React.FC = () => {
 
     // 즉시 클라우드 동기화 시도
     if (user && isCloudSyncReady && gameStateRef.current) {
+      const previousCloudPayload = lastCloudSavePayloadRef.current;
       try {
         const immediateState: SavedGameState = {
           ...gameStateRef.current,
           zenPoints: nextZenPoints,
           honorPoints: nextHonorPoints
         };
+        const immediatePayload = JSON.stringify(immediateState);
+        lastCloudSavePayloadRef.current = immediatePayload;
         await saveGameToCloud(user.uid, immediateState);
-        lastCloudSavePayloadRef.current = JSON.stringify(immediateState);
       } catch (e) {
+        lastCloudSavePayloadRef.current = previousCloudPayload;
         console.error("Immediate cloud sync failed:", e);
       }
     }
@@ -1261,12 +1037,6 @@ export const App: React.FC = () => {
           <p className="text-lg font-bold text-yellow-300">{zenPoints.toLocaleString()} ZP</p>
         </div>
 
-        {/* Ad Point Display */}
-        <APDisplay
-          ap={adPoints}
-          onAdClick={() => setIsAdModalOpen(true)}
-        />
-
         {/* Water Quality Indicator - Interactive */}
         <div className="bg-gray-900/60 backdrop-blur-sm p-3 rounded-lg border border-gray-700/50 flex items-center gap-2 min-w-[140px]">
           <div className="flex flex-col items-start leading-none">
@@ -1389,15 +1159,6 @@ export const App: React.FC = () => {
           audioManager.playSFX('click');
           setIsThemeModalOpen(true);
         }}
-        onMarketplaceClick={() => {
-          if (!user) {
-            setNotification({ message: '로그인이 필요합니다.', type: 'error' });
-            setIsAuthModalOpen(true);
-            return;
-          }
-          audioManager.playSFX('click');
-          setIsMarketplaceOpen(true);
-        }}
         onRankingClick={() => {
           audioManager.playSFX('click');
           setIsRankingModalOpen(true);
@@ -1457,7 +1218,7 @@ export const App: React.FC = () => {
             onClose={() => setIsCleanConfirmOpen(false)}
             onConfirm={confirmCleanPond}
             cost={CLEANING_COST}
-            adPoints={adPoints}
+            zenPoints={zenPoints}
           />
         )
       }
@@ -1516,7 +1277,7 @@ export const App: React.FC = () => {
           <div className="absolute inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={() => setIsInfoModalOpen(false)}>
             <div className="bg-gray-800 p-6 rounded-lg max-w-2xl w-full max-h-[85vh] overflow-y-auto border border-gray-700 shadow-xl custom-scrollbar" onClick={e => e.stopPropagation()}>
               <div className="flex justify-between items-center mb-4">
-                <h2 className="text-2xl font-bold text-cyan-300">젠 코이 가든</h2>
+                <h2 className="text-2xl font-bold text-cyan-300">Koiworld</h2>
                 <button onClick={() => setIsInfoModalOpen(false)} className="text-gray-400 hover:text-white"><X /></button>
               </div>
               <p className="text-gray-300 mb-4">당신만의 평온한 코이 연못에 오신 것을 환영합니다. 아름다운 코이를 키우고, 교배하여 새로운 품종을 발견하세요.</p>
@@ -1565,60 +1326,6 @@ export const App: React.FC = () => {
         onGuestPlay={() => setIsAuthModalOpen(false)}
       />
 
-      <MarketplaceModal
-        isOpen={isMarketplaceOpen}
-        onClose={() => setIsMarketplaceOpen(false)}
-        currentUserId={user?.uid}
-        userAP={adPoints}
-        refreshKey={marketplaceRefreshKey}
-        onSelectListing={setSelectedListing}
-        onCreateListingClick={(count) => {
-          if (count >= 4) {
-            setNotification({ message: '장터에는 최대 4마리까지만 등록할 수 있습니다.', type: 'error' });
-            return;
-          }
-          setIsCreateListingOpen(true);
-        }}
-      />
-
-      {
-        isCreateListingOpen && (
-          <CreateListingModal
-            isOpen={isCreateListingOpen}
-            onClose={() => setIsCreateListingOpen(false)}
-            kois={koiList}
-            userId={user?.uid || ''}
-            userNickname={resolvedUserNickname}
-            userAP={adPoints}
-            gameState={gameStateRef.current!}
-            onListingCreated={handleListingCreated}
-          />
-        )
-      }
-
-      {
-        selectedListing && (
-          <ListingDetailModal
-            listing={selectedListing}
-            onClose={() => setSelectedListing(null)}
-            currentUserId={user?.uid}
-            userNickname={resolvedUserNickname}
-            userAP={adPoints}
-            onBuySuccess={handleBuySuccess}
-            onCancelSuccess={handleCancelSuccess}
-          />
-        )
-      }
-
-      <AdRewardModal
-        isOpen={isAdModalOpen}
-        onClose={() => setIsAdModalOpen(false)}
-        currentAP={adPoints}
-        onWatchAd={handleWatchAd}
-        isWatching={isWatchingAd}
-        watchProgress={adWatchProgress}
-      />
-
       <SessionConflictModal
         isOpen={isConflictOpen}
         onResolve={() => {
@@ -1646,8 +1353,6 @@ export const App: React.FC = () => {
           koi={activeKoi || selectedKoisForBreeding[0] || null}
           zenPoints={zenPoints}
           onSetZenPoints={(points) => setZenPoints(points)}
-          adPoints={adPoints}
-          onSetAdPoints={(points) => setAdPoints(points)}
           onSpawnKoi={(genetics, growthStage) => {
             // Create new koi with custom genetics and growth stage
             const newKoi: Koi = {

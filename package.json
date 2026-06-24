@@ -1,5 +1,5 @@
 {
-  "name": "젠-코이-가든",
+  "name": "koiworld",
   "private": true,
   "version": "1.0.0",
   "type": "module",
@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
-    "@supabase/supabase-js": "^2.102.1",
+    "firebase": "^12.15.0",
     "lucide-react": "^0.552.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"

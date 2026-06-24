@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Store, Fish, Pill, Palette, Globe, Trophy, Menu, Medal } from 'lucide-react';
+import { Store, Fish, Pill, Palette, Trophy, Menu, Medal } from 'lucide-react';
 
 interface IconProps {
   size?: number;
@@ -54,7 +54,6 @@ interface ControlBarProps {
   onSelectFoodType: (type: 'normal' | 'corn' | 'medicine') => void;
   onPondInfoClick: () => void;
   onThemeClick: () => void;
-  onMarketplaceClick: () => void;
   onRankingClick: () => void;
   onAchievementClick: () => void;
   hasUnclaimedAchievements: boolean;
@@ -78,7 +77,6 @@ export const ControlBar: React.FC<ControlBarProps> = ({
   onSelectFoodType,
   onPondInfoClick,
   onThemeClick,
-  onMarketplaceClick,
   onRankingClick,
   onAchievementClick,
   hasUnclaimedAchievements,
@@ -128,9 +126,6 @@ export const ControlBar: React.FC<ControlBarProps> = ({
                 <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 rounded-full border border-gray-900 animate-pulse" />
               )}
             </div>
-          </button>
-          <button onClick={() => handleSubMenuClick(onMarketplaceClick)} className={getButtonClass(false)} aria-label="Marketplace">
-            <Globe size={24} />
           </button>
           <button onClick={() => handleSubMenuClick(onThemeClick)} className={getButtonClass(false)} aria-label="Themes">
             <Palette size={24} />

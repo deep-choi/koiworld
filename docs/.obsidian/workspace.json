@@ -1,22 +1,20 @@
-{
+﻿{
   "main": {
-    "id": "029a9b709c4767d0",
+    "id": "9787b9db3b9ee7f9",
     "type": "split",
     "children": [
       {
-        "id": "22c395a48c88e162",
+        "id": "8eeaa30f44e58e29",
         "type": "tabs",
         "children": [
           {
-            "id": "fb8a9b0171654082",
+            "id": "910e85ba13c46c12",
             "type": "leaf",
             "state": {
-              "type": "release-notes",
-              "state": {
-                "currentVersion": "1.11.7"
-              },
-              "icon": "lucide-book-up",
-              "title": "릴리즈 노트 1.11.7"
+              "type": "empty",
+              "state": {},
+              "icon": "lucide-file",
+              "title": "새 탭"
             }
           }
         ]
@@ -25,15 +23,15 @@
     "direction": "vertical"
   },
   "left": {
-    "id": "eb7fdae29eb26a87",
+    "id": "019e316935e23764",
     "type": "split",
     "children": [
       {
-        "id": "3cbcbe0b7b3f30bd",
+        "id": "9514c41cc8d4a5d1",
         "type": "tabs",
         "children": [
           {
-            "id": "7c2c4c04f57f81d8",
+            "id": "dc66f8e48ab2846e",
             "type": "leaf",
             "state": {
               "type": "file-explorer",
@@ -46,7 +44,7 @@
             }
           },
           {
-            "id": "d7f93b9cf6624cf9",
+            "id": "e3d8f1e1c1cd86f7",
             "type": "leaf",
             "state": {
               "type": "search",
@@ -63,7 +61,7 @@
             }
           },
           {
-            "id": "da6eea33be19458b",
+            "id": "df93738a6613a981",
             "type": "leaf",
             "state": {
               "type": "bookmarks",
@@ -79,19 +77,20 @@
     "width": 300
   },
   "right": {
-    "id": "9778e8af5964ee81",
+    "id": "3778aa49a2929dc9",
     "type": "split",
     "children": [
       {
-        "id": "1df5ee3519357b78",
+        "id": "4b06298f236215a7",
         "type": "tabs",
         "children": [
           {
-            "id": "2c7b64d552b14cc1",
+            "id": "c853d81aaed4446a",
             "type": "leaf",
             "state": {
               "type": "backlink",
               "state": {
+                "file": "환영합니다!.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -101,24 +100,25 @@
                 "unlinkedCollapsed": true
               },
               "icon": "links-coming-in",
-              "title": "백링크"
+              "title": "환영합니다! 의 백링크"
             }
           },
           {
-            "id": "f6b17b603d1509a5",
+            "id": "60c1d87bd18f3f54",
             "type": "leaf",
             "state": {
               "type": "outgoing-link",
               "state": {
+                "file": "환영합니다!.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
               "icon": "links-going-out",
-              "title": "나가는 링크"
+              "title": "환영합니다! 의 나가는 링크"
             }
           },
           {
-            "id": "8d7fc053b656c46d",
+            "id": "6ee2090f0be6e732",
             "type": "leaf",
             "state": {
               "type": "tag",
@@ -133,7 +133,7 @@
             }
           },
           {
-            "id": "340467db3194368a",
+            "id": "e6cc798babc4d02b",
             "type": "leaf",
             "state": {
               "type": "all-properties",
@@ -147,17 +147,18 @@
             }
           },
           {
-            "id": "8620d47738418a70",
+            "id": "7ad5e9eaddbb9575",
             "type": "leaf",
             "state": {
               "type": "outline",
               "state": {
+                "file": "환영합니다!.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "개요"
+              "title": "환영합니다! 의 개요"
             }
           }
         ]
@@ -178,6 +179,34 @@
       "bases:새 베이스 생성하기": false
     }
   },
-  "active": "fb8a9b0171654082",
-  "lastOpenFiles": []
+  "active": "910e85ba13c46c12",
+  "lastOpenFiles": [
+    "collected/링크-생성-원본.md",
+    "collected/옵시디언-환영문서-원본.md",
+    "collected/배포-워크플로-원본.md",
+    "collected/프로젝트-지침-원본.md",
+    "collected/젠-코이-가든-원본.md",
+    "문서-인덱스.md",
+    "소스-인벤토리.md",
+    "빌드-배포-환경-설정.md",
+    "프로젝트-개요.md",
+    "기존-문서-취합-정리.md",
+    "프론트엔드-모듈-분석.md",
+    "백엔드-데이터-클라우드-분석.md",
+    "아키텍처.md",
+    "소스-인벤토리.md",
+    "기존-문서-취합-정리.md",
+    "빌드-배포-환경-설정.md",
+    "백엔드-데이터-클라우드-분석.md",
+    "프론트엔드-모듈-분석.md",
+    "아키텍처.md",
+    "프로젝트-개요.md",
+    "문서-인덱스.md",
+    "환영합니다!.md",
+    "collected/링크-생성-원본.md",
+    "collected/옵시디언-환영문서-원본.md",
+    "collected/젠-코이-가든-원본.md",
+    "collected/프로젝트-지침-원본.md",
+    "collected"
+  ]
 }

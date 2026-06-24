@@ -7,8 +7,6 @@ interface SpotGeneticsDebugPanelProps {
     koi: Koi | null;
     zenPoints?: number;
     onSetZenPoints?: (points: number) => void;
-    adPoints?: number;
-    onSetAdPoints?: (points: number) => void;
     onSpawnKoi?: (genetics: Partial<KoiGenetics>, growthStage?: GrowthStage) => void;
     onUpdateKoi?: (koiId: string, updates: { genetics?: Partial<KoiGenetics>; growthStage?: GrowthStage }) => void;
 }
@@ -34,15 +32,12 @@ export const SpotGeneticsDebugPanel: React.FC<SpotGeneticsDebugPanelProps> = ({
     koi,
     zenPoints = 0,
     onSetZenPoints,
-    adPoints = 0,
-    onSetAdPoints,
     onSpawnKoi,
     onUpdateKoi
 }) => {
     const debugConfig = getDebugConfig();
     const [isMinimized, setIsMinimized] = useState(false);
     const [editZenPoints, setEditZenPoints] = useState(zenPoints.toString());
-    const [editAdPoints, setEditAdPoints] = useState(adPoints.toString());
 
     // Color genetics state
     const [baseColorGenes, setBaseColorGenes] = useState<GeneType[]>([GeneType.CREAM, GeneType.CREAM]);
@@ -120,10 +115,6 @@ export const SpotGeneticsDebugPanel: React.FC<SpotGeneticsDebugPanelProps> = ({
     useEffect(() => {
         setEditZenPoints(zenPoints.toString());
     }, [zenPoints]);
-
-    useEffect(() => {
-        setEditAdPoints(adPoints.toString());
-    }, [adPoints]);
 
     // Don't render if debug is disabled
     if (!debugConfig.SHOW_SPOT_GENETICS_DEBUG) return null;
@@ -239,13 +230,6 @@ export const SpotGeneticsDebugPanel: React.FC<SpotGeneticsDebugPanelProps> = ({
         const points = parseInt(editZenPoints.replace(/,/g, ''), 10);
         if (!isNaN(points) && points >= 0 && onSetZenPoints) {
             onSetZenPoints(points);
-        }
-    };
-
-    const handleSetAdPoints = () => {
-        const points = parseInt(editAdPoints.replace(/,/g, ''), 10);
-        if (!isNaN(points) && points >= 0 && onSetAdPoints) {
-            onSetAdPoints(points);
         }
     };
 
@@ -368,32 +352,6 @@ export const SpotGeneticsDebugPanel: React.FC<SpotGeneticsDebugPanelProps> = ({
                             </button>
                         </div>
                         <div className="text-gray-500 text-xs mt-1">현재: {zenPoints.toLocaleString()} ZP</div>
-                    </div>
-
-                    {/* Ad Points Editor */}
-                    <div className="border-t border-gray-700 pt-2 mb-3">
-                        <h5 className="text-xs text-cyan-400 mb-1">💎 광고 포인트 (AP)</h5>
-                        <div className="flex gap-1">
-                            <input
-                                type="number"
-                                value={editAdPoints}
-                                onChange={e => setEditAdPoints(e.target.value)}
-                                className="flex-1 bg-gray-800 text-white px-2 py-1 rounded text-xs border border-gray-600"
-                            />
-                            <button
-                                onClick={handleSetAdPoints}
-                                className="bg-cyan-600 hover:bg-cyan-500 text-white px-2 py-1 rounded text-xs font-bold"
-                            >
-                                변경
-                            </button>
-                            <button
-                                onClick={() => onSetAdPoints?.(adPoints + 1000)}
-                                className="bg-blue-600 hover:bg-blue-500 text-white px-2 py-1 rounded text-xs"
-                            >
-                                +1K
-                            </button>
-                        </div>
-                        <div className="text-gray-500 text-xs mt-1">현재: {adPoints.toLocaleString()} AP</div>
                     </div>
 
                     {/* GROWTH STAGE */}

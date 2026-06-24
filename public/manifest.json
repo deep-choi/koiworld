@@ -1,11 +1,16 @@
 {
-    "name": "Zen Koi Garden",
-    "short_name": "Koi Garden",
-    "description": "A peaceful koi pond simulation game.",
+    "name": "Koiworld",
+    "short_name": "Koiworld",
+    "description": "코이를 키우고 교배하며 희귀한 색상과 무늬를 수집하는 힐링 시뮬레이션 게임입니다.",
     "start_url": "/",
     "display": "standalone",
-    "background_color": "#111827",
-    "theme_color": "#111827",
+    "background_color": "#0f172a",
+    "theme_color": "#4169E1",
+    "lang": "ko-KR",
+    "categories": [
+        "games",
+        "entertainment"
+    ],
     "icons": [
         {
             "src": "/icon.svg",

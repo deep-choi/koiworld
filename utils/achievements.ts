@@ -15,11 +15,11 @@ interface SpotTierConfig {
 }
 
 const SPOT_TIERS: SpotTierConfig[] = [
-    { count: 4, title: '점박이 입문', tier: 'novice', color: '#cd7f32', reward: { achievementPoints: 100, corn: 100 } },
-    { count: 8, title: '점박이 애호가', tier: 'intermediate', color: '#c0c0c0', reward: { achievementPoints: 200, corn: 200 } },
-    { count: 12, title: '점박이 전문가', tier: 'advanced', color: '#ffd700', reward: { achievementPoints: 300, corn: 300 } },
-    { count: 16, title: '점박이 마스터', tier: 'master', color: '#a855f7', reward: { achievementPoints: 400, corn: 400 } }, // Purple
-    { count: 20, title: '점박이의 전설', tier: 'legend', color: '#b9f2ff', reward: { achievementPoints: 500, corn: 500 } },
+    { count: 4, title: '점박이 입문', tier: 'novice', color: '#cd7f32', reward: { achievementPoints: 100, corn: 10 } },
+    { count: 8, title: '점박이 애호가', tier: 'intermediate', color: '#c0c0c0', reward: { achievementPoints: 200, corn: 25 } },
+    { count: 12, title: '점박이 전문가', tier: 'advanced', color: '#ffd700', reward: { achievementPoints: 300, corn: 50 } },
+    { count: 16, title: '점박이 마스터', tier: 'master', color: '#a855f7', reward: { achievementPoints: 400, corn: 90 } }, // Purple
+    { count: 20, title: '점박이의 전설', tier: 'legend', color: '#b9f2ff', reward: { achievementPoints: 500, corn: 150 } },
 ];
 
 SPOT_TIERS.forEach(tier => {
@@ -60,7 +60,7 @@ SPOT_ACHIEVEMENT_COLORS.forEach(color => {
         category: 'spots',
         reward: {
             achievementPoints: 100,
-            items: [{ type: 'corn', count: 100 }]
+            items: [{ type: 'corn', count: 5 }]
         },
         condition: (koi: Koi) => koi.genetics.spots.some(spot => spot.color === color.type),
     });
@@ -80,7 +80,7 @@ ACHIEVEMENTS.push(
         category: 'mutation',
         reward: {
             achievementPoints: 200,
-            items: [{ type: 'corn', count: 200 }]
+            items: [{ type: 'corn', count: 30 }]
         },
         condition: (koi: Koi) => {
             return !!(koi.genetics.albinoAlleles?.[0] && koi.genetics.albinoAlleles?.[1]);
@@ -96,7 +96,7 @@ ACHIEVEMENTS.push(
         category: 'mutation',
         reward: {
             achievementPoints: 200,
-            items: [{ type: 'corn', count: 200 }]
+            items: [{ type: 'corn', count: 30 }]
         },
         condition: (koi: Koi) => {
             const baseColor = getPhenotype(koi.genetics.baseColorGenes);
@@ -137,35 +137,35 @@ const VARIATIONS: VariationConfig[] = [
     {
         id: 'basic',
         tier: 'intermediate',
-        reward: { achievementPoints: 200, corn: 200 },
+        reward: { achievementPoints: 200, corn: 15 },
         descPrefix: '',
         condition: () => true
     },
     {
         id: 'sat_high',
         tier: 'advanced',
-        reward: { achievementPoints: 300, corn: 300 },
+        reward: { achievementPoints: 300, corn: 45 },
         descPrefix: '선명한 ',
         condition: (koi: Koi) => koi.genetics.saturation >= 100
     },
     {
         id: 'sat_low',
         tier: 'advanced',
-        reward: { achievementPoints: 300, corn: 300 },
+        reward: { achievementPoints: 300, corn: 45 },
         descPrefix: '파스텔 ',
         condition: (koi: Koi) => koi.genetics.saturation <= 0
     },
     {
         id: 'light_high',
         tier: 'advanced',
-        reward: { achievementPoints: 300, corn: 300 },
+        reward: { achievementPoints: 300, corn: 45 },
         descPrefix: '눈부신 ',
         condition: (koi: Koi) => koi.genetics.lightness >= 100
     },
     {
         id: 'light_low',
         tier: 'advanced',
-        reward: { achievementPoints: 300, corn: 300 },
+        reward: { achievementPoints: 300, corn: 45 },
         descPrefix: '검붉은 ',
         getPrefix: (colorName: string) => {
             if (colorName === '빨강') return '검붉은 ';
@@ -290,7 +290,7 @@ COLORS.forEach(color => {
             category: 'mutation',
             reward: {
                 achievementPoints: 400,
-                items: [{ type: 'corn', count: 400 }]
+                items: [{ type: 'corn', count: 90 }]
             },
             condition: (koi: Koi) => {
                 const phenotype = getPhenotype(koi.genetics.baseColorGenes);
@@ -316,7 +316,7 @@ SPOT_ACHIEVEMENT_COLORS.forEach(color => {
         category: 'spots',
         reward: {
             achievementPoints: 500,
-            items: [{ type: 'corn', count: 500 }]
+            items: [{ type: 'corn', count: 150 }]
         },
         condition: (koi: Koi) => {
             const spots = koi.genetics.spots;

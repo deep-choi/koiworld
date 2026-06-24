@@ -24,10 +24,10 @@ export const SessionConflictModal: React.FC<SessionConflictModalProps> = ({ isOp
                 </div>
 
                 <div className="button-group">
-                    <button className="btn-logout" onClick={onLogout}>
+                    <button className="btn-logout" onClick={onLogout} aria-label="이 기기에서 게임 종료하기">
                         종료 하기
                     </button>
-                    <button className="btn-resolve" onClick={onResolve}>
+                    <button className="btn-resolve" onClick={onResolve} aria-label="이 기기에서 게임 계속하기">
                         여기서 계속하기
                     </button>
                 </div>

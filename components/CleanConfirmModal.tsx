@@ -19,6 +19,7 @@ export const CleanConfirmModal: React.FC<CleanConfirmModalProps> = ({ onClose, o
                 <button
                     onClick={onClose}
                     className="absolute top-4 right-4 text-gray-400 hover:text-white transition-colors"
+                    aria-label="연못 청소 확인창 닫기"
                 >
                     <X size={20} />
                 </button>
@@ -57,6 +58,7 @@ export const CleanConfirmModal: React.FC<CleanConfirmModalProps> = ({ onClose, o
                         <button
                             onClick={onClose}
                             className="flex-1 py-3 rounded-xl bg-gray-700 hover:bg-gray-600 text-white font-bold transition-all"
+                            aria-label="연못 청소 취소"
                         >
                             취소
                         </button>
@@ -67,6 +69,7 @@ export const CleanConfirmModal: React.FC<CleanConfirmModalProps> = ({ onClose, o
                 ${canAfford
                                     ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-500/20'
                                     : 'bg-gray-800 text-gray-500 cursor-not-allowed border border-gray-700'}`}
+                            aria-label={`연못 청소하기, ${cost.toLocaleString()} 젠 포인트 사용`}
                         >
                             <Droplets size={18} />
                             청소하기

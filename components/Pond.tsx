@@ -179,7 +179,7 @@ export const Pond: React.FC<PondProps> = ({ gameState, koiList, decorations, the
         return { background: 'radial-gradient(circle at center, rgba(30, 41, 59, 1), rgba(14, 13, 26, 1))' };
       case PondTheme.DEFAULT:
       default:
-        return { background: 'radial-gradient(circle at center, rgba(107, 151, 216, 1), rgba(32, 84, 148, 1))' };
+        return { background: 'radial-gradient(circle at center, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.18)), radial-gradient(circle at center, rgba(107, 151, 216, 1), rgba(32, 84, 148, 1))' };
     }
   };
 

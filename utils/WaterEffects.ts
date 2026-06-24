@@ -185,12 +185,19 @@ export class WaterEffects {
             // 1. Draw Surface Sheen (Frosted Glass Effect)
             // Much higher opacity to obscure bottom slightly (simulating blur/depth)
             const sheenGradient = ctx.createLinearGradient(0, 0, 0, h);
-            // Day: Milky White, Night: Icy Blue
+            // Day: original soft green sheen, Night: icy blue
             const sheenBaseColor = isNight ? '200, 220, 255' : '100, 255, 200';
 
-            // Tuned: Subtle sheen to complement CSS Blur
-            const sheenAlphaTop = isNight ? 0.15 : 0.15;
-            const sheenAlphaBottom = isNight ? 0.15 : 0.15;
+            // Keep clear water close to the pond's base color; let the surface tint appear as quality drops.
+            const daySheenAlpha =
+                waterQuality >= 90 ? 0.025 :
+                    waterQuality >= 80 ? 0.04 :
+                        waterQuality >= 70 ? 0.06 :
+                            waterQuality >= 60 ? 0.08 :
+                                waterQuality >= 50 ? 0.1 :
+                                    0.12;
+            const sheenAlphaTop = isNight ? 0.15 : daySheenAlpha;
+            const sheenAlphaBottom = isNight ? 0.15 : daySheenAlpha;
 
             sheenGradient.addColorStop(0, `rgba(${sheenBaseColor}, ${sheenAlphaTop})`);
             sheenGradient.addColorStop(1, `rgba(${sheenBaseColor}, ${sheenAlphaBottom})`);
@@ -205,14 +212,20 @@ export class WaterEffects {
             const fixedMurkyColor = '40, 50, 20';
             let murkyAlpha = 0;
 
-            if (waterQuality >= 70) {
+            if (waterQuality >= 90) {
                 murkyAlpha = 0;
+            } else if (waterQuality >= 80) {
+                murkyAlpha = 0.1;
+            } else if (waterQuality >= 70) {
+                murkyAlpha = 0.2;
+            } else if (waterQuality >= 60) {
+                murkyAlpha = 0.3;
             } else if (waterQuality >= 50) {
                 murkyAlpha = 0.4;
             } else if (waterQuality >= 20) {
-                murkyAlpha = 0.7;
+                murkyAlpha = 0.6;
             } else {
-                murkyAlpha = 0.95;
+                murkyAlpha = 0.85;
             }
 
             if (murkyAlpha > 0) {

@@ -75,7 +75,7 @@ export const SaveLoadModal: React.FC<SaveLoadModalProps> = ({
                     <h2 className="text-xl font-bold text-white flex items-center gap-2">
                         <Settings size={20} className="text-cyan-400" /> 설정
                     </h2>
-                    <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors">
+                    <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors" aria-label="설정 닫기">
                         <X size={24} />
                     </button>
                 </div>
@@ -86,6 +86,8 @@ export const SaveLoadModal: React.FC<SaveLoadModalProps> = ({
                         className={`flex-1 py-3 px-2 font-bold transition-colors whitespace-nowrap ${activeTab === 'settings' ? 'bg-gray-700 text-purple-300' : 'text-gray-400 hover:bg-gray-700/50'}`}
                         onClick={() => setActiveTab('settings')}
                         type="button"
+                        aria-label="설정 탭 열기"
+                        aria-pressed={activeTab === 'settings'}
                     >
                         설정
                     </button>
@@ -93,6 +95,8 @@ export const SaveLoadModal: React.FC<SaveLoadModalProps> = ({
                         className={`flex-1 py-3 px-2 font-bold transition-colors whitespace-nowrap ${activeTab === 'new' ? 'bg-gray-700 text-red-300' : 'text-gray-400 hover:bg-gray-700/50'}`}
                         onClick={() => setActiveTab('new')}
                         type="button"
+                        aria-label="새 게임 탭 열기"
+                        aria-pressed={activeTab === 'new'}
                     >
                         새 게임
                     </button>
@@ -163,8 +167,9 @@ export const SaveLoadModal: React.FC<SaveLoadModalProps> = ({
                                 className={`font-bold py-3 px-8 rounded-full shadow-lg transition-all flex items-center gap-2 ${isStartingNewGame
                                     ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
                                     : 'bg-red-600 hover:bg-red-500 text-white transform hover:scale-105'
-                                    }`}
+                                }`}
                                 type="button"
+                                aria-label={isStartingNewGame ? '새 게임 초기화 진행 중' : '새 게임 시작하기'}
                             >
                                 <RotateCcw size={20} />
                                 {isStartingNewGame ? '초기화 중...' : '새 게임 시작하기'}

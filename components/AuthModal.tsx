@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { FormEvent, useState } from 'react';
+import { Eye, EyeOff, LockKeyhole, Mail, ShieldCheck, UserRound } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import './AuthModal.css';
 import { isInAppBrowser } from '../utils/userAgent';
@@ -11,16 +12,22 @@ interface AuthModalProps {
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onGuestPlay }) => {
-    const { login, user, loading } = useAuth();
+    const { login, loginWithEmail, signUpWithEmail, user, loading } = useAuth();
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
+    const [nickname, setNickname] = useState('');
+    const [formError, setFormError] = useState('');
+    const [showPassword, setShowPassword] = useState(false);
 
     if (!isOpen) return null;
     if (loading) {
         return (
             <div className="auth-modal-overlay">
                 <div className="auth-modal-content">
-                    <div className="flex justify-center items-center py-8">
-                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+                    <div className="auth-loading">
+                        <div className="auth-spinner"></div>
                     </div>
                 </div>
             </div>
@@ -63,6 +70,82 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onGuestPl
         }
     };
 
+    const getEmailAuthErrorCode = (error: unknown) => {
+        return typeof error === 'object' && error && 'code' in error
+            ? String((error as { code?: string }).code)
+            : '';
+    };
+
+    const getEmailAuthErrorMessage = (error: unknown) => {
+        const code = getEmailAuthErrorCode(error);
+
+        switch (code) {
+            case 'auth/email-already-in-use':
+                return '이미 가입된 이메일입니다. 로그인으로 전환해주세요.';
+            case 'auth/invalid-email':
+                return '이메일 형식이 올바르지 않습니다.';
+            case 'auth/invalid-credential':
+            case 'auth/user-not-found':
+            case 'auth/wrong-password':
+                return '이메일 또는 비밀번호가 올바르지 않습니다.';
+            case 'auth/weak-password':
+                return '비밀번호는 최소 6자 이상으로 입력해주세요.';
+            case 'auth/operation-not-allowed':
+                return 'Firebase Authentication에서 이메일/비밀번호 로그인을 활성화해주세요.';
+            case 'auth/too-many-requests':
+                return '요청이 너무 많습니다. 잠시 후 다시 시도해주세요.';
+            default:
+                return authMode === 'signup' ? '회원가입에 실패했습니다. 다시 시도해주세요.' : '로그인에 실패했습니다. 다시 시도해주세요.';
+        }
+    };
+
+    const handleEmailSubmit = async (event: FormEvent<HTMLFormElement>) => {
+        event.preventDefault();
+        if (isSubmitting) return;
+
+        const trimmedEmail = email.trim();
+        const enteredPassword = password;
+        const trimmedNickname = nickname.trim();
+
+        if (!trimmedEmail) {
+            setFormError('이메일을 입력해주세요.');
+            return;
+        }
+
+        if (enteredPassword.length < 6) {
+            setFormError('비밀번호는 최소 6자 이상으로 입력해주세요.');
+            return;
+        }
+
+        if (authMode === 'signup' && trimmedNickname.length < 2) {
+            setFormError('닉네임은 최소 2자 이상으로 입력해주세요.');
+            return;
+        }
+
+        try {
+            setIsSubmitting(true);
+            setFormError('');
+            suppressLocalGameSave();
+
+            if (authMode === 'signup') {
+                await signUpWithEmail(trimmedEmail, enteredPassword, trimmedNickname);
+            } else {
+                await loginWithEmail(trimmedEmail, enteredPassword);
+            }
+        } catch (error) {
+            console.error("Email auth failed:", error);
+            resumeLocalGameSave();
+            setIsSubmitting(false);
+            const code = getEmailAuthErrorCode(error);
+            if (authMode === 'signup' && code === 'auth/email-already-in-use') {
+                setAuthMode('login');
+                setFormError('이미 가입된 이메일입니다. 로그인으로 전환했어요. 비밀번호를 입력해 로그인해주세요.');
+                return;
+            }
+            setFormError(getEmailAuthErrorMessage(error));
+        }
+    };
+
     return (
         <div className="auth-modal-overlay">
             <div className="auth-modal-content">
@@ -74,35 +157,106 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onGuestPl
                     </p>
 
                     {isInAppBrowser() && (
-                        <div style={{
-                            backgroundColor: 'rgba(255, 87, 87, 0.15)',
-                            color: '#ff6b6b',
-                            padding: '10px',
-                            borderRadius: '8px',
-                            marginBottom: '16px',
-                            fontSize: '0.9rem',
-                            lineHeight: '1.4',
-                            border: '1px solid rgba(255, 87, 87, 0.3)'
-                        }}>
-                            ⚠ <strong>접속 환경 알림</strong><br />
+                        <div className="auth-browser-alert">
+                            <strong>접속 환경 알림</strong><br />
                             카카오톡/인앱 브라우저에서는 구글 정책으로 인해 로그인이 차단될 수 있습니다.<br />
                             우측 하단/상단 메뉴의 <strong>[다른 브라우저로 열기]</strong>를 통해 Chrome이나 Safari에서 접속해주세요.
                         </div>
                     )}
 
-                    <button className="auth-btn google" onClick={handleGoogleLogin} disabled={isSubmitting}>
-                        Google로 로그인
-                    </button>
+                    <div className="auth-tabs" role="tablist" aria-label="이메일 인증 방식">
+                        <button
+                            type="button"
+                            className={`auth-tab ${authMode === 'login' ? 'active' : ''}`}
+                            onClick={() => {
+                                setAuthMode('login');
+                                setFormError('');
+                            }}
+                        >
+                            로그인
+                        </button>
+                        <button
+                            type="button"
+                            className={`auth-tab ${authMode === 'signup' ? 'active' : ''}`}
+                            onClick={() => {
+                                setAuthMode('signup');
+                                setFormError('');
+                            }}
+                        >
+                            회원가입
+                        </button>
+                    </div>
+
+                    <form className="auth-form" onSubmit={handleEmailSubmit}>
+                        {authMode === 'signup' && (
+                            <label className="auth-field">
+                                <UserRound className="auth-field-icon" size={20} strokeWidth={2.2} />
+                                <input
+                                    className="auth-input"
+                                    type="text"
+                                    value={nickname}
+                                    onChange={event => setNickname(event.target.value)}
+                                    placeholder="닉네임"
+                                    autoComplete="nickname"
+                                    disabled={isSubmitting}
+                                />
+                            </label>
+                        )}
+                        <label className="auth-field">
+                            <Mail className="auth-field-icon" size={20} strokeWidth={2.2} />
+                            <input
+                                className="auth-input"
+                                type="email"
+                                value={email}
+                                onChange={event => setEmail(event.target.value)}
+                                placeholder="이메일"
+                                autoComplete="email"
+                                disabled={isSubmitting}
+                            />
+                        </label>
+                        <label className="auth-field">
+                            <LockKeyhole className="auth-field-icon" size={20} strokeWidth={2.2} />
+                            <input
+                                className="auth-input"
+                                type={showPassword ? 'text' : 'password'}
+                                value={password}
+                                onChange={event => setPassword(event.target.value)}
+                                placeholder="비밀번호"
+                                autoComplete={authMode === 'signup' ? 'new-password' : 'current-password'}
+                                disabled={isSubmitting}
+                            />
+                            <button
+                                className="auth-password-toggle"
+                                type="button"
+                                onClick={() => setShowPassword(prev => !prev)}
+                                aria-label={showPassword ? '비밀번호 숨기기' : '비밀번호 보기'}
+                                disabled={isSubmitting}
+                            >
+                                {showPassword ? <EyeOff size={20} strokeWidth={2.2} /> : <Eye size={20} strokeWidth={2.2} />}
+                            </button>
+                        </label>
+                        {formError && <p className="auth-error">{formError}</p>}
+                        <button className="auth-btn email" type="submit" disabled={isSubmitting}>
+                            {authMode === 'signup' ? '이메일로 회원가입' : '이메일로 로그인'}
+                        </button>
+                    </form>
 
                     <div className="divider">또는</div>
 
-                    <button className="auth-btn guest" onClick={onGuestPlay}>
+                    <button className="auth-btn google" type="button" onClick={handleGoogleLogin} disabled={isSubmitting}>
+                        Google로 로그인
+                    </button>
+
+                    <button className="auth-btn guest" type="button" onClick={onGuestPlay} disabled={isSubmitting}>
                         게스트로 시작
                     </button>
 
                     <div className="auth-warning">
+                        <ShieldCheck size={24} strokeWidth={2.2} />
+                        <span>
                         게스트 모드는 데이터가 계정에 저장되지 않아<br />
                         앱 삭제 시 복구가 불가능할 수 있습니다.
+                        </span>
                     </div>
                 </div>
             </div>

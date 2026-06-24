@@ -20,7 +20,7 @@ export const DecorationModal: React.FC<DecorationModalProps> = ({ onClose, zenPo
             <div className="bg-gray-800 p-6 rounded-lg max-w-md w-full max-h-[85vh] overflow-y-auto border border-gray-700 shadow-xl custom-scrollbar" onClick={e => e.stopPropagation()}>
                 <div className="flex justify-between items-center mb-6">
                     <h2 className="text-2xl font-bold text-cyan-300">연못 꾸미기</h2>
-                    <button onClick={onClose} className="text-gray-400 hover:text-white"><X /></button>
+                    <button onClick={onClose} className="text-gray-400 hover:text-white" aria-label="연못 꾸미기 닫기"><X /></button>
                 </div>
 
                 <div className="mb-4 p-3 bg-gray-900/50 rounded-lg border border-gray-700">
@@ -43,6 +43,7 @@ export const DecorationModal: React.FC<DecorationModalProps> = ({ onClose, zenPo
                                 onClick={() => onBuyDecoration(deco.type, deco.cost)}
                                 disabled={zenPoints < deco.cost}
                                 className="bg-cyan-600 hover:bg-cyan-500 text-white px-4 py-2 rounded-lg font-bold disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                aria-label={`${deco.name} 구매하기, ${deco.cost.toLocaleString()} 젠 포인트`}
                             >
                                 {deco.cost.toLocaleString()} ZP
                             </button>

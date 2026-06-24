@@ -18,6 +18,7 @@ import {
     UserProfile,
 } from '../types/online';
 import { auth, db } from './firebase';
+import { isValidSavedGameState } from '../utils/savedGameState';
 
 export interface CloudUserSnapshot {
     userId: string;
@@ -107,7 +108,18 @@ export async function ensureUserDocument(
         const snapshot = await transaction.get(privateRef);
         const data = snapshot.exists() ? snapshot.data() : null;
         const profile = (data?.profile ?? {}) as { nickname?: string };
-        resolvedNickname = profile.nickname?.trim() || fallbackNickname;
+        const existingNickname = profile.nickname?.trim();
+        const displayNickname = displayName?.trim();
+        const emailPrefix = email?.split('@')?.[0]?.trim();
+        const shouldUseDisplayName =
+            !!displayNickname &&
+            !!existingNickname &&
+            !!emailPrefix &&
+            existingNickname === emailPrefix;
+
+        resolvedNickname = shouldUseDisplayName
+            ? displayNickname
+            : existingNickname || fallbackNickname;
 
         const honorPoints = Number(data?.honorPoints || data?.gameState?.honorPoints || 0);
         const achievementPoints = Number(data?.achievementPoints || data?.gameState?.achievementPoints || 0);
@@ -235,6 +247,9 @@ export function subscribeToUserGameState(
 
 export async function saveGameState(userId: string, gameState: SavedGameState): Promise<void> {
     assertCurrentUser(userId);
+    if (!isValidSavedGameState(gameState)) {
+        throw new Error('Invalid game state cannot be saved.');
+    }
 
     const sanitizedGameState = sanitizeForFirestore(gameState);
     const scores = extractGameScores(sanitizedGameState);
@@ -258,20 +273,37 @@ export async function updateUserGameData(
     gameData: Partial<UserGameData>
 ): Promise<void> {
     const snapshot = await fetchUserSnapshot(userId);
-    const baseState = (snapshot?.gameState ?? {}) as Record<string, unknown>;
-    const mergedState = {
-        ...baseState,
-        ...gameData,
-    } as SavedGameState & Record<string, unknown>;
+    const currentState = isValidSavedGameState(snapshot?.gameState) ? snapshot.gameState : null;
+    const honorPoints = typeof gameData.honorPoints === 'number'
+        ? gameData.honorPoints
+        : Number(snapshot?.honorPoints ?? currentState?.honorPoints ?? 0);
+    const achievementPoints = typeof gameData.achievementPoints === 'number'
+        ? gameData.achievementPoints
+        : Number(snapshot?.achievementPoints ?? currentState?.achievementPoints ?? 0);
 
-    if (typeof gameData.honorPoints === 'number') {
-        mergedState.honorPoints = gameData.honorPoints;
-    }
-    if (typeof gameData.achievementPoints !== 'number') {
-        mergedState.achievementPoints = snapshot?.achievementPoints ?? 0;
+    if (currentState) {
+        await saveGameState(userId, {
+            ...currentState,
+            honorPoints,
+            achievementPoints,
+            achievements: gameData.achievements ?? currentState.achievements,
+        });
+        return;
     }
 
-    await saveGameState(userId, mergedState as SavedGameState);
+    await Promise.all([
+        setDoc(userDocRef(userId), {
+            honorPoints,
+            achievementPoints,
+            updatedAt: serverTimestamp(),
+        }, { merge: true }),
+        setDoc(rankingDocRef(userId), {
+            uid: userId,
+            honorPoints,
+            achievementPoints,
+            updatedAt: serverTimestamp(),
+        }, { merge: true }),
+    ]);
 }
 
 export async function getRankings(

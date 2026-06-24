@@ -111,7 +111,7 @@ export const calculateKoiValue = (koi: Koi): number => {
     const phenotype = getPhenotype(genetics.baseColorGenes);
 
     // 1. Base value
-    value += 120;
+    value += 200;
 
     // 2. Value from Phenotype Rarity (Multiplier reduced 50 -> 15)
     value += (GENE_RARITY[phenotype] || 1) * 15;
@@ -157,14 +157,13 @@ export const calculateKoiValue = (koi: Koi): number => {
     const spotSatDiff = Math.abs(spotSaturationPercent - 50);
     value += spotSatDiff * 6;
 
-    // 8. Multiplier for growth stage (Halved AGAIN per user request)
     // 8. Multiplier for growth stage
     if (growthStage === GrowthStage.ADULT) {
         value *= 1.0;
     } else if (growthStage === GrowthStage.JUVENILE) {
-        value *= 0.4; // User Request: 0.4
+        value *= 0.6;
     } else {
-        value *= 0.2; // User Request: 0.2
+        value *= 0.4;
     }
 
     // 9. Stamina/Health Penalties
@@ -315,21 +314,26 @@ export const breedKoi = (genetics1: KoiGenetics, genetics2: KoiGenetics): { gene
     // 8-11 (T2) -> 25% chance
     const tier = Math.floor(n / 4);
 
-    const isEarlySpotCount = tier < 1;
-    const addWeight = isEarlySpotCount ? 0.4 : Math.max(0.05, 0.3 * Math.pow(0.5, tier));
-    const deleteWeight = isEarlySpotCount ? 0.2 : 0.4;
-
-    // 유지 확률: 기본값
-    const keepWeight = 1.0;
-
-    const totalWeight = addWeight + deleteWeight + keepWeight;
-
-    const roll = Math.random() * totalWeight;
     let targetSpotsCount = baseCount;
-    if (roll < addWeight) {
-        targetSpotsCount = baseCount + 1;
-    } else if (roll < addWeight + deleteWeight) {
-        targetSpotsCount = Math.max(0, baseCount - 1);
+    if (tier < 1) {
+        const roll = Math.random();
+        if (roll < 0.35) {
+            targetSpotsCount = baseCount + 1;
+        } else if (roll < 0.475) {
+            targetSpotsCount = Math.max(0, baseCount - 1);
+        }
+    } else {
+        const addWeight = Math.max(0.05, 0.3 * Math.pow(0.5, tier));
+        const deleteWeight = 0.4;
+        const keepWeight = 1.0;
+        const totalWeight = addWeight + deleteWeight + keepWeight;
+        const roll = Math.random() * totalWeight;
+
+        if (roll < addWeight) {
+            targetSpotsCount = baseCount + 1;
+        } else if (roll < addWeight + deleteWeight) {
+            targetSpotsCount = Math.max(0, baseCount - 1);
+        }
     }
 
     // Helper: Fisher-Yates Shuffle

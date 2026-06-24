@@ -104,14 +104,16 @@ const ShopItem: React.FC<{
                         onClick={() => handleQuantityChange(-1)}
                         className="p-1 text-gray-400 hover:text-white disabled:opacity-50"
                         disabled={quantity <= 1}
+                        aria-label={`${title} 수량 줄이기`}
                     >
                         <Minus size={16} />
                     </button>
-                    <span className="text-white font-bold">{quantity}</span>
+                    <span className="text-white font-bold" aria-live="polite">{quantity}</span>
                     <button
                         onClick={() => handleQuantityChange(1)}
                         className="p-1 text-gray-400 hover:text-white disabled:opacity-50"
                         disabled={quantity >= 99}
+                        aria-label={`${title} 수량 늘리기`}
                     >
                         <Plus size={16} />
                     </button>
@@ -125,6 +127,7 @@ const ShopItem: React.FC<{
                 onClick={() => onBuy(quantity)}
                 disabled={!affordable || disabled}
                 className="mt-2 w-full bg-yellow-600 text-white font-bold py-2 rounded-lg flex items-center justify-center transition-colors disabled:bg-gray-600 disabled:cursor-not-allowed enabled:hover:bg-yellow-500"
+                aria-label={disabled && disabledReason ? `${title}: ${disabledReason}` : `${title} ${quantity}개 구매하기`}
             >
                 {disabled && disabledReason ? disabledReason : "구매하기"}
             </button>
@@ -137,13 +140,18 @@ export const ShopModal: React.FC<ShopModalProps> = ({ onClose, zenPoints, onBuyF
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-40 p-4">
-            <div className="bg-gray-800 border border-gray-700 rounded-lg shadow-xl p-4 w-full max-w-sm animate-fade-in-up max-h-[85svh] overflow-y-auto custom-scrollbar">
+            <div
+                className="bg-gray-800 border border-gray-700 rounded-lg shadow-xl p-4 w-full max-w-sm animate-fade-in-up max-h-[85svh] overflow-y-auto custom-scrollbar"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="shop-modal-title"
+            >
                 <div className="flex justify-between items-center mb-4">
-                    <h2 className="text-2xl font-bold text-yellow-400 flex items-center">
+                    <h2 id="shop-modal-title" className="text-2xl font-bold text-yellow-400 flex items-center">
                         <ShoppingCart className="mr-3" />
                         상점
                     </h2>
-                    <button onClick={onClose} className="text-gray-400 hover:text-white">
+                    <button onClick={onClose} className="text-gray-400 hover:text-white" aria-label="상점 닫기">
                         <X size={24} />
                     </button>
                 </div>
@@ -259,6 +267,7 @@ export const ShopModal: React.FC<ShopModalProps> = ({ onClose, zenPoints, onBuyF
                                     disabled={zenPoints < item.price}
                                     className={`mt-2 w-full text-white font-bold py-2 rounded-lg flex items-center justify-center transition-colors disabled:bg-gray-600 disabled:cursor-not-allowed ${item.price === 500 ? 'bg-gray-600 hover:bg-gray-500' : 'bg-pink-600 hover:bg-pink-500'
                                         }`}
+                                    aria-label={`${item.name} 입양하기`}
                                 >
                                     입양하기
                                 </button>

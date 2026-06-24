@@ -21,7 +21,7 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({ onClose, zenPoints, curr
             <div className="bg-gray-800 p-6 rounded-lg max-w-2xl w-full max-h-[85svh] overflow-y-auto border border-gray-700 shadow-xl custom-scrollbar" onClick={e => e.stopPropagation()}>
                 <div className="flex justify-between items-center mb-6">
                     <h2 className="text-2xl font-bold text-cyan-300">배경 테마 변경</h2>
-                    <button onClick={onClose} className="text-gray-400 hover:text-white"><X /></button>
+                    <button onClick={onClose} className="text-gray-400 hover:text-white" aria-label="테마 선택 닫기"><X /></button>
                 </div>
 
                 <div className="mb-4 p-3 bg-gray-900/50 rounded-lg border border-gray-700">

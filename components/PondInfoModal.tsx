@@ -23,10 +23,22 @@ const KoiListItem: React.FC<{
 
   const rarityScore = calculateRarityScore(koi);
   const value = calculateKoiValue(koi);
+  const koiLabel = koi.name || `코이 #${index}`;
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      onToggleSelect(koi.id);
+    }
+  };
 
   return (
     <div
       onClick={() => onToggleSelect(koi.id)}
+      onKeyDown={handleKeyDown}
+      role="button"
+      tabIndex={0}
+      aria-pressed={isSelected}
+      aria-label={`${koiLabel} 선택${isSelected ? ' 해제' : ''}`}
       className={`flex items-center p-3 rounded-lg border cursor-pointer transition-all ${isSelected
         ? 'bg-cyan-900/40 border-cyan-500 shadow-[0_0_10px_rgba(6,182,212,0.3)]'
         : 'bg-gray-700/40 border-gray-600 hover:bg-gray-700/60 hover:border-gray-500'
@@ -49,6 +61,7 @@ const KoiListItem: React.FC<{
           onClick={(e) => { e.stopPropagation(); onViewDetail(); }}
           className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-gray-700 border border-gray-500 flex items-center justify-center hover:bg-gray-600 transition-colors z-10"
           title="상세 보기"
+          aria-label={`${koiLabel} 상세 보기`}
         >
           <Search size={10} className="text-gray-300" />
         </button>
@@ -63,6 +76,7 @@ const KoiListItem: React.FC<{
               className={`p-1 rounded transition-colors ${koi.isFavorite ? 'text-yellow-400 hover:text-yellow-300' : 'text-gray-600 hover:text-gray-400'}`}
               title={koi.isFavorite ? "즐겨찾기 해제" : "즐겨찾기 추가"}
               type="button"
+              aria-label={`${koiLabel} 즐겨찾기 ${koi.isFavorite ? '해제' : '추가'}`}
             >
               <Star size={18} fill={koi.isFavorite ? "currentColor" : "none"} />
             </button>
@@ -213,6 +227,8 @@ export const PondInfoModal: React.FC<PondInfoModalProps> = ({
               <button
                 key={pond.id}
                 onClick={() => onPondChange(pond.id)}
+                aria-label={`${pond.name}으로 전환`}
+                aria-current={activePondId === pond.id ? 'page' : undefined}
                 className={`px-5 py-2 rounded-md font-bold transition-all whitespace-nowrap text-sm border-2 ${activePondId === pond.id
                   ? 'bg-cyan-600 text-white border-cyan-500'
                   : 'bg-gray-800/80 text-gray-400 border-gray-700 hover:bg-gray-700 hover:text-gray-200 hover:border-gray-600'
@@ -223,7 +239,7 @@ export const PondInfoModal: React.FC<PondInfoModalProps> = ({
             ))}
           </div>
 
-          <button onClick={onClose} className="p-2 text-gray-400 hover:text-white hover:bg-gray-700/50 rounded-full transition-all flex-shrink-0">
+          <button onClick={onClose} className="p-2 text-gray-400 hover:text-white hover:bg-gray-700/50 rounded-full transition-all flex-shrink-0" aria-label="연못 현황 닫기">
             <X size={24} />
           </button>
         </div>
@@ -235,6 +251,8 @@ export const PondInfoModal: React.FC<PondInfoModalProps> = ({
           <div className="flex gap-2 mb-4 bg-gray-900/50 p-1 rounded-lg border border-gray-700 flex-shrink-0">
             <button
               onClick={() => setActiveTab('all')}
+              aria-label="전체 코이 목록 보기"
+              aria-pressed={activeTab === 'all'}
               className={`flex-1 py-1.5 rounded-md text-sm font-bold transition-all flex items-center justify-center gap-2 ${activeTab === 'all'
                 ? 'bg-cyan-600 text-white'
                 : 'bg-transparent text-gray-400 hover:text-gray-200'
@@ -245,6 +263,8 @@ export const PondInfoModal: React.FC<PondInfoModalProps> = ({
             </button>
             <button
               onClick={() => setActiveTab('favorites')}
+              aria-label="즐겨찾기한 코이 목록 보기"
+              aria-pressed={activeTab === 'favorites'}
               className={`flex-1 py-1.5 rounded-md text-sm font-bold transition-all flex items-center justify-center gap-2 ${activeTab === 'favorites'
                 ? 'bg-yellow-600 text-white'
                 : 'bg-transparent text-gray-400 hover:text-gray-200'
@@ -276,19 +296,20 @@ export const PondInfoModal: React.FC<PondInfoModalProps> = ({
                 }
               }}
               className="px-3 py-1 rounded text-sm font-bold transition-colors bg-cyan-600 hover:bg-cyan-500 text-white whitespace-nowrap"
+              aria-label={selectedKoiIds.size === koiList.length ? '선택한 코이 전체 해제' : '코이 전체 선택'}
             >
               {selectedKoiIds.size === koiList.length ? '전체 해제' : '전체 선택'}
             </button>
-            <button onClick={() => handleSort('spots_desc')} className={`px-3 py-1 rounded text-sm font-bold transition-colors whitespace-nowrap ${sortOption === 'spots_desc' ? 'bg-orange-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}>
+            <button onClick={() => handleSort('spots_desc')} aria-label="점 개수 많은 순으로 정렬" aria-pressed={sortOption === 'spots_desc'} className={`px-3 py-1 rounded text-sm font-bold transition-colors whitespace-nowrap ${sortOption === 'spots_desc' ? 'bg-orange-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}>
               점 개수
             </button>
-            <button onClick={() => handleSort('body_lightness_desc')} className={`px-3 py-1 rounded text-sm font-bold transition-colors whitespace-nowrap ${sortOption === 'body_lightness_desc' ? 'bg-pink-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}>
+            <button onClick={() => handleSort('body_lightness_desc')} aria-label="몸 명도 높은 순으로 정렬" aria-pressed={sortOption === 'body_lightness_desc'} className={`px-3 py-1 rounded text-sm font-bold transition-colors whitespace-nowrap ${sortOption === 'body_lightness_desc' ? 'bg-pink-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}>
               몸 명도 순
             </button>
-            <button onClick={() => handleSort('body_saturation_desc')} className={`px-3 py-1 rounded text-sm font-bold transition-colors whitespace-nowrap ${sortOption === 'body_saturation_desc' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}>
+            <button onClick={() => handleSort('body_saturation_desc')} aria-label="몸 채도 높은 순으로 정렬" aria-pressed={sortOption === 'body_saturation_desc'} className={`px-3 py-1 rounded text-sm font-bold transition-colors whitespace-nowrap ${sortOption === 'body_saturation_desc' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}>
               몸 채도 순
             </button>
-            <button onClick={() => handleSort('spot_saturation_desc')} className={`px-3 py-1 rounded text-sm font-bold transition-colors whitespace-nowrap ${sortOption === 'spot_saturation_desc' ? 'bg-orange-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}>
+            <button onClick={() => handleSort('spot_saturation_desc')} aria-label="점 채도 높은 순으로 정렬" aria-pressed={sortOption === 'spot_saturation_desc'} className={`px-3 py-1 rounded text-sm font-bold transition-colors whitespace-nowrap ${sortOption === 'spot_saturation_desc' ? 'bg-orange-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}>
               점 채도 순
             </button>
           </div>
@@ -320,6 +341,7 @@ export const PondInfoModal: React.FC<PondInfoModalProps> = ({
                 <button
                   onClick={() => setActiveTab('all')}
                   className="text-cyan-400 text-sm hover:underline"
+                  aria-label="전체 코이 목록으로 돌아가기"
                 >
                   전체 목록에서 별을 눌러보세요
                 </button>
@@ -340,6 +362,7 @@ export const PondInfoModal: React.FC<PondInfoModalProps> = ({
                     key={targetPond.id}
                     onClick={() => onMove(koiList.filter(k => selectedKoiIds.has(k.id)), targetPond.id)}
                     className="bg-cyan-900 hover:bg-cyan-800 text-cyan-200 text-xs px-2 py-1.5 rounded transition-colors whitespace-nowrap"
+                    aria-label={`선택한 코이 ${selectedKoiIds.size}마리를 ${targetPond.name}으로 이동`}
                   >
                     To {targetPond.name}
                   </button>
@@ -351,6 +374,7 @@ export const PondInfoModal: React.FC<PondInfoModalProps> = ({
               onClick={handleBreedSelected}
               disabled={selectedKoiIds.size !== 2 || Array.from(selectedKoiIds).some(id => koiList.find(k => k.id === id)?.growthStage !== GrowthStage.ADULT)}
               className="flex items-center gap-2 bg-purple-600 hover:bg-purple-500 disabled:bg-gray-700 disabled:text-gray-500 disabled:cursor-not-allowed text-white font-bold py-2 px-4 text-sm whitespace-nowrap rounded-lg transition-all shadow-lg"
+              aria-label={`선택한 코이 ${selectedKoiIds.size}마리 교배하기`}
             >
               <Dna size={16} />
               {selectedKoiIds.size}마리 교배
@@ -358,6 +382,7 @@ export const PondInfoModal: React.FC<PondInfoModalProps> = ({
             <button
               onClick={handleSellSelected}
               className="flex items-center gap-2 bg-red-600 hover:bg-red-500 text-white font-bold py-2 px-4 text-sm whitespace-nowrap rounded-lg transition-all shadow-lg"
+              aria-label={`선택한 코이 ${selectedKoiIds.size}마리 판매하기`}
             >
               <DollarSign size={16} />
               {selectedKoiIds.size}마리 판매

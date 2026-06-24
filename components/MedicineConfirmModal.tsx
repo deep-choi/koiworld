@@ -18,6 +18,7 @@ export const MedicineConfirmModal: React.FC<MedicineConfirmModalProps> = ({ onCl
                 <button
                     onClick={onClose}
                     className="absolute top-4 right-4 text-gray-400 hover:text-white transition-colors"
+                    aria-label="치료제 사용 확인창 닫기"
                 >
                     <X size={20} />
                 </button>
@@ -56,12 +57,14 @@ export const MedicineConfirmModal: React.FC<MedicineConfirmModalProps> = ({ onCl
                         <button
                             onClick={onClose}
                             className="flex-1 py-3 rounded-xl bg-gray-700 hover:bg-gray-600 text-white font-bold transition-all"
+                            aria-label="치료제 사용 취소"
                         >
                             취소
                         </button>
                         <button
                             onClick={onConfirm}
                             className="flex-1 py-3 rounded-xl bg-green-600 hover:bg-green-500 text-white font-bold transition-all flex items-center justify-center gap-2 shadow-lg shadow-green-500/20"
+                            aria-label="모든 코이에게 치료제 사용하기"
                         >
                             <FlaskConical size={18} />
                             사용하기

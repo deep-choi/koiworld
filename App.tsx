@@ -26,11 +26,13 @@ import { startSession } from './services/session';
 import { saveGameToCloud, loadUserDataOnce, listenToGameData } from './services/sync';
 import { SessionConflictModal } from './components/SessionConflictModal';
 import { MedicineConfirmModal } from './components/MedicineConfirmModal';
-import { FORCE_CLEAR_KEY, SAVE_GAME_KEY, clearLocalGameSaves, suppressLocalGameSave } from './services/localSave';
+import { FORCE_CLEAR_KEY, SAVE_GAME_KEY, clearLocalGameSaves, isLocalGameSaveSuppressed, resumeLocalGameSave, suppressLocalGameSave } from './services/localSave';
+import { startTabLock, type TabLockController } from './services/tabLock';
 import { ensureUserProfileNickname, updateUserNickname } from './services/profile';
 import { RankingModal } from './components/RankingModal';
 import { useAchievements } from './hooks/useAchievements';
 import { AchievementModal } from './components/AchievementModal';
+import { isValidSavedGameState } from './utils/savedGameState';
 
 interface Animation {
   id: number;
@@ -39,7 +41,7 @@ interface Animation {
   position: { x: number; y: number };
 }
 
-const BREEDING_COST = 300;
+const BREEDING_COST = 200;
 const FOOD_PACK_PRICE = 200;
 const FOOD_PACK_AMOUNT = 50;
 const CORN_PACK_PRICE = 500; // Premium food
@@ -55,7 +57,12 @@ const loadGameState = (): SavedGameState | null => {
   try {
     const savedData = localStorage.getItem(SAVE_GAME_KEY);
     if (savedData) {
-      return JSON.parse(savedData);
+      const parsed = JSON.parse(savedData);
+      if (isValidSavedGameState(parsed)) {
+        return parsed;
+      }
+      localStorage.removeItem(SAVE_GAME_KEY);
+      console.warn("Invalid saved game state removed.");
     }
   } catch (error) {
     console.error("Failed to load game state:", error);
@@ -123,6 +130,7 @@ export const App: React.FC = () => {
   const [isConflictOpen, setIsConflictOpen] = useState(false);
   const [userNickname, setUserNickname] = useState<string>('');
   const [isCloudSyncReady, setIsCloudSyncReady] = useState(false);
+  const [isDuplicateTabPaused, setIsDuplicateTabPaused] = useState(false);
 
   // Achievement System
   const [initialAchievementData, setInitialAchievementData] = useState<{ unlockedIds: string[]; claimedIds: string[]; } | null>(() => savedState?.achievements ?? null);
@@ -218,10 +226,40 @@ export const App: React.FC = () => {
   const latestFoodCountsRef = useRef({ food: foodCount, corn: cornCount, type: selectedFoodType });
   const lastLocalSavePayloadRef = useRef<string | null>(null);
   const lastCloudSavePayloadRef = useRef<string | null>(null);
+  const tabLockRef = useRef<TabLockController | null>(null);
 
   useEffect(() => {
     latestFoodCountsRef.current = { food: foodCount, corn: cornCount, type: selectedFoodType };
   }, [foodCount, cornCount, selectedFoodType]);
+
+  useEffect(() => {
+    const scopeId = user?.uid ?? 'guest';
+    const lock = startTabLock(scopeId, {
+      onActive: () => {
+        resumeLocalGameSave();
+        setIsDuplicateTabPaused(false);
+      },
+      onBlocked: () => {
+        suppressLocalGameSave();
+        setIsDuplicateTabPaused(true);
+        setIsFeedModeActive(false);
+        if (feedingIntervalRef.current) clearInterval(feedingIntervalRef.current);
+        if (feedingDelayTimeoutRef.current) clearTimeout(feedingDelayTimeoutRef.current);
+        feedingIntervalRef.current = null;
+        feedingDelayTimeoutRef.current = null;
+        lastPointerPosRef.current = null;
+      },
+    });
+
+    tabLockRef.current = lock;
+
+    return () => {
+      lock.stop();
+      if (tabLockRef.current === lock) {
+        tabLockRef.current = null;
+      }
+    };
+  }, [user?.uid]);
 
   // Clear notification after 3 seconds
   useEffect(() => {
@@ -349,11 +387,10 @@ export const App: React.FC = () => {
       }
       setIsCloudSyncReady(false);
       try {
-        // 병렬 실행: 세션 시작 + 사용자 데이터 통합 로드
-        const [, userData, verifiedNickname] = await Promise.all([
+        const verifiedNickname = await ensureUserProfileNickname(user.uid, user.displayName, user.email, user.photoURL);
+        const [, userData] = await Promise.all([
           startSession(user.uid),
           loadUserDataOnce(user.uid),
-          ensureUserProfileNickname(user.uid, user.displayName, user.email, user.photoURL)
         ]);
         if (cancelled) return;
 
@@ -387,6 +424,7 @@ export const App: React.FC = () => {
     const saveInterval = setInterval(async () => {
       const currentState = gameStateRef.current;
       if (!currentState) return;
+      if (isDuplicateTabPaused || isLocalGameSaveSuppressed()) return;
 
       const payload = JSON.stringify(currentState);
 
@@ -419,7 +457,7 @@ export const App: React.FC = () => {
     }, 5000);
 
     return () => clearInterval(saveInterval);
-  }, [user, isCloudSyncReady]);
+  }, [user, isCloudSyncReady, isDuplicateTabPaused]);
 
   const handleSaveNickname = useCallback(async (nickname: string) => {
     if (!user) return;
@@ -508,6 +546,11 @@ export const App: React.FC = () => {
   };
 
   const handleLoadGame = (loadedState: SavedGameState, options: { silent?: boolean; markAsSynced?: boolean } = {}) => {
+    if (!isValidSavedGameState(loadedState)) {
+      console.warn("Ignored invalid game state:", loadedState);
+      return;
+    }
+
     if (options.markAsSynced) {
       const payload = JSON.stringify(loadedState);
       try {
@@ -536,7 +579,7 @@ export const App: React.FC = () => {
   };
 
   useEffect(() => {
-    if (!user || !isCloudSyncReady) return;
+    if (!user || !isCloudSyncReady || isDuplicateTabPaused) return;
 
     return listenToGameData(user.uid, (cloudState) => {
       const cloudPayload = JSON.stringify(cloudState);
@@ -551,7 +594,7 @@ export const App: React.FC = () => {
 
       handleLoadGame(cloudState, { silent: true, markAsSynced: true });
     });
-  }, [user?.uid, isCloudSyncReady]);
+  }, [user?.uid, isCloudSyncReady, isDuplicateTabPaused]);
 
   const handleUpdateKoi = (koiId: string, updates: { genetics?: Partial<KoiGenetics>; growthStage?: GrowthStage }) => {
     setPonds((prev: Ponds) => {
@@ -628,8 +671,9 @@ export const App: React.FC = () => {
     }
 
     // Check Pond Capacity
-    if (koiList.length >= 30) {
-      setNotification({ message: '연못이 가득 찼습니다! (최대 30마리)', type: 'error' });
+    const remainingCapacity = 30 - koiList.length;
+    if (remainingCapacity < 2) {
+      setNotification({ message: '교배하려면 연못에 최소 2칸의 여유가 필요합니다! (최대 30마리)', type: 'error' });
       return;
     }
 
@@ -642,6 +686,8 @@ export const App: React.FC = () => {
       return;
     }
 
+    const offspringCount = Math.min(Math.floor(Math.random() * 4) + 2, remainingCapacity); // 2 to 5
+
     setZenPoints(p => p - BREEDING_COST);
     activePond && consumeStamina([parent1.id, parent2.id], 30); // Consume 30 stamina
     reduceWaterQuality(4);
@@ -650,7 +696,6 @@ export const App: React.FC = () => {
     const newKois: Koi[] = [];
     let currentCounter = koiNameCounter;
 
-    const offspringCount = Math.floor(Math.random() * 2) + 2; // 2 to 3
     for (let i = 0; i < offspringCount; i++) {
       const breedResult = breedKoi(parent1.genetics, parent2.genetics);
       const newKoi: Koi = {
@@ -797,7 +842,7 @@ export const App: React.FC = () => {
     setNotification({ message: `명예 트로피 ${quantity}개를 구매했습니다!`, type: 'success' });
 
     // 즉시 클라우드 동기화 시도
-    if (user && isCloudSyncReady && gameStateRef.current) {
+    if (user && isCloudSyncReady && gameStateRef.current && !isDuplicateTabPaused && !isLocalGameSaveSuppressed()) {
       const previousCloudPayload = lastCloudSavePayloadRef.current;
       try {
         const immediateState: SavedGameState = {
@@ -813,7 +858,7 @@ export const App: React.FC = () => {
         console.error("Immediate cloud sync failed:", e);
       }
     }
-  }, [zenPoints, honorPoints, user, isCloudSyncReady]);
+  }, [zenPoints, honorPoints, user, isCloudSyncReady, isDuplicateTabPaused]);
 
   const handleBuyKoi = (color: GeneType) => {
     let price = 30000;
@@ -982,6 +1027,11 @@ export const App: React.FC = () => {
     return selectedKoisForBreeding.reduce((sum, koi) => sum + calculateKoiValue(koi), 0);
   }, [selectedKoisForBreeding]);
 
+  const handleContinueInThisTab = useCallback(() => {
+    tabLockRef.current?.takeOver();
+    setNotification({ message: '이 탭에서 게임을 계속합니다.', type: 'success' });
+  }, []);
+
   return (
     <div className="relative w-full h-[100svh] bg-gray-900 overflow-hidden select-none font-sans flex flex-col">
       <main
@@ -1018,6 +1068,33 @@ export const App: React.FC = () => {
         </div>
       </main>
 
+      {isDuplicateTabPaused && (
+        <div
+          className="absolute inset-0 z-[1200] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="duplicate-tab-title"
+          aria-describedby="duplicate-tab-description"
+        >
+          <div className="w-full max-w-sm rounded-xl border border-yellow-500/40 bg-gray-900 p-5 shadow-2xl text-center">
+            <h2 id="duplicate-tab-title" className="text-lg font-black text-yellow-300 mb-3">
+              다른 탭에서 게임이 실행 중입니다
+            </h2>
+            <p id="duplicate-tab-description" className="text-sm leading-6 text-gray-300">
+              저장 충돌을 막기 위해 이 탭의 자동 저장을 잠시 멈췄습니다.
+              이 탭에서 계속하면 다른 탭이 일시 중지됩니다.
+            </p>
+            <button
+              onClick={handleContinueInThisTab}
+              className="mt-5 w-full rounded-lg bg-yellow-600 px-4 py-3 font-bold text-white transition-colors hover:bg-yellow-500"
+              aria-label="이 탭에서 게임 계속하기"
+            >
+              이 탭에서 계속하기
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Notification Toast */}
       {
         notification && (
@@ -1048,6 +1125,7 @@ export const App: React.FC = () => {
           <button
             onClick={handleCleanPond}
             className="ml-auto text-xs bg-blue-600 hover:bg-blue-500 text-white font-bold px-2 py-1 rounded transition-colors"
+            aria-label="연못 청소하기"
           >
             + 청소
           </button>
@@ -1072,6 +1150,7 @@ export const App: React.FC = () => {
           }}
           className="bg-gray-900/40 backdrop-blur-sm p-0 rounded-full border border-white/10 text-white hover:text-yellow-400 transition-colors hover:bg-gray-800/60 hover:border-white/20 w-[46px] h-[46px] overflow-hidden flex items-center justify-center group shadow-xl ml-1"
           title={user ? `${user.displayName || userNickname || '게스트'} 님` : '클릭하여 로그인'}
+          aria-label={user ? '계정 정보 열기' : '로그인 창 열기'}
         >
           {user && user.photoURL ? (
             <img
@@ -1109,6 +1188,7 @@ export const App: React.FC = () => {
                   onClick={handleMultiParentBreed}
                   disabled={!canBreed}
                   className="w-full flex items-center justify-center gap-2 bg-purple-600 text-white font-bold py-2 px-4 rounded-xl shadow-lg transition-all hover:bg-purple-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-sm"
+                  aria-label={`${selectedKoisForBreeding.length}마리 코이 교배하기`}
                 >
                   <Dna size={18} />
                   교배 ({BREEDING_COST} ZP)
@@ -1119,6 +1199,7 @@ export const App: React.FC = () => {
               <button
                 onClick={() => handleSellSelected(selectedKoisForBreeding)}
                 className="w-full flex items-center justify-center gap-2 bg-red-600 text-white font-bold py-2 px-4 rounded-xl shadow-lg transition-all hover:bg-red-500 text-sm"
+                aria-label={`${selectedKoisForBreeding.length}마리 코이 판매하기`}
               >
                 <DollarSign size={18} />
                 판매 (+{totalSellValue} ZP)
@@ -1278,7 +1359,7 @@ export const App: React.FC = () => {
             <div className="bg-gray-800 p-6 rounded-lg max-w-2xl w-full max-h-[85vh] overflow-y-auto border border-gray-700 shadow-xl custom-scrollbar" onClick={e => e.stopPropagation()}>
               <div className="flex justify-between items-center mb-4">
                 <h2 className="text-2xl font-bold text-cyan-300">Koiworld</h2>
-                <button onClick={() => setIsInfoModalOpen(false)} className="text-gray-400 hover:text-white"><X /></button>
+                <button onClick={() => setIsInfoModalOpen(false)} className="text-gray-400 hover:text-white" aria-label="게임 정보 닫기"><X /></button>
               </div>
               <p className="text-gray-300 mb-4">당신만의 평온한 코이 연못에 오신 것을 환영합니다. 아름다운 코이를 키우고, 교배하여 새로운 품종을 발견하세요.</p>
               <div className="space-y-3 text-gray-400">

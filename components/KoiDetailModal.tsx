@@ -31,7 +31,7 @@ export const KoiDetailModal: React.FC<KoiDetailModalProps> = ({ koi, onClose, on
     return (
         <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-[1300] p-4">
             <div className="bg-gray-800 border border-gray-700 rounded-lg shadow-xl p-6 w-full max-w-sm animate-fade-in-up relative max-h-[85svh] overflow-y-auto custom-scrollbar">
-                <button onClick={onClose} className="absolute top-3 right-3 text-gray-400 hover:text-white">
+                <button onClick={onClose} className="absolute top-3 right-3 text-gray-400 hover:text-white" aria-label={`${koi.name} 상세 정보 닫기`}>
                     <X size={24} />
                 </button>
 
@@ -111,6 +111,7 @@ export const KoiDetailModal: React.FC<KoiDetailModalProps> = ({ koi, onClose, on
                                 className={`flex items-center justify-center w-full font-bold py-3 px-4 rounded-lg transition-colors text-base whitespace-nowrap ${canSell
                                     ? 'bg-red-600/80 hover:bg-red-600 text-white'
                                     : 'bg-gray-700 text-gray-500 cursor-not-allowed'}`}
+                                aria-label={`${koi.name} 판매하기, ${sellValue} 젠 포인트`}
                             >
                                 <DollarSign className="mr-2 h-5 w-5" />
                                 판매 ({sellValue} ZP)

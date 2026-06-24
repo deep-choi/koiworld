@@ -1,10 +1,13 @@
 import {
     User as FirebaseUser,
+    createUserWithEmailAndPassword,
     getRedirectResult,
     onAuthStateChanged,
+    signInWithEmailAndPassword,
     signInWithPopup,
     signInWithRedirect,
     signOut as signOutFromFirebase,
+    updateProfile,
 } from 'firebase/auth';
 import { auth, googleProvider } from './firebase';
 
@@ -64,6 +67,36 @@ export const loginWithGoogle = async (): Promise<void> => {
             return;
         }
 
+        throw error;
+    }
+};
+
+export const loginWithEmailPassword = async (email: string, password: string): Promise<AppUser | null> => {
+    try {
+        const result = await signInWithEmailAndPassword(auth, email.trim(), password);
+        return toAppUser(result.user);
+    } catch (error) {
+        console.error("Email Login Error:", error);
+        throw error;
+    }
+};
+
+export const signUpWithEmailPassword = async (
+    email: string,
+    password: string,
+    nickname: string,
+): Promise<AppUser | null> => {
+    try {
+        const result = await createUserWithEmailAndPassword(auth, email.trim(), password);
+        const displayName = nickname.trim();
+
+        if (displayName) {
+            await updateProfile(result.user, { displayName });
+        }
+
+        return toAppUser(auth.currentUser ?? result.user);
+    } catch (error) {
+        console.error("Email Sign Up Error:", error);
         throw error;
     }
 };

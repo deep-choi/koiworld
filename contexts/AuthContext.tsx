@@ -1,10 +1,12 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { AppUser, subscribeToAuthChanges, loginWithGoogle, logout, checkRedirectResult } from '../services/auth';
+import { AppUser, subscribeToAuthChanges, loginWithGoogle, logout, checkRedirectResult, loginWithEmailPassword, signUpWithEmailPassword } from '../services/auth';
 
 interface AuthContextType {
     user: AppUser | null;
     loading: boolean;
     login: () => Promise<void>;
+    loginWithEmail: (email: string, password: string) => Promise<void>;
+    signUpWithEmail: (email: string, password: string, nickname: string) => Promise<void>;
     logout: () => Promise<void>;
 }
 
@@ -57,6 +59,26 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
     };
 
+    const handleEmailLogin = async (email: string, password: string) => {
+        try {
+            const signedInUser = await loginWithEmailPassword(email, password);
+            if (signedInUser) setUser(signedInUser);
+        } catch (error) {
+            console.error("Email login failed context:", error);
+            throw error;
+        }
+    };
+
+    const handleEmailSignUp = async (email: string, password: string, nickname: string) => {
+        try {
+            const createdUser = await signUpWithEmailPassword(email, password, nickname);
+            if (createdUser) setUser(createdUser);
+        } catch (error) {
+            console.error("Email sign up failed context:", error);
+            throw error;
+        }
+    };
+
     const handleLogout = async () => {
         try {
             await logout();
@@ -67,7 +89,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
 
     return (
-        <AuthContext.Provider value={{ user, loading, login: handleLogin, logout: handleLogout }}>
+        <AuthContext.Provider value={{ user, loading, login: handleLogin, loginWithEmail: handleEmailLogin, signUpWithEmail: handleEmailSignUp, logout: handleLogout }}>
             {children}
         </AuthContext.Provider>
     );

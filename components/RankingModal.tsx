@@ -78,10 +78,11 @@ export const RankingModal: React.FC<RankingModalProps> = ({ isOpen, onClose, use
                                 disabled={isLoading}
                                 className="p-1.5 hover:bg-gray-700 rounded-full text-gray-400 hover:text-yellow-400 transition-colors disabled:opacity-50"
                                 title="새로고침"
+                                aria-label="랭킹 새로고침"
                             >
                                 <RotateCw size={20} className={isLoading ? 'animate-spin' : ''} />
                             </button>
-                            <button onClick={onClose} className="p-1 hover:bg-gray-700 rounded-full text-gray-400 hover:text-white transition-colors">
+                            <button onClick={onClose} className="p-1 hover:bg-gray-700 rounded-full text-gray-400 hover:text-white transition-colors" aria-label="랭킹 닫기">
                                 <X size={24} />
                             </button>
                         </div>
@@ -91,6 +92,8 @@ export const RankingModal: React.FC<RankingModalProps> = ({ isOpen, onClose, use
                     <div className="flex bg-gray-800 p-1 rounded-lg border border-gray-700">
                         <button
                             onClick={() => setActiveTab('trophy')}
+                            aria-label="트로피 랭킹 보기"
+                            aria-pressed={activeTab === 'trophy'}
                             className={`flex-1 py-1.5 text-xs font-bold rounded flex items-center justify-center gap-1.5 transition-all ${activeTab === 'trophy'
                                 ? 'bg-yellow-500 text-black shadow'
                                 : 'text-gray-400 hover:text-gray-200'
@@ -101,6 +104,8 @@ export const RankingModal: React.FC<RankingModalProps> = ({ isOpen, onClose, use
                         </button>
                         <button
                             onClick={() => setActiveTab('achievement')}
+                            aria-label="업적 랭킹 보기"
+                            aria-pressed={activeTab === 'achievement'}
                             className={`flex-1 py-1.5 text-xs font-bold rounded flex items-center justify-center gap-1.5 transition-all ${activeTab === 'achievement'
                                 ? 'bg-purple-500 text-white shadow'
                                 : 'text-gray-400 hover:text-gray-200'
@@ -139,6 +144,7 @@ export const RankingModal: React.FC<RankingModalProps> = ({ isOpen, onClose, use
                             <button
                                 onClick={fetchRankings}
                                 className="mt-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-xs font-bold transition-colors"
+                                aria-label="랭킹 다시 불러오기"
                             >
                                 다시 시도
                             </button>

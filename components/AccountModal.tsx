@@ -92,7 +92,7 @@ export const AccountModal: React.FC<AccountModalProps> = ({
                     <h2 className="text-xl font-black text-white flex items-center gap-2">
                         <User size={20} className="text-cyan-400" /> 계정 정보
                     </h2>
-                    <button onClick={onClose} className="text-gray-500 hover:text-white transition-colors">
+                    <button onClick={onClose} className="text-gray-500 hover:text-white transition-colors" aria-label="계정 정보 닫기">
                         <X size={24} />
                     </button>
                 </div>
@@ -135,6 +135,7 @@ export const AccountModal: React.FC<AccountModalProps> = ({
                                 disabled={isSaving || success}
                                 className={`absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-lg transition-all ${success ? 'bg-green-500 text-white' : 'hover:bg-cyan-500/20 text-cyan-400'
                                     }`}
+                                aria-label={success ? '닉네임 저장 완료' : '닉네임 저장하기'}
                             >
                                 {isSaving ? <div className="w-5 h-5 border-2 border-cyan-400 border-t-transparent animate-spin rounded-full" /> :
                                     success ? <Check size={20} /> : <Check size={20} />}
@@ -150,6 +151,7 @@ export const AccountModal: React.FC<AccountModalProps> = ({
                             onClick={handleLogout}
                             disabled={isLoggingOut}
                             className="w-full py-4 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 transition-all flex items-center justify-center gap-2 font-bold group"
+                            aria-label={isLoggingOut ? '로그아웃 진행 중' : '로그아웃하기'}
                         >
                             <LogOut size={20} className="group-hover:-translate-x-1 transition-transform" />
                             {isLoggingOut ? '로그아웃 중...' : '로그아웃'}

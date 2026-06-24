@@ -82,6 +82,13 @@ export const ControlBar: React.FC<ControlBarProps> = ({
   hasUnclaimedAchievements,
 }) => {
   const [isInventoryOpen, setIsInventoryOpen] = useState(false);
+  const itemLabels = {
+    normal: '기본 사료',
+    corn: '프리미엄 옥수수',
+    medicine: '치료제',
+  };
+  const selectedItemLabel = itemLabels[selectedFoodType];
+  const selectedItemCount = selectedFoodType === 'corn' ? cornCount : selectedFoodType === 'medicine' ? medicineCount : foodCount;
 
   const handleItemClick = (type: 'normal' | 'corn' | 'medicine') => {
     if (!isFeedModeActive) {
@@ -113,13 +120,13 @@ export const ControlBar: React.FC<ControlBarProps> = ({
       {/* Main Menu Popup (Centered on Screen) */}
       {isMainMenuOpen && (
         <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 flex flex-row gap-2 bg-black/60 p-2 rounded-2xl border border-gray-700 backdrop-blur-md whitespace-nowrap">
-          <button onClick={() => handleSubMenuClick(onShopClick)} className={getButtonClass(false)} aria-label="Shop">
+          <button onClick={() => handleSubMenuClick(onShopClick)} className={getButtonClass(false)} aria-label="상점 열기">
             <Store size={24} />
           </button>
-          <button onClick={() => handleSubMenuClick(onRankingClick)} className={getButtonClass(false)} aria-label="Ranking">
+          <button onClick={() => handleSubMenuClick(onRankingClick)} className={getButtonClass(false)} aria-label="랭킹 열기">
             <Trophy size={24} />
           </button>
-          <button onClick={() => handleSubMenuClick(onAchievementClick)} className={getButtonClass(false)} aria-label="Achievements">
+          <button onClick={() => handleSubMenuClick(onAchievementClick)} className={getButtonClass(false)} aria-label={hasUnclaimedAchievements ? '업적 열기, 받을 보상 있음' : '업적 열기'}>
             <div className="relative">
               <Medal size={24} />
               {hasUnclaimedAchievements && (
@@ -127,7 +134,7 @@ export const ControlBar: React.FC<ControlBarProps> = ({
               )}
             </div>
           </button>
-          <button onClick={() => handleSubMenuClick(onThemeClick)} className={getButtonClass(false)} aria-label="Themes">
+          <button onClick={() => handleSubMenuClick(onThemeClick)} className={getButtonClass(false)} aria-label="테마 선택 열기">
             <Palette size={24} />
           </button>
         </div>
@@ -135,7 +142,13 @@ export const ControlBar: React.FC<ControlBarProps> = ({
 
       {/* Main Menu Button (Left) */}
       <div className="relative">
-        <button onClick={handleMainMenuToggle} className={getButtonClass(isMainMenuOpen)} aria-label="Menu">
+        <button
+          onClick={handleMainMenuToggle}
+          className={getButtonClass(isMainMenuOpen)}
+          aria-label={isMainMenuOpen ? '메뉴 닫기' : '메뉴 열기'}
+          aria-expanded={isMainMenuOpen}
+          aria-haspopup="menu"
+        >
           <Menu size={24} className="sm:w-[26px] sm:h-[26px]" strokeWidth={2} />
           {hasUnclaimedAchievements && !isMainMenuOpen && (
             <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full" />
@@ -146,29 +159,50 @@ export const ControlBar: React.FC<ControlBarProps> = ({
       <div className="relative">
         {isInventoryOpen && (
           <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 flex flex-row gap-2 bg-black/60 p-2 rounded-2xl border border-gray-700 backdrop-blur-md whitespace-nowrap">
-            <button onClick={() => handleItemClick('normal')} className={getButtonClass(isFeedModeActive && selectedFoodType === 'normal')}>
+            <button
+              onClick={() => handleItemClick('normal')}
+              className={getButtonClass(isFeedModeActive && selectedFoodType === 'normal')}
+              aria-label={`기본 사료 선택, 보유 ${foodCount}개`}
+              aria-pressed={isFeedModeActive && selectedFoodType === 'normal'}
+            >
               <FeedIcon size={24} className="sm:w-[26px] sm:h-[26px]" />
               <span className="absolute -top-1 -right-1 bg-gray-800 text-yellow-400 border border-white/20 text-[10px] sm:text-[11px] font-bold rounded-full w-5 h-5 flex items-center justify-center">{foodCount}</span>
             </button>
-            <button onClick={() => handleItemClick('corn')} className={getButtonClass(isFeedModeActive && selectedFoodType === 'corn')}>
+            <button
+              onClick={() => handleItemClick('corn')}
+              className={getButtonClass(isFeedModeActive && selectedFoodType === 'corn')}
+              aria-label={`프리미엄 옥수수 선택, 보유 ${cornCount}개`}
+              aria-pressed={isFeedModeActive && selectedFoodType === 'corn'}
+            >
               <CornIcon size={24} className="sm:w-[26px] sm:h-[26px]" />
               <span className="absolute -top-1 -right-1 bg-gray-800 text-yellow-400 border border-white/20 text-[10px] sm:text-[11px] font-bold rounded-full w-5 h-5 flex items-center justify-center">{cornCount}</span>
             </button>
-            <button onClick={() => handleItemClick('medicine')} className={getButtonClass(isFeedModeActive && selectedFoodType === 'medicine')}>
+            <button
+              onClick={() => handleItemClick('medicine')}
+              className={getButtonClass(isFeedModeActive && selectedFoodType === 'medicine')}
+              aria-label={`치료제 선택, 보유 ${medicineCount}개`}
+              aria-pressed={isFeedModeActive && selectedFoodType === 'medicine'}
+            >
               <Pill size={24} className="sm:w-[26px] sm:h-[26px]" />
               <span className="absolute -top-1 -right-1 bg-gray-800 text-yellow-400 border border-white/20 text-[10px] sm:text-[11px] font-bold rounded-full w-5 h-5 flex items-center justify-center">{medicineCount}</span>
             </button>
           </div>
         )}
-        <button onClick={handleInventoryClick} className={getButtonClass(isInventoryOpen || isFeedModeActive)}>
+        <button
+          onClick={handleInventoryClick}
+          className={getButtonClass(isInventoryOpen || isFeedModeActive)}
+          aria-label={isInventoryOpen ? '먹이와 아이템 선택 닫기' : `${selectedItemLabel} 메뉴 열기, 보유 ${selectedItemCount}개`}
+          aria-expanded={isInventoryOpen}
+          aria-haspopup="menu"
+        >
           {selectedFoodType === 'corn' ? <CornIcon size={24} /> : selectedFoodType === 'medicine' ? <Pill size={24} /> : <FeedIcon size={24} />}
           <span className="absolute -top-1 -right-1 bg-gray-800 text-yellow-400 border border-white/20 text-[10px] sm:text-[11px] font-bold rounded-full w-5 h-5 flex items-center justify-center">
-            {selectedFoodType === 'corn' ? cornCount : selectedFoodType === 'medicine' ? medicineCount : foodCount}
+            {selectedItemCount}
           </span>
         </button>
       </div>
 
-      <button onClick={onPondInfoClick} className={getButtonClass(false)} aria-label="Open pond info">
+      <button onClick={onPondInfoClick} className={getButtonClass(false)} aria-label="연못 현황 열기">
         <Fish size={24} className="sm:w-[26px] sm:h-[26px]" strokeWidth={2} />
       </button>
 

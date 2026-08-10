@@ -31,3 +31,12 @@ dist-ssr
 
 # Firebase
 .firebase/
+
+# Capacitor / Android local files
+android/.gradle/
+android/.idea/
+android/build/
+android/capacitor-cordova-android-plugins/
+android/local.properties
+android/**/build/
+android/**/.cxx/

@@ -76,7 +76,7 @@ export const startTabLock = (scopeId: string, handlers: TabLockHandlers): TabLoc
 
     let stopped = false;
     let status: TabLockStatus | null = null;
-    let heartbeatId: ReturnType<typeof window.setInterval> | null = null;
+    let heartbeatId: number | null = null;
 
     const postMessage = (type: TabLockMessage['type'], updatedAt = Date.now()) => {
         channel?.postMessage({ type, scopeId, tabId, updatedAt });

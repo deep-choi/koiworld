@@ -116,6 +116,32 @@ export const AccountModal: React.FC<AccountModalProps> = ({
                         </div>
                     </div>
 
+                    {/* Authentication Status */}
+                    <div className={`rounded-2xl border p-4 ${user?.isAnonymous
+                        ? 'border-amber-400/20 bg-amber-400/5'
+                        : 'border-emerald-400/20 bg-emerald-400/5'
+                        }`}>
+                        <div className="flex items-center justify-between gap-3">
+                            <div>
+                                <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">로그인 방식</p>
+                                <p className={`mt-1 text-base font-black ${user?.isAnonymous ? 'text-amber-300' : 'text-emerald-300'}`}>
+                                    {user?.authSourceLabel ?? user?.providerLabel ?? '확인 중'}
+                                </p>
+                            </div>
+                            <div className={`flex h-9 w-9 items-center justify-center rounded-full ${user?.isAnonymous ? 'bg-amber-400/10 text-amber-300' : 'bg-emerald-400/10 text-emerald-300'
+                                }`} aria-hidden="true">
+                                <User size={18} />
+                            </div>
+                        </div>
+                        <p className="mt-2 text-xs leading-relaxed text-gray-400">
+                            {user?.isAnonymous
+                                ? '현재 게스트 모드입니다. Play Games 계정과 아직 연결되지 않았습니다.'
+                                : user?.authSource === 'playgames'
+                                    ? 'Play Games 자동 로그인으로 Google 계정에 연결되어 다른 기기에서도 게임 데이터를 이어갈 수 있습니다.'
+                                : 'Firebase 계정에 연결되어 다른 기기에서도 게임 데이터를 이어갈 수 있습니다.'}
+                        </p>
+                    </div>
+
                     {/* Nickname Section */}
                     <div className="space-y-3">
                         <label className="text-xs font-black text-gray-500 uppercase tracking-widest flex items-center gap-2">

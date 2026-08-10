@@ -1,0 +1,76 @@
+{
+  "project_info": {
+    "project_number": "1076557834310",
+    "project_id": "koi-garden-abcf5",
+    "storage_bucket": "koi-garden-abcf5.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1076557834310:android:93a0f78d3eb20fc7b18247",
+        "android_client_info": {
+          "package_name": "com.zenkoigarden.game"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1076557834310-ui97tgnib6h3u1tb31uavj6dholtfoqq.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.zenkoigarden.game",
+            "certificate_hash": "ed7319d3c0ce841a44667f7f50936b054dc08df0"
+          }
+        },
+        {
+          "client_id": "1076557834310-p4387b9nkii2ba9loun8lcqp7bbmos42.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAJhHM0ypc1YlVPzfAwVIbchlQy2PgTqwU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1076557834310-p4387b9nkii2ba9loun8lcqp7bbmos42.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1076557834310:android:32071e3cb0524268b18247",
+        "android_client_info": {
+          "package_name": "shop.koigarden.koiworld"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1076557834310-p4387b9nkii2ba9loun8lcqp7bbmos42.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAJhHM0ypc1YlVPzfAwVIbchlQy2PgTqwU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1076557834310-p4387b9nkii2ba9loun8lcqp7bbmos42.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

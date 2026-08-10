@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { AppUser, subscribeToAuthChanges, loginWithGoogle, logout, checkRedirectResult, loginWithEmailPassword, signUpWithEmailPassword } from '../services/auth';
+import React, { createContext, useContext, useEffect, useRef, useState, ReactNode } from 'react';
+import { Capacitor } from '@capacitor/core';
+import { AppUser, subscribeToAuthChanges, loginWithGoogle, logout, checkRedirectResult, initializeAndroidSession, loginWithEmailPassword, signUpWithEmailPassword } from '../services/auth';
 
 interface AuthContextType {
     user: AppUser | null;
@@ -15,36 +16,51 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
     const [user, setUser] = useState<AppUser | null>(null);
     const [loading, setLoading] = useState(true);
+    const isBootstrappingNativeSession = useRef(Capacitor.getPlatform() === 'android');
 
     useEffect(() => {
         let isMounted = true;
 
+        const bootstrapAuth = async () => {
+            try {
+                const restoredUser = await checkRedirectResult();
+                if (isMounted && restoredUser) {
+                    setUser(restoredUser);
+                }
+
+                const shouldAttemptAndroidPlayGames =
+                    Capacitor.getPlatform() === 'android' &&
+                    (!restoredUser || restoredUser.isAnonymous);
+
+                if (shouldAttemptAndroidPlayGames) {
+                    const nativeUser = await initializeAndroidSession();
+                    if (isMounted && nativeUser) {
+                        setUser(nativeUser);
+                    }
+                }
+            } catch (error) {
+                console.error("Auth bootstrap error:", error);
+            } finally {
+                if (isMounted) {
+                    isBootstrappingNativeSession.current = false;
+                    setLoading(false);
+                }
+            }
+        };
+
         // 리다이렉트 결과 확인 (모바일 웹 로그인 에러 처리용)
-        checkRedirectResult().then((restoredUser) => {
-            if (!isMounted || !restoredUser) return;
-            setUser(restoredUser);
-        }).catch(error => {
-            console.error("Auth Redirect Error:", error);
-            // 필요하다면 여기서 에러 상태를 state에 저장해 알림 표시 가능
-        });
+        void bootstrapAuth();
 
         const unsubscribe = subscribeToAuthChanges((currentUser) => {
             if (!isMounted) return;
             setUser(currentUser);
-            setLoading(false);
+            if (!isBootstrappingNativeSession.current) {
+                setLoading(false);
+            }
         });
-
-        // 1.5s fallback: avoid blocking the UI forever if session restore is slow
-        const timeoutId = setTimeout(() => {
-            setLoading(prev => {
-                if (prev) return false;
-                return prev;
-            });
-        }, 1500);
 
         return () => {
             isMounted = false;
-            clearTimeout(timeoutId);
             unsubscribe();
         };
     }, []);

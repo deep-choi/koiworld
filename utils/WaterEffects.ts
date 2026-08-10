@@ -39,10 +39,16 @@ export class WaterEffects {
     private surfaceBubbles: BubbleParticle[] = [];
     private width: number = 0;
     private height: number = 0;
+    private surfaceGradient: CanvasGradient | null = null;
+    private surfaceGradientKey: string = '';
 
     constructor() { }
 
     public resize(width: number, height: number) {
+        if (this.width !== width || this.height !== height) {
+            this.surfaceGradient = null;
+            this.surfaceGradientKey = '';
+        }
         this.width = width;
         this.height = height;
     }
@@ -184,7 +190,6 @@ export class WaterEffects {
 
             // 1. Draw Surface Sheen (Frosted Glass Effect)
             // Much higher opacity to obscure bottom slightly (simulating blur/depth)
-            const sheenGradient = ctx.createLinearGradient(0, 0, 0, h);
             // Day: original soft green sheen, Night: icy blue
             const sheenBaseColor = isNight ? '200, 220, 255' : '100, 255, 200';
 
@@ -198,11 +203,17 @@ export class WaterEffects {
                                     0.12;
             const sheenAlphaTop = isNight ? 0.15 : daySheenAlpha;
             const sheenAlphaBottom = isNight ? 0.15 : daySheenAlpha;
+            const gradientKey = `${w}x${h}:${sheenBaseColor}:${sheenAlphaTop}:${sheenAlphaBottom}`;
 
-            sheenGradient.addColorStop(0, `rgba(${sheenBaseColor}, ${sheenAlphaTop})`);
-            sheenGradient.addColorStop(1, `rgba(${sheenBaseColor}, ${sheenAlphaBottom})`);
+            if (!this.surfaceGradient || this.surfaceGradientKey !== gradientKey) {
+                const sheenGradient = ctx.createLinearGradient(0, 0, 0, h);
+                sheenGradient.addColorStop(0, `rgba(${sheenBaseColor}, ${sheenAlphaTop})`);
+                sheenGradient.addColorStop(1, `rgba(${sheenBaseColor}, ${sheenAlphaBottom})`);
+                this.surfaceGradient = sheenGradient;
+                this.surfaceGradientKey = gradientKey;
+            }
 
-            ctx.fillStyle = sheenGradient;
+            ctx.fillStyle = this.surfaceGradient;
 
             // Add "Backdrop Blur" simulation by filling with semi-transparent milky layer
             ctx.fillRect(0, 0, w, h);

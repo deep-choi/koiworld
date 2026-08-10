@@ -141,6 +141,7 @@ export const App: React.FC = () => {
   } = useAchievements(user?.uid, initialAchievementData);
   const [isAchievementModalOpen, setIsAchievementModalOpen] = useState(false);
   const lastAchievementCheckKeyRef = useRef('');
+  const achievementGeneticsSignatureCacheRef = useRef(new WeakMap<Koi['genetics'], string>());
 
   // Show achievement unlock notification
   useEffect(() => {
@@ -149,18 +150,26 @@ export const App: React.FC = () => {
     // 업적 조건과 무관한 상태(예: 스태미나/수질 변화)로 재검사를 반복하지 않도록 키를 계산합니다.
     const achievementCheckKey = koiList
       .map((koi) => {
-        const spotsSignature = koi.genetics.spots
-          .map((spot) => `${spot.color}:${spot.shape ?? ''}:${Math.round(spot.x)}:${Math.round(spot.y)}:${Math.round(spot.size)}`)
-          .join('|');
+        let geneticsSignature = achievementGeneticsSignatureCacheRef.current.get(koi.genetics);
+        if (!geneticsSignature) {
+          const spotsSignature = koi.genetics.spots
+            .map((spot) => `${spot.color}:${spot.shape ?? ''}:${Math.round(spot.x)}:${Math.round(spot.y)}:${Math.round(spot.size)}`)
+            .join('|');
+
+          geneticsSignature = [
+            koi.genetics.baseColorGenes.join(','),
+            koi.genetics.lightness ?? '',
+            koi.genetics.saturation ?? '',
+            (koi.genetics.albinoAlleles ?? []).join(','),
+            spotsSignature,
+          ].join(':');
+          achievementGeneticsSignatureCacheRef.current.set(koi.genetics, geneticsSignature);
+        }
 
         return [
           koi.id,
           koi.growthStage,
-          koi.genetics.baseColorGenes.join(','),
-          koi.genetics.lightness ?? '',
-          koi.genetics.saturation ?? '',
-          (koi.genetics.albinoAlleles ?? []).join(','),
-          spotsSignature,
+          geneticsSignature,
         ].join(':');
       })
       .sort()

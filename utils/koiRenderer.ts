@@ -15,6 +15,8 @@ interface KoiColors {
     fin: string; // New cached property
 }
 
+const WORLD_TRANSFORM = (x: number, y: number) => ({ x, y });
+
 export class KoiRenderer {
     private segmentCount = 52;
     private baseSpacing = 3.0;
@@ -214,7 +216,7 @@ export class KoiRenderer {
         return inside;
     }
 
-    public drawShadow(ctx: CanvasRenderingContext2D, offset: { x: number, y: number }, transform: (x: number, y: number) => { x: number, y: number }) {
+    public drawShadow(ctx: CanvasRenderingContext2D, offsetX: number, offsetY: number) {
         if (!this.initialized) return;
 
         ctx.save();
@@ -234,10 +236,11 @@ export class KoiRenderer {
             const scaledX = head.x + (dx * shadowScale);
             const scaledY = head.y + (dy * shadowScale);
 
-            const p = transform(scaledX + offset.x, scaledY + offset.y);
+            const x = scaledX + offsetX;
+            const y = scaledY + offsetY;
 
-            if (i === this.segmentCount - 1) ctx.moveTo(p.x + r, p.y);
-            else ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+            if (i === this.segmentCount - 1) ctx.moveTo(x + r, y);
+            else ctx.arc(x, y, r, 0, Math.PI * 2);
         }
 
         ctx.fill();
@@ -246,13 +249,12 @@ export class KoiRenderer {
 
     public drawWorld(ctx: CanvasRenderingContext2D, colors: KoiColors, spots: Array<{ x: number, y: number, size: number, color: string }>, isSelected: boolean = false, time: number = 0, phenotype?: SpotPhenotype, isAlbino: boolean = false) {
         if (!this.initialized) return;
-        const toWorld = (x: number, y: number) => ({ x, y });
 
         if (isSelected) {
-            this.drawSelectionOutline(ctx, toWorld);
+            this.drawSelectionOutline(ctx, WORLD_TRANSFORM);
         }
 
-        this.renderKoi(ctx, colors, spots, toWorld, time, phenotype, isAlbino);
+        this.renderKoi(ctx, colors, spots, WORLD_TRANSFORM, time, phenotype, isAlbino);
     }
 
     private drawHitboxDebug(ctx: CanvasRenderingContext2D) {

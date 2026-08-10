@@ -195,10 +195,12 @@ export const useKoiPond = (initialState?: UseKoiPondInitialState) => {
                     staminaDecay = 1 / 6; // 1 per 6 seconds
                 }
 
-                const updatedKois = activePond.kois.map(k => ({
-                    ...k,
-                    stamina: Math.max(0, (k.stamina ?? 100) - staminaDecay),
-                }));
+                const updatedKois = staminaDecay > 0
+                    ? activePond.kois.map(k => ({
+                        ...k,
+                        stamina: Math.max(0, (k.stamina ?? 100) - staminaDecay),
+                    }))
+                    : activePond.kois;
 
                 return {
                     ...prev,

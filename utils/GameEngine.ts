@@ -4,6 +4,8 @@ import { KoiRenderer } from './koiRenderer';
 import { GENE_COLOR_MAP, getPhenotype, getDisplayColor, getSpineColor, calculateSpotPhenotype, getSpotColorWithSaturation } from './genetics';
 import { WaterEffects } from './WaterEffects';
 
+const NO_KOI_POSITIONS: { x: number, y: number, vx: number, vy: number }[] = [];
+
 interface GameEntity {
     id: string;
     type: 'koi' | 'food' | 'decoration';
@@ -16,7 +18,9 @@ interface KoiEntity extends GameEntity {
     target: { x: number, y: number };
     chaseTimer: number; // Time spent chasing current target
     cachedColors: {
+        outline: string;
         body: string;
+        pattern: string;
         spine: string;
         fin: string; // Pre-calculated transparent color
         spots: Array<{ x: number, y: number, size: number, color: string, shape?: any }>;
@@ -60,6 +64,10 @@ export class GameEngine {
     private currentFPS = 0;
     private showFPS = import.meta.env.DEV; // 개발자 패널용 FPS 표시 (개발 환경에서만)
     private readonly resizeListener = () => this.resize();
+    private readonly visibilityListener = () => {
+        if (document.hidden) this.stop();
+        else this.start();
+    };
 
     constructor(canvas: HTMLCanvasElement) {
         this.canvas = canvas;
@@ -70,6 +78,7 @@ export class GameEngine {
 
         this.resize();
         window.addEventListener('resize', this.resizeListener);
+        document.addEventListener('visibilitychange', this.visibilityListener);
     }
 
     public onFoodEaten?: (koiId: string, foodId: number, feedAmount: number, position: { x: number, y: number }) => void;
@@ -203,6 +212,7 @@ export class GameEngine {
     private lastTime: number = 0;
 
     public start() {
+        if (document.hidden) return;
         if (!this.animationId) {
             this.lastTime = performance.now();
             this.loop(this.lastTime);
@@ -219,6 +229,7 @@ export class GameEngine {
     public destroy() {
         this.stop();
         window.removeEventListener('resize', this.resizeListener);
+        document.removeEventListener('visibilitychange', this.visibilityListener);
     }
 
     private selectedIds: Set<string> = new Set();
@@ -290,6 +301,7 @@ export class GameEngine {
                     ...spot,
                     color: getSpotColorWithSaturation(GENE_COLOR_MAP[spot.color], colorSaturation, idx)
                 }));
+                const geneticsHash = `${koiData.genetics.baseColorGenes.join('')}-${koiData.genetics.lightness}-${koiData.genetics.saturation}-${koiData.genetics.albinoAlleles?.join('')}-${koiData.genetics.spots.length}`;
 
                 this.kois.set(koiData.id, {
                     id: koiData.id,
@@ -304,12 +316,15 @@ export class GameEngine {
                     target: this.getRandomTarget(),
                     chaseTimer: 0,
                     cachedColors: {
+                        outline: 'rgba(255, 255, 255, 0.15)',
                         body: bodyColor,
+                        pattern: '#FF4500',
                         spine: spineColor || '#000000',
                         fin: finColor,
                         spots: spots
                     },
-                    phenotype
+                    phenotype,
+                    geneticsHash
                 });
                 this.updateKoiScale(this.kois.get(koiData.id)!, true);
             } else {
@@ -342,7 +357,9 @@ export class GameEngine {
                     }));
 
                     entity.cachedColors = {
+                        outline: 'rgba(255, 255, 255, 0.15)',
                         body: bodyColor,
+                        pattern: '#FF4500',
                         spine: spineColor || '#000000',
                         fin: finColor,
                         spots: spots
@@ -453,11 +470,11 @@ export class GameEngine {
         };
     }
 
-    private update(dt: number) {
+    private update(dt: number, now: number) {
 
 
         // Water Effects (Ambient only, no position tracking for performance)
-        this.waterEffects.update([]);
+        this.waterEffects.update(NO_KOI_POSITIONS);
         this.waterEffects.updateSurface(this.width, this.height, this.isNight);
 
         // Update Kois
@@ -469,7 +486,7 @@ export class GameEngine {
             let chasingFood = false;
 
             // Food Seeking Logic
-            if (this.foods.size > 0 && (!entity.data.feedCooldownUntil || Date.now() >= entity.data.feedCooldownUntil)) {
+            if (this.foods.size > 0 && (!entity.data.feedCooldownUntil || now >= entity.data.feedCooldownUntil)) {
                 let closestFood: FoodEntity | null = null;
                 let minDist = Infinity;
 
@@ -574,7 +591,7 @@ export class GameEngine {
         });
     }
 
-    private draw() {
+    private draw(now: number) {
         this.ctx.clearRect(0, 0, this.width, this.height);
 
         // Draw Water Effects (Background)
@@ -589,11 +606,8 @@ export class GameEngine {
             // Using 20 as base multiplier for slightly better separation on larger fish
             const offsetVal = 26 * scale;
             // Almost vertical: small X offset (20%), full Y offset
-            const shadowOffset = { x: offsetVal * 0.2, y: offsetVal };
-
-            const toWorld = (x: number, y: number) => ({ x, y });
             try {
-                entity.renderer.drawShadow(this.ctx, shadowOffset, toWorld);
+                entity.renderer.drawShadow(this.ctx, offsetVal * 0.2, offsetVal);
             } catch (e) {
                 // Ignore shadow errors
             }
@@ -605,22 +619,12 @@ export class GameEngine {
         this.kois.forEach(entity => {
             const isSelected = this.selectedIds.has(entity.id);
 
-            // Use Cached Colors
-            const colors = {
-                outline: 'rgba(255, 255, 255, 0.15)',
-                body: entity.cachedColors.body,
-                pattern: '#FF4500',
-                spine: entity.cachedColors.spine,
-                fin: entity.cachedColors.fin // Pass new prop
-            };
-
             // Albino expression: Both alleles must be true (recessive)
-            const albinoAlleles = entity.data.genetics.albinoAlleles || [false, false];
-            const isAlbino = albinoAlleles[0] && albinoAlleles[1];
+            const albinoAlleles = entity.data.genetics.albinoAlleles;
+            const isAlbino = albinoAlleles?.[0] === true && albinoAlleles[1] === true;
 
             try {
-                // @ts-ignore - fin property is new, ignoring TS error until renderer update
-                entity.renderer.drawWorld(this.ctx, colors, entity.cachedColors.spots, isSelected, Date.now(), entity.phenotype, isAlbino);
+                entity.renderer.drawWorld(this.ctx, entity.cachedColors, entity.cachedColors.spots, isSelected, now, entity.phenotype, isAlbino);
             } catch (e) {
                 console.error("Error drawing koi:", e);
             }
@@ -668,10 +672,11 @@ export class GameEngine {
             }
 
             const safeDt = Math.min(dt, 0.1);
+            const now = Date.now();
 
             // this.resize(); // Optimization: Removed per-frame resize
-            this.update(safeDt);
-            this.draw();
+            this.update(safeDt, now);
+            this.draw(now);
             this.animationId = requestAnimationFrame(this.loop);
         } catch (e) {
             console.error("Error in game loop:", e);

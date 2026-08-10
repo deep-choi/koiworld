@@ -1,7 +1,5 @@
 import React, { useState } from 'react';
-import { X, ShoppingCart, Minus, Plus, Dna, Trophy } from 'lucide-react';
-import { GENE_COLOR_MAP } from '../utils/genetics';
-import { GeneType } from '../types';
+import { X, ShoppingCart, Minus, Plus, Trophy } from 'lucide-react';
 
 interface IconProps {
     size?: number;
@@ -51,18 +49,15 @@ interface ShopModalProps {
     onBuyFoodLarge: (quantity: number) => void;
     onBuyCorn: (quantity: number) => void;
     onBuyCornLarge: (quantity: number) => void;
-    onBuyKoi: (color: GeneType) => void;
     onBuyTrophy: (quantity: number) => void;
     onBuyPond: () => void;
     pondCount: number;
-    honorPoints: number;
 }
 
 const FOOD_PACK_PRICE = 200;
 const FOOD_LARGE_PACK_PRICE = 1000;
 const CORN_PACK_PRICE = 1000;
 const CORN_LARGE_PACK_PRICE = 5000;
-const RARE_KOI_PRICE = 30000;
 const TROPHY_PRICE = 100000;
 
 const ShopItem: React.FC<{
@@ -133,7 +128,7 @@ const ShopItem: React.FC<{
 };
 
 
-export const ShopModal: React.FC<ShopModalProps> = ({ onClose, zenPoints, onBuyFood, onBuyFoodLarge, onBuyCorn, onBuyCornLarge, onBuyKoi, onBuyTrophy, onBuyPond, pondCount, honorPoints }) => {
+export const ShopModal: React.FC<ShopModalProps> = ({ onClose, zenPoints, onBuyFood, onBuyFoodLarge, onBuyCorn, onBuyCornLarge, onBuyTrophy, onBuyPond, pondCount }) => {
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-40 p-4">
@@ -144,7 +139,7 @@ export const ShopModal: React.FC<ShopModalProps> = ({ onClose, zenPoints, onBuyF
                 aria-labelledby="shop-modal-title"
             >
                 <div className="flex justify-between items-center mb-4">
-                    <h2 id="shop-modal-title" className="text-2xl font-bold text-yellow-400 flex items-center">
+                    <h2 id="shop-modal-title" className="text-xl font-bold text-yellow-400 flex items-center">
                         <ShoppingCart className="mr-3" />
                         상점
                     </h2>
@@ -153,18 +148,10 @@ export const ShopModal: React.FC<ShopModalProps> = ({ onClose, zenPoints, onBuyF
                     </button>
                 </div>
 
-                <div className="flex flex-col gap-2 mb-4 bg-gray-900/50 p-3 rounded-lg border border-gray-700 glass-section">
+                <div className="mb-4 px-1 pb-3">
                     <div className="flex justify-between items-center">
                         <span className="text-xs text-gray-400 font-bold uppercase">Zen Points</span>
                         <span className="text-lg font-black text-yellow-400">{zenPoints.toLocaleString()} ZP</span>
-                    </div>
-                    <div className="h-[1px] bg-gray-700/50 w-full" />
-                    <div className="flex justify-between items-center">
-                        <span className="text-xs text-gray-400 font-bold uppercase">My Trophies</span>
-                        <div className="flex items-center gap-1.5">
-                            <Trophy size={16} className="text-yellow-400" />
-                            <span className="text-lg font-black text-yellow-500">{honorPoints.toLocaleString()}</span>
-                        </div>
                     </div>
                 </div>
 
@@ -227,42 +214,6 @@ export const ShopModal: React.FC<ShopModalProps> = ({ onClose, zenPoints, onBuyF
                     />
                 </div>
 
-                <div className="mt-6 border-t border-gray-700 pt-4">
-                    <h3 className="text-xl font-bold text-pink-400 mb-3 flex items-center">
-                        <Dna className="mr-2" size={24} />
-                        특별한 코이
-                    </h3>
-                    <div className="space-y-3">
-                        {[
-                            { color: GeneType.CREAM, name: "기본 크림 코이", price: 500, desc: "가장 기본적인 코이입니다." },
-                        ].map((item) => (
-                            <div key={item.color} className="bg-gray-900/50 p-3 rounded-lg border border-gray-700 flex flex-col glass-section">
-                                <div className="flex items-center gap-3">
-                                    <div
-                                        className="w-10 h-10 rounded-full border-2 border-gray-600 shadow-md transform hover:scale-110 transition-transform duration-300"
-                                        style={{ backgroundColor: GENE_COLOR_MAP[item.color] as string }}
-                                    ></div>
-                                    <div className="flex-grow">
-                                        <h3 className="text-base font-semibold text-white">{item.name}</h3>
-                                        <p className="text-xs text-gray-400 mt-1">{item.desc}</p>
-                                    </div>
-                                </div>
-                                <div className="text-base font-bold text-yellow-400 mt-2 text-right">
-                                    {item.price.toLocaleString()} ZP
-                                </div>
-                                <button
-                                    onClick={() => onBuyKoi(item.color)}
-                                    disabled={zenPoints < item.price}
-                                    className={`mt-2 w-full text-white font-bold py-2 rounded-lg flex items-center justify-center transition-colors disabled:bg-gray-600 disabled:cursor-not-allowed ${item.price === 500 ? 'bg-gray-600 hover:bg-gray-500' : 'bg-pink-600 hover:bg-pink-500'
-                                        }`}
-                                    aria-label={`${item.name} 입양하기`}
-                                >
-                                    입양하기
-                                </button>
-                            </div>
-                        ))}
-                    </div>
-                </div>
             </div>
         </div>
     );

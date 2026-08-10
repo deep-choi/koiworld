@@ -33,6 +33,10 @@ export const RankingModal: React.FC<RankingModalProps> = ({ isOpen, onClose, use
     const [error, setError] = useState<string | null>(null);
     const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
+    const currentUserRank = currUserId
+        ? rankings.findIndex(user => user.uid === currUserId) + 1
+        : 0;
+
     const fetchRankings = async () => {
         setIsLoading(true);
         setError(null);
@@ -64,7 +68,7 @@ export const RankingModal: React.FC<RankingModalProps> = ({ isOpen, onClose, use
                 onClick={e => e.stopPropagation()}
             >
                 {/* Header */}
-                <div className="p-4 bg-gray-900 border-b border-gray-700 flex flex-col gap-3 shrink-0 glass-header">
+                <div className="p-4 bg-gray-900 border-b-0 flex flex-col gap-5 shrink-0 glass-header">
                     <div className="flex justify-between items-center">
                         <div className="flex flex-col">
                             <h2 className="text-xl font-bold text-yellow-300 flex items-center gap-2 leading-none">
@@ -73,6 +77,11 @@ export const RankingModal: React.FC<RankingModalProps> = ({ isOpen, onClose, use
                             </h2>
                         </div>
                         <div className="flex items-center gap-2">
+                            {lastUpdated && (
+                                <span className="text-[10px] text-white/60 whitespace-nowrap">
+                                    {lastUpdated.toLocaleTimeString('ko-KR', { hour: 'numeric', minute: '2-digit' })} 기준
+                                </span>
+                            )}
                             <button
                                 onClick={fetchRankings}
                                 disabled={isLoading}
@@ -88,21 +97,15 @@ export const RankingModal: React.FC<RankingModalProps> = ({ isOpen, onClose, use
                         </div>
                     </div>
 
-                    {lastUpdated && (
-                        <span className="text-[10px] text-white/60 text-right -mb-1">
-                            {lastUpdated.toLocaleTimeString('ko-KR', { hour: 'numeric', minute: '2-digit' })} 기준
-                        </span>
-                    )}
-
                     {/* Tabs */}
-                    <div className="flex bg-gray-800 p-1.5 rounded-[9999px] border border-gray-700 glass-section">
+                    <div className="flex gap-1">
                         <button
                             onClick={() => setActiveTab('achievement')}
                             aria-label="업적 랭킹 보기"
                             aria-pressed={activeTab === 'achievement'}
-                            className={`flex-1 py-2.5 px-2 text-sm font-bold rounded-[9999px] flex items-center justify-center gap-2 transition-all ${activeTab === 'achievement'
-                                ? 'bg-yellow-500 text-gray-950 shadow'
-                                : 'text-gray-400 hover:text-gray-200'
+                            className={`flex-1 py-2 px-2 text-sm font-bold rounded-md flex items-center justify-center gap-2 transition-colors ${activeTab === 'achievement'
+                                ? 'bg-yellow-500 text-gray-950'
+                                : 'text-gray-400 hover:bg-white/10 hover:text-gray-200'
                                 }`}
                         >
                             <Award size={16} />
@@ -112,9 +115,9 @@ export const RankingModal: React.FC<RankingModalProps> = ({ isOpen, onClose, use
                             onClick={() => setActiveTab('trophy')}
                             aria-label="트로피 랭킹 보기"
                             aria-pressed={activeTab === 'trophy'}
-                            className={`flex-1 py-2.5 px-2 text-sm font-bold rounded-[9999px] flex items-center justify-center gap-2 transition-all ${activeTab === 'trophy'
-                                ? 'bg-yellow-500 text-gray-950 shadow'
-                                : 'text-gray-400 hover:text-gray-200'
+                            className={`flex-1 py-2 px-2 text-sm font-bold rounded-md flex items-center justify-center gap-2 transition-colors ${activeTab === 'trophy'
+                                ? 'bg-yellow-500 text-gray-950'
+                                : 'text-gray-400 hover:bg-white/10 hover:text-gray-200'
                                 }`}
                         >
                             <Trophy size={16} />
@@ -124,7 +127,7 @@ export const RankingModal: React.FC<RankingModalProps> = ({ isOpen, onClose, use
                 </div>
 
                 {/* Content */}
-                <div className="flex-1 overflow-y-auto custom-scrollbar p-3">
+                <div className="flex-1 overflow-y-auto custom-scrollbar px-4">
                     {isLoading ? (
                         <div className="flex flex-col items-center justify-center py-20 gap-3">
                             <div className="w-10 h-10 border-4 border-yellow-400/20 border-t-yellow-400 rounded-full animate-spin"></div>
@@ -154,7 +157,7 @@ export const RankingModal: React.FC<RankingModalProps> = ({ isOpen, onClose, use
                             아직 기록이 없습니다.
                         </div>
                     ) : (
-                        <div className="space-y-2">
+                        <div className="-mx-4">
                             {rankings.map((user, index) => {
                                 const rank = index + 1;
                                 const isCurrentUser = currUserId && user.uid === currUserId;
@@ -168,25 +171,16 @@ export const RankingModal: React.FC<RankingModalProps> = ({ isOpen, onClose, use
                                 return (
                                     <div
                                         key={user.uid || index}
-                                        className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${isCurrentUser
-                                            ? 'ring-2 ring-yellow-400 bg-yellow-400/20'
-                                            : rank === 1 ? 'bg-yellow-400/10 border-yellow-400/30' :
-                                                rank === 2 ? 'bg-gray-300/10 border-gray-300/30' :
-                                                    rank === 3 ? 'bg-yellow-400/10 border-yellow-400/30' :
-                                                        'bg-white/10 border-white/20'
-                                            }`}
+                                        className="flex items-center gap-3 px-4 py-3 border-b border-white/10 transition-colors hover:bg-white/5"
                                     >
                                         <div className="w-8 flex justify-center shrink-0">
                                             {rank === 1 ? <Medal className="text-yellow-400" size={24} /> :
-                                                rank === 2 ? <Medal className="text-gray-300" size={24} /> :
+                                                rank === 2 ? <Medal className="text-yellow-400" size={24} /> :
                                                     rank === 3 ? <Medal className="text-yellow-400" size={24} /> :
                                                         <span className="text-gray-500 font-bold">{rank}</span>}
                                         </div>
 
-                                        <div className={`w-9 h-9 rounded-full overflow-hidden shrink-0 border bg-white/10 flex items-center justify-center ${isCurrentUser
-                                            ? 'border-yellow-300/70'
-                                            : 'border-white/10'
-                                            }`}>
+                                        <div className="w-9 h-9 rounded-full overflow-hidden shrink-0 border border-white/10 bg-white/10 flex items-center justify-center">
                                             {photoURL ? (
                                                 <img
                                                     src={photoURL}
@@ -202,7 +196,7 @@ export const RankingModal: React.FC<RankingModalProps> = ({ isOpen, onClose, use
                                         </div>
 
                                         <div className="flex-1 min-w-0">
-                                            <div className={`text-sm font-bold truncate ${isCurrentUser ? 'text-white' : 'text-gray-200'}`}>
+                                            <div className="text-sm font-bold truncate text-gray-200">
                                                 {nickname}
                                                 {isCurrentUser && <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded uppercase bg-yellow-600">Me</span>}
                                             </div>
@@ -235,10 +229,15 @@ export const RankingModal: React.FC<RankingModalProps> = ({ isOpen, onClose, use
                     ) : (
                         <div className="flex items-center justify-between">
                             <div className="flex flex-col">
-                                <span className="text-[10px] text-gray-500 uppercase font-bold tracking-wider">나의 기록</span>
-                                <span className="text-sm font-bold text-white truncate max-w-[120px]">{userNickname}</span>
+                                <span className="text-xs text-white/70 font-semibold">나의 기록</span>
+                                <div className="flex items-center gap-2 min-w-0">
+                                    <span className="text-sm font-bold text-white truncate max-w-[120px]">{userNickname}</span>
+                                    <span className="text-xs font-bold text-yellow-300 whitespace-nowrap">
+                                        {currentUserRank > 0 ? `${currentUserRank}위` : '순위 밖'}
+                                    </span>
+                                </div>
                             </div>
-                            <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl border bg-yellow-400/10 border-yellow-400/20">
+                            <div className="flex items-center gap-2 text-yellow-400">
                                 {activeTab === 'trophy' ? (
                                     <>
                                         <Trophy size={16} className="text-yellow-400" />
@@ -255,10 +254,6 @@ export const RankingModal: React.FC<RankingModalProps> = ({ isOpen, onClose, use
                     )}
                 </div>
 
-                {/* Footer */}
-                <div className="p-3 bg-gray-900/50 border-t border-gray-800 text-center text-[9px] text-gray-300/70 leading-tight glass-header">
-                    랭킹은 20위까지만 표시됩니다.
-                </div>
             </div>
         </div>
     );

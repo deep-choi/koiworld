@@ -181,18 +181,18 @@ export const AccountModal: React.FC<AccountModalProps> = ({
 
     return (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={onClose}>
-            <div className="bg-gray-800 rounded-xl max-w-md w-full border border-gray-700 shadow-2xl overflow-hidden glass-panel" onClick={event => event.stopPropagation()}>
-                <div className="flex justify-between items-center p-4 bg-gray-900 border-b border-gray-700 glass-header">
+            <div className="bg-gray-800 rounded-xl max-w-md w-full max-h-[calc(100svh-2rem)] border border-gray-700 shadow-2xl overflow-y-auto glass-panel" onClick={event => event.stopPropagation()}>
+                <div className="flex justify-between items-center p-3.5 bg-gray-900 border-b border-gray-700 glass-header">
                     <h2 className="text-xl font-black text-white flex items-center gap-2">
                         <User size={20} className="text-yellow-400" /> 계정 정보
                     </h2>
-                    <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors" aria-label="계정 정보 닫기">
+                    <button onClick={onClose} className="text-white/65 hover:text-white transition-colors" aria-label="계정 정보 닫기">
                         <X size={24} />
                     </button>
                 </div>
 
-                <div className="p-6 space-y-7">
-                    <div className="flex flex-col items-center gap-3">
+                <div className="p-5 space-y-5">
+                    <div className="flex flex-col items-center gap-2">
                         <button
                             type="button"
                             onClick={() => fileInputRef.current?.click()}
@@ -204,16 +204,16 @@ export const AccountModal: React.FC<AccountModalProps> = ({
                                 <img
                                     src={displayPhotoURL}
                                     alt="프로필 이미지"
-                                    className="w-20 h-20 rounded-full border-2 border-yellow-400/50 object-cover"
+                                    className="w-[72px] h-[72px] rounded-full border-2 border-yellow-400/60 object-cover"
                                     referrerPolicy="no-referrer"
                                 />
                             ) : (
-                                <div className="w-20 h-20 rounded-full bg-gray-800 flex items-center justify-center text-gray-400 border-2 border-gray-700 glass-input">
-                                    <User size={40} />
+                                <div className="w-[72px] h-[72px] rounded-full bg-gray-800 flex items-center justify-center text-white/60 border-2 border-gray-700 glass-input">
+                                    <User size={36} />
                                 </div>
                             )}
-                            <span className="absolute bottom-0 right-0 w-7 h-7 rounded-full bg-yellow-500 text-gray-950 border-4 border-gray-900 flex items-center justify-center group-hover:bg-yellow-300 transition-colors">
-                                <Camera size={14} />
+                            <span className="absolute bottom-0 right-0 w-6 h-6 rounded-full bg-yellow-500 text-gray-950 border-[3px] border-gray-900 flex items-center justify-center group-hover:bg-yellow-300 transition-colors">
+                                <Camera size={13} />
                             </span>
                         </button>
                         <input
@@ -224,47 +224,47 @@ export const AccountModal: React.FC<AccountModalProps> = ({
                             className="hidden"
                         />
                         <div className="text-center">
-                            <p className="text-lg font-bold text-white">{user?.displayName || '게스트'}</p>
-                            <p className="text-xs text-white/60">{user?.email || '게스트 계정'}</p>
+                            <p className="text-base font-bold text-white">{user?.displayName || '게스트'}</p>
+                            <p className="text-xs text-white/75">{user?.email || '게스트 계정'}</p>
                         </div>
                     </div>
 
-                    <div className="rounded-lg border border-gray-700 p-4 bg-gray-900/30 glass-section">
+                    <div className="rounded-lg border border-gray-700 p-3 bg-gray-900/30 glass-section">
                         <div className="flex items-center gap-3">
                             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gray-950/30">
                                 <LoginMethodIcon source={user?.authSource} />
                             </div>
                             <div>
-                                <p className="text-[10px] font-black uppercase tracking-widest text-white/60">로그인 방식</p>
-                                <p className={`mt-1 text-base font-black ${user?.isAnonymous ? 'text-yellow-300' : 'text-emerald-300'}`}>
+                                <p className="text-[10px] font-black uppercase tracking-widest text-white/75">로그인 방식</p>
+                                <p className={`mt-0.5 text-base font-black ${user?.isAnonymous ? 'text-yellow-300' : 'text-emerald-300'}`}>
                                     {user?.authSourceLabel ?? '확인 중'}
                                 </p>
                             </div>
                         </div>
                     </div>
 
-                    <div className="space-y-3">
-                        <label className="text-xs font-black text-gray-500 uppercase tracking-widest flex items-center gap-2">
+                    <div className="space-y-2">
+                        <label className="text-xs font-black text-white/75 uppercase tracking-widest flex items-center gap-2">
                             <Edit2 size={12} /> 닉네임
                         </label>
                         <input
                             type="text"
                             value={nicknameInput}
                             onChange={event => setNicknameInput(event.target.value)}
-                            className="w-full bg-gray-800/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-yellow-500/50 transition-all font-bold glass-input"
+                            className="w-full bg-gray-800/50 border border-white/20 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-yellow-500/60 transition-all font-bold glass-input"
                             placeholder="닉네임 입력"
                             maxLength={20}
                         />
-                        <p className="text-[10px] text-gray-600">랭킹 시스템에 표시되는 이름입니다.</p>
+                        <p className="text-[10px] text-white/55">랭킹 시스템에 표시되는 이름입니다.</p>
                     </div>
 
                     {error && <p className="text-red-400 text-xs leading-relaxed">{error}</p>}
 
-                    <div className="pt-4 border-t border-white/5 space-y-3">
+                    <div className="pt-3 border-t border-white/15 space-y-2">
                         <button
                             onClick={handleSaveProfile}
                             disabled={isSaving || isProcessingImage || success}
-                            className={`w-full py-3 rounded-xl transition-all flex items-center justify-center gap-2 font-bold ${success
+                            className={`w-full py-2.5 rounded-xl transition-all flex items-center justify-center gap-2 font-bold ${success
                                 ? 'bg-green-500 text-white'
                                 : 'bg-yellow-500 hover:bg-yellow-400 text-gray-950 border border-yellow-400'
                                 } disabled:opacity-60`}
@@ -276,7 +276,7 @@ export const AccountModal: React.FC<AccountModalProps> = ({
                         <button
                             onClick={handleLogout}
                             disabled={isLoggingOut}
-                            className="w-full py-4 rounded-xl bg-transparent hover:bg-white/10 text-red-400 border border-transparent transition-all flex items-center justify-center gap-2 font-bold group"
+                            className="w-full py-2.5 rounded-xl bg-transparent hover:bg-white/10 text-red-300 border border-transparent transition-all flex items-center justify-center gap-2 font-bold group"
                             aria-label={isLoggingOut ? '로그아웃 진행 중' : '로그아웃하기'}
                         >
                             <LogOut size={20} className="group-hover:-translate-x-1 transition-transform" />

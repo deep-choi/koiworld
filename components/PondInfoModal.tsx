@@ -36,12 +36,12 @@ const KoiListItem: React.FC<{
       tabIndex={0}
       aria-pressed={isSelected}
       aria-label={`${koiLabel} 선택${isSelected ? ' 해제' : ''}`}
-      className={`flex items-center p-3 rounded-lg border cursor-pointer transition-all ${isSelected
-        ? 'bg-white/10 border-white/60 shadow-none'
-        : 'bg-white/10 border-white/20 hover:bg-white/20 hover:border-white/40'
+      className={`flex items-center px-2 py-3 border-b border-white/15 cursor-pointer transition-colors ${isSelected
+        ? 'bg-white/10'
+        : 'hover:bg-white/5'
         }`}
     >
-      <div className="relative mr-4">
+      <div className="relative mr-3">
         <KoiCSSPreview
           koi={koi}
           className="w-12 h-12 border-2 border-gray-500 shadow-sm"
@@ -77,25 +77,13 @@ const KoiListItem: React.FC<{
             {value} ZP
           </span>
         </div>
-        <div className="flex flex-col gap-0.5 mt-1">
-          <div className="flex items-center gap-2 text-xs text-gray-400">
-            <span className="font-bold text-gray-500">[몸]</span>
-            <span>명도: <span className="text-gray-300">{Math.round(koi.genetics.lightness)}</span></span>
-            <span>채도: <span className="text-gray-300">{Math.round(koi.genetics.saturation)}</span></span>
-            <span className="ml-auto text-yellow-400">체력: {Math.round(koi.stamina ?? 0)}</span>
-          </div>
-          <div className="flex items-center gap-2 text-xs text-gray-400">
-            <span className="font-bold text-gray-500">[점]</span>
-            <span>채도: <span className="text-gray-300">{(displayPhenotype.colorSaturation * 100).toFixed(0)}</span></span>
-          </div>
-        </div>
-        <div className="mt-1 text-xs text-gray-500 flex gap-2">
-          <span className="text-gray-400">점: <span className="text-yellow-300 font-bold">{koi.genetics.spots.length}개</span></span>
-          <span className="text-gray-700">|</span>
-          <span className="text-gray-400">유전자:</span>
-          <span className="text-yellow-300">
-            {koi.genetics.baseColorGenes.join(' / ')}
-          </span>
+        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-gray-400">
+          <span>명도 <span className="text-gray-300">{Math.round(koi.genetics.lightness)}</span></span>
+          <span>채도 <span className="text-gray-300">{Math.round(koi.genetics.saturation)}</span></span>
+          <span>점 채도 <span className="text-gray-300">{(displayPhenotype.colorSaturation * 100).toFixed(0)}</span></span>
+          <span className="text-yellow-300 font-bold">점 {koi.genetics.spots.length}개</span>
+          <span className="text-yellow-300">{koi.genetics.baseColorGenes.join(' / ')}</span>
+          <span className="text-yellow-400">체력 {Math.round(koi.stamina ?? 0)}</span>
         </div>
       </div>
 
@@ -195,8 +183,15 @@ export const PondInfoModal: React.FC<PondInfoModalProps> = ({
     <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4" onClick={onClose}>
       <div className="bg-gray-800 rounded-lg w-full max-w-4xl h-[80svh] flex flex-col border border-gray-700 shadow-2xl glass-panel" onClick={e => e.stopPropagation()}>
 
-        {/* Header - Tabs System */}
-        <div className="flex justify-between items-center p-3 border-b border-gray-700 bg-gray-900/40 rounded-t-lg glass-header">
+        {/* Header - Title and Tabs */}
+        <div className="p-3 border-b border-gray-700 bg-gray-900/40 rounded-t-lg glass-header">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-bold text-yellow-300">연못 현황</h2>
+            <button onClick={onClose} className="p-2 text-gray-400 hover:text-white hover:bg-gray-700/50 rounded-full transition-all flex-shrink-0" aria-label="연못 현황 닫기">
+              <X size={24} />
+            </button>
+          </div>
+
           <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-0.5">
             {sortedPonds.map((pond) => (
               <button
@@ -213,24 +208,20 @@ export const PondInfoModal: React.FC<PondInfoModalProps> = ({
               </button>
             ))}
           </div>
-
-          <button onClick={onClose} className="p-2 text-gray-400 hover:text-white hover:bg-gray-700/50 rounded-full transition-all flex-shrink-0" aria-label="연못 현황 닫기">
-            <X size={24} />
-          </button>
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-hidden flex flex-col p-4">
+        <div className="flex-1 overflow-hidden flex flex-col p-3">
 
-          {/* Stats Bar */}
-          <div className="bg-gray-900/50 p-3 rounded-lg border border-gray-700 mb-4 flex-shrink-0 flex justify-between items-center text-lg glass-section">
-            <span className="font-mono text-yellow-300">
-              {koiList.length} / 30 마리
+          {/* Compact count */}
+          <div className="px-1 pb-2 mb-3 border-b border-white/10 flex-shrink-0">
+            <span className="font-mono text-yellow-300 text-base">
+              <strong>{koiList.length}</strong><span className="text-white/50"> / 30 마리</span>
             </span>
           </div>
 
           {/* Sort Controls */}
-          <div className="flex gap-2 mb-3 overflow-x-auto pb-1 flex-shrink-0 no-scrollbar">
+          <div className="flex gap-1.5 mb-3 overflow-x-auto flex-shrink-0 no-scrollbar">
             <button
               onClick={() => {
                 if (selectedKoiIds.size === koiList.length) {
@@ -239,27 +230,27 @@ export const PondInfoModal: React.FC<PondInfoModalProps> = ({
                   setSelectedKoiIds(new Set(koiList.map(k => k.id)));
                 }
               }}
-              className="px-3 py-2 rounded text-sm font-bold transition-colors bg-yellow-600 hover:bg-yellow-500 text-white whitespace-nowrap"
+              className="px-2.5 py-1.5 rounded-md border text-sm font-bold transition-colors bg-yellow-500 border-yellow-400 text-gray-900 whitespace-nowrap"
               aria-label={selectedKoiIds.size === koiList.length ? '선택한 코이 전체 해제' : '코이 전체 선택'}
             >
               {selectedKoiIds.size === koiList.length ? '전체 해제' : '전체 선택'}
             </button>
-            <button onClick={() => handleSort('spots_desc')} aria-label="점 개수 많은 순으로 정렬" aria-pressed={sortOption === 'spots_desc'} className={`px-3 py-2 rounded text-sm font-bold transition-colors whitespace-nowrap ${sortOption === 'spots_desc' ? 'bg-orange-600 text-white' : 'bg-white/10 text-white/80 hover:bg-white/20'}`}>
+            <button onClick={() => handleSort('spots_desc')} aria-label="점 개수 많은 순으로 정렬" aria-pressed={sortOption === 'spots_desc'} className={`px-2.5 py-1.5 rounded-md border text-sm font-bold transition-colors whitespace-nowrap ${sortOption === 'spots_desc' ? 'bg-yellow-500 border-yellow-400 text-gray-900' : 'bg-transparent border-white/15 text-white/65 hover:bg-white/10 hover:text-white'}`}>
               점 개수
             </button>
-            <button onClick={() => handleSort('body_lightness_desc')} aria-label="몸 명도 높은 순으로 정렬" aria-pressed={sortOption === 'body_lightness_desc'} className={`px-3 py-2 rounded text-sm font-bold transition-colors whitespace-nowrap ${sortOption === 'body_lightness_desc' ? 'bg-pink-600 text-white' : 'bg-white/10 text-white/80 hover:bg-white/20'}`}>
+            <button onClick={() => handleSort('body_lightness_desc')} aria-label="몸 명도 높은 순으로 정렬" aria-pressed={sortOption === 'body_lightness_desc'} className={`px-2.5 py-1.5 rounded-md border text-sm font-bold transition-colors whitespace-nowrap ${sortOption === 'body_lightness_desc' ? 'bg-yellow-500 border-yellow-400 text-gray-900' : 'bg-transparent border-white/15 text-white/65 hover:bg-white/10 hover:text-white'}`}>
               몸 명도 순
             </button>
-            <button onClick={() => handleSort('body_saturation_desc')} aria-label="몸 채도 높은 순으로 정렬" aria-pressed={sortOption === 'body_saturation_desc'} className={`px-3 py-2 rounded text-sm font-bold transition-colors whitespace-nowrap ${sortOption === 'body_saturation_desc' ? 'bg-yellow-600 text-white' : 'bg-white/10 text-white/80 hover:bg-white/20'}`}>
+            <button onClick={() => handleSort('body_saturation_desc')} aria-label="몸 채도 높은 순으로 정렬" aria-pressed={sortOption === 'body_saturation_desc'} className={`px-2.5 py-1.5 rounded-md border text-sm font-bold transition-colors whitespace-nowrap ${sortOption === 'body_saturation_desc' ? 'bg-yellow-500 border-yellow-400 text-gray-900' : 'bg-transparent border-white/15 text-white/65 hover:bg-white/10 hover:text-white'}`}>
               몸 채도 순
             </button>
-            <button onClick={() => handleSort('spot_saturation_desc')} aria-label="점 채도 높은 순으로 정렬" aria-pressed={sortOption === 'spot_saturation_desc'} className={`px-3 py-2 rounded text-sm font-bold transition-colors whitespace-nowrap ${sortOption === 'spot_saturation_desc' ? 'bg-orange-600 text-white' : 'bg-white/10 text-white/80 hover:bg-white/20'}`}>
+            <button onClick={() => handleSort('spot_saturation_desc')} aria-label="점 채도 높은 순으로 정렬" aria-pressed={sortOption === 'spot_saturation_desc'} className={`px-2.5 py-1.5 rounded-md border text-sm font-bold transition-colors whitespace-nowrap ${sortOption === 'spot_saturation_desc' ? 'bg-yellow-500 border-yellow-400 text-gray-900' : 'bg-transparent border-white/15 text-white/65 hover:bg-white/10 hover:text-white'}`}>
               점 채도 순
             </button>
           </div>
 
           {/* Koi List */}
-          <div className="flex-1 overflow-y-auto pr-2 space-y-2 custom-scrollbar">
+          <div className="flex-1 overflow-y-auto pr-1 custom-scrollbar">
             {sortedKoiList
               .map((koi, idx) => (
                 <KoiListItem
@@ -284,13 +275,13 @@ export const PondInfoModal: React.FC<PondInfoModalProps> = ({
           <div className="p-4 border-t border-gray-700 bg-gray-900/80 backdrop-blur-sm flex justify-end gap-3 rounded-b-lg flex-wrap glass-header">
             {/* Move Buttons - Show direct options if multiple ponds exist */}
             {sortedPonds.length > 1 && (
-              <div className="flex items-center gap-2 mr-auto bg-black/30 p-1 rounded-lg">
-                <span className="text-xs text-gray-400 px-2">이동:</span>
+              <div className="flex items-center gap-1.5 mr-auto">
+                <span className="text-xs text-gray-400 mr-1">이동</span>
                 {sortedPonds.filter(p => p.id !== activePondId).map(targetPond => (
                   <button
                     key={targetPond.id}
                     onClick={() => onMove(koiList.filter(k => selectedKoiIds.has(k.id)), targetPond.id)}
-                    className="bg-white/10 hover:bg-white/20 text-white/80 hover:text-white text-xs px-2 py-1.5 rounded border border-white/20 hover:border-white/40 transition-colors whitespace-nowrap"
+                    className="text-white/65 hover:text-white text-xs px-2 py-1 transition-colors whitespace-nowrap"
                     aria-label={`선택한 코이 ${selectedKoiIds.size}마리를 ${targetPond.name}으로 이동`}
                   >
                     To {targetPond.name}

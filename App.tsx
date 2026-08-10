@@ -91,7 +91,6 @@ export const App: React.FC = () => {
     setPondTheme,
     resetPonds,
     handleFoodEaten,
-    spawnKoi,
     cleanPond,
     consumeStamina,
     reduceWaterQuality,
@@ -229,7 +228,8 @@ export const App: React.FC = () => {
   const latestFoodCountsRef = useRef({ food: foodCount, corn: cornCount, type: selectedFoodType });
   const lastLocalSavePayloadRef = useRef<string | null>(null);
   const lastCloudSavePayloadRef = useRef<string | null>(null);
-  const cloudSaveInFlightRef = useRef(false);
+  const cloudSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const pendingCloudPayloadRef = useRef<string | null>(null);
   const tabLockRef = useRef<TabLockController | null>(null);
 
   useEffect(() => {
@@ -385,6 +385,54 @@ export const App: React.FC = () => {
     };
   }, [ponds, activePondId, zenPoints, foodCount, cornCount, honorPoints, achievementScore, unlockedIds, claimedIds, koiNameCounter]);
 
+  const persistLocalGameState = useCallback((state: SavedGameState) => {
+    const payload = JSON.stringify(state);
+    try {
+      localStorage.setItem(SAVE_GAME_KEY, payload);
+      lastLocalSavePayloadRef.current = payload;
+    } catch (error) {
+      console.error("Local save failed:", error);
+    }
+    return payload;
+  }, []);
+
+  const enqueueCloudSave = useCallback((uid: string, state: SavedGameState) => {
+    const payload = JSON.stringify(state);
+    const previousCloudPayload = lastCloudSavePayloadRef.current;
+    lastCloudSavePayloadRef.current = payload;
+    pendingCloudPayloadRef.current = payload;
+
+    const nextSave = cloudSaveQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        if (isLocalGameSaveSuppressed()) {
+          if (lastCloudSavePayloadRef.current === payload) {
+            lastCloudSavePayloadRef.current = previousCloudPayload;
+          }
+          if (pendingCloudPayloadRef.current === payload) {
+            pendingCloudPayloadRef.current = null;
+          }
+          return;
+        }
+
+        try {
+          await saveGameToCloud(uid, state);
+        } catch (error) {
+          if (lastCloudSavePayloadRef.current === payload) {
+            lastCloudSavePayloadRef.current = previousCloudPayload;
+          }
+          throw error;
+        } finally {
+          if (pendingCloudPayloadRef.current === payload) {
+            pendingCloudPayloadRef.current = null;
+          }
+        }
+      });
+
+    cloudSaveQueueRef.current = nextSave;
+    return nextSave;
+  }, []);
+
   // Session & Cloud Sync Logic (통합 최적화: 모든 사용자 데이터를 병렬로 1회 로드)
   useEffect(() => {
     let cancelled = false;
@@ -441,38 +489,23 @@ export const App: React.FC = () => {
 
       // Local save only when payload changes.
       if (payload !== lastLocalSavePayloadRef.current) {
-        try {
-          localStorage.setItem(SAVE_GAME_KEY, payload);
-          lastLocalSavePayloadRef.current = payload;
-        } catch (error: any) {
-          console.error("Local save failed:", error);
-        }
+        persistLocalGameState(currentState);
       }
 
       // Cloud save only when payload changes.
       if (!user || !isCloudSyncReady) return;
       if (payload === lastCloudSavePayloadRef.current) return;
-      if (cloudSaveInFlightRef.current) return;
-
-      const previousCloudPayload = lastCloudSavePayloadRef.current;
-      lastCloudSavePayloadRef.current = payload;
-      cloudSaveInFlightRef.current = true;
       try {
-        await saveGameToCloud(user.uid, currentState);
+        await enqueueCloudSave(user.uid, currentState);
       } catch (error: any) {
-        if (lastCloudSavePayloadRef.current === payload) {
-          lastCloudSavePayloadRef.current = previousCloudPayload;
-        }
         if (error.code !== 'unavailable') {
           console.error("Cloud save failed:", error);
         }
-      } finally {
-        cloudSaveInFlightRef.current = false;
       }
     }, 15000);
 
     return () => clearInterval(saveInterval);
-  }, [user, isCloudSyncReady, isDuplicateTabPaused]);
+  }, [user, isCloudSyncReady, isDuplicateTabPaused, enqueueCloudSave, persistLocalGameState]);
 
   const handleSaveProfile = useCallback(async (nickname: string, photoURL: string | null) => {
     if (!user) return;
@@ -565,6 +598,7 @@ export const App: React.FC = () => {
         console.error("Failed to persist synced game state locally:", error);
       }
       lastCloudSavePayloadRef.current = payload;
+      gameStateRef.current = loadedState;
     }
 
     setPonds(loadedState.ponds);
@@ -588,6 +622,7 @@ export const App: React.FC = () => {
     return listenToGameData(user.uid, (cloudState) => {
       const cloudPayload = JSON.stringify(cloudState);
       if (cloudPayload === lastCloudSavePayloadRef.current) return;
+      if (pendingCloudPayloadRef.current) return;
 
       const currentState = gameStateRef.current;
       const currentPayload = currentState ? JSON.stringify(currentState) : null;
@@ -732,46 +767,6 @@ export const App: React.FC = () => {
     setBreedingSelection([]);
   };
 
-
-
-  const buySpecialKoi = (genes: [GeneType, GeneType], cost: number, typeName: string) => {
-    if (zenPoints < cost) return;
-
-    if (koiList.length >= 30) {
-      setNotification({ message: '연못이 가득 찼습니다! (최대 30마리)', type: 'error' });
-      return;
-    }
-
-    setZenPoints(p => p - cost);
-    audioManager.playSFX('purchase');
-    setIsShopModalOpen(false);
-
-    const newGenetics: KoiGenetics = {
-      baseColorGenes: genes,
-      spots: [],
-      lightness: 50, // User Request: Force 50 (Standard)
-      saturation: 50, // User Request: Force 50 (Standard)
-      spotPhenotypeGenes: createFixedSpotPhenotypeGenes(50), // Standard Saturation
-    };
-
-    const newKoi: Koi = {
-      id: `${typeName}-${Date.now()}`,
-      name: `코이`,
-      description: `상점에서 구매한 특별한 ${typeName} 코이입니다.`,
-      genetics: newGenetics,
-      position: { x: Math.random() * 80 + 10, y: Math.random() * 80 + 10 },
-      velocity: { vx: (Math.random() - 0.5) * 0.2, vy: (Math.random() - 0.5) * 0.2 },
-      age: 50, // Shop kois are juveniles
-      growthStage: GrowthStage.JUVENILE,
-      timesFed: 0,
-      foodTargetId: null,
-      feedCooldownUntil: null,
-      stamina: 100,
-    };
-    addKois([newKoi]);
-    setKoiNameCounter(c => c + 1);
-  }
-
   const handleBuyPondExpansion = () => {
     const cost = 20000;
     if (zenPoints < cost) return;
@@ -836,49 +831,54 @@ export const App: React.FC = () => {
     audioManager.playSFX('purchase');
     setNotification({ message: `명예 트로피 ${quantity}개를 구매했습니다!`, type: 'success' });
 
-    // 즉시 클라우드 동기화 시도
-    if (user && isCloudSyncReady && gameStateRef.current && !isDuplicateTabPaused && !isLocalGameSaveSuppressed()) {
-      const previousCloudPayload = lastCloudSavePayloadRef.current;
+    const immediateState: SavedGameState = {
+      ...(gameStateRef.current ?? {
+        ponds,
+        activePondId,
+        zenPoints,
+        foodCount,
+        cornCount,
+        honorPoints,
+        achievementPoints: achievementScore,
+        achievements: { unlockedIds, claimedIds },
+        koiNameCounter,
+      }),
+      zenPoints: nextZenPoints,
+      honorPoints: nextHonorPoints,
+    };
+    gameStateRef.current = immediateState;
+
+    if (!isDuplicateTabPaused && !isLocalGameSaveSuppressed()) {
+      persistLocalGameState(immediateState);
+    }
+
+    // Serialize this save behind any periodic save already in progress.
+    if (user && isCloudSyncReady && !isDuplicateTabPaused && !isLocalGameSaveSuppressed()) {
       try {
-        const immediateState: SavedGameState = {
-          ...gameStateRef.current,
-          zenPoints: nextZenPoints,
-          honorPoints: nextHonorPoints
-        };
-        const immediatePayload = JSON.stringify(immediateState);
-        lastCloudSavePayloadRef.current = immediatePayload;
-        await saveGameToCloud(user.uid, immediateState);
-      } catch (e) {
-        lastCloudSavePayloadRef.current = previousCloudPayload;
-        console.error("Immediate cloud sync failed:", e);
+        await enqueueCloudSave(user.uid, immediateState);
+      } catch (error) {
+        if ((error as { code?: string })?.code !== 'unavailable') {
+          console.error("Immediate cloud sync failed:", error);
+        }
       }
     }
-  }, [zenPoints, honorPoints, user, isCloudSyncReady, isDuplicateTabPaused]);
-
-  const handleBuyKoi = (color: GeneType) => {
-    let price = 30000;
-    if (color === GeneType.CREAM) {
-      price = 500;
-    }
-
-    if (zenPoints < price) {
-      setNotification({ message: '젠 포인트가 부족합니다!', type: 'error' });
-      // audioManager.playSFX('error'); // 'error' type not exists
-      return;
-    }
-
-    if (koiList.length >= 30) {
-      setNotification({ message: '연못이 가득 찼습니다! (최대 30마리)', type: 'error' });
-      return;
-    }
-    setZenPoints(p => p - price);
-    audioManager.playSFX('purchase');
-    spawnKoi(color);
-    setNotification({ message: '새로운 코이가 연못에 도착했습니다!', type: 'success' });
-    setIsShopModalOpen(false);
-  }
-
-
+  }, [
+    zenPoints,
+    honorPoints,
+    user,
+    isCloudSyncReady,
+    isDuplicateTabPaused,
+    ponds,
+    activePondId,
+    foodCount,
+    cornCount,
+    achievementScore,
+    unlockedIds,
+    claimedIds,
+    koiNameCounter,
+    enqueueCloudSave,
+    persistLocalGameState,
+  ]);
 
   const handlePondPointerDown = useCallback((event: React.PointerEvent<HTMLElement> | React.MouseEvent<HTMLElement>, koi?: Koi) => {
     // Feed Mode Logic
@@ -1248,11 +1248,9 @@ export const App: React.FC = () => {
             onBuyFoodLarge={handleBuyFoodLarge}
             onBuyCorn={handleBuyCorn}
             onBuyCornLarge={handleBuyCornLarge}
-            onBuyKoi={handleBuyKoi}
             onBuyTrophy={handleBuyTrophy}
             onBuyPond={handleBuyPondExpansion}
             pondCount={Object.keys(ponds).length}
-            honorPoints={honorPoints}
           />
         )
       }

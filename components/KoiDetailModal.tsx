@@ -35,7 +35,7 @@ export const KoiDetailModal: React.FC<KoiDetailModalProps> = ({ koi, onClose, on
 
                 <div className="space-y-4">
                     <div className="text-center">
-                        <h2 className="text-2xl font-bold text-white leading-tight">
+                        <h2 className="text-xl font-bold text-white leading-tight">
                             {koi.name}
                         </h2>
                         <div className="flex items-center justify-center gap-2 mt-2">

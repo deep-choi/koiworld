@@ -26,7 +26,6 @@ interface UseKoiPondInitialState {
     activePondId: string;
     foodCount?: number;
     cornCount?: number;
-    medicineCount?: number;
 }
 
 export const createInitialPonds = (): Ponds => {
@@ -169,7 +168,6 @@ export const useKoiPond = (initialState?: UseKoiPondInitialState) => {
     const [feedAnimations, setFeedAnimations] = useState<FeedAnimation[]>([]);
     const [foodCount, setFoodCount] = useState(initialState?.foodCount ?? 20);
     const [cornCount, setCornCount] = useState(initialState?.cornCount ?? 0);
-    const [medicineCount, setMedicineCount] = useState(initialState?.medicineCount ?? 0);
     // Night cycle removed based on user request
 
     useEffect(() => {
@@ -197,59 +195,10 @@ export const useKoiPond = (initialState?: UseKoiPondInitialState) => {
                     staminaDecay = 1 / 6; // 1 per 6 seconds
                 }
 
-                // 1. Apply Decay & Sickness Check
-                let updatedKois = activePond.kois.map(k => {
-                    let newStamina = Math.max(0, (k.stamina ?? 100) - staminaDecay);
-                    let newSickTimestamp = k.sickTimestamp;
-
-                    // Sick Limit: 5% (User Request)
-                    const SICK_THRESHOLD = 5;
-
-                    // If stamina drops below threshold and not already sick, become sick
-                    if (newStamina <= SICK_THRESHOLD && !newSickTimestamp) {
-                        newSickTimestamp = Date.now();
-                    }
-
-                    // If sick, stamina cannot recover (handled in feeding), but here we just clamp it if needed?
-                    // User says "healthy fish also keeps losing stamina below 8%". 
-                    // This implies if they get infected, they drop to 8 or lower.
-
-                    return {
-                        ...k,
-                        stamina: newStamina,
-                        sickTimestamp: newSickTimestamp
-                    };
-                });
-
-                // 2. Contagion Logic
-                // If a koi is sick for > 2 mins (120,000 ms), it infects nearby healthy koi
-                const now = Date.now();
-                const CONTAGION_TIME = 120000;
-                const CONTAGION_DISTANCE = 20;
-
-                const infectiousKois = updatedKois.filter(k => k.sickTimestamp && (now - k.sickTimestamp > CONTAGION_TIME));
-
-                if (infectiousKois.length > 0) {
-                    updatedKois = updatedKois.map(target => {
-                        if (target.sickTimestamp) return target; // Already sick
-
-                        const isCloseToInfected = infectiousKois.some(source => {
-                            if (source.id === target.id) return false;
-                            const dx = source.position.x - target.position.x;
-                            const dy = source.position.y - target.position.y;
-                            return Math.sqrt(dx * dx + dy * dy) < CONTAGION_DISTANCE;
-                        });
-
-                        if (isCloseToInfected) {
-                            return {
-                                ...target,
-                                stamina: Math.min(target.stamina ?? 100, 5), // Drop to 5% immediately
-                                sickTimestamp: now
-                            };
-                        }
-                        return target;
-                    });
-                }
+                const updatedKois = activePond.kois.map(k => ({
+                    ...k,
+                    stamina: Math.max(0, (k.stamina ?? 100) - staminaDecay),
+                }));
 
                 return {
                     ...prev,
@@ -543,13 +492,6 @@ export const useKoiPond = (initialState?: UseKoiPondInitialState) => {
                     // Assuming Corn has feedAmount > 1 (usually 3)
                     const staminaGain = feedAmount > 1 ? 10 : 5;
 
-                    // Sick Logic: If sick, cannot recover
-                    const isSick = !!k.sickTimestamp; // Check flag
-                    if (isSick) {
-                        // Consumes food but no effect
-                        return { ...k, timesFed: k.timesFed, foodTargetId: null, ...newCooldown };
-                    }
-
                     const newStamina = Math.min(100, (k.stamina ?? 0) + staminaGain);
 
                     // Growth Logic
@@ -666,37 +608,10 @@ export const useKoiPond = (initialState?: UseKoiPondInitialState) => {
                 };
             });
         },
-        medicineCount,
-        setMedicineCount,
         foodCount,
         setFoodCount,
         cornCount,
         setCornCount,
-        cureAllKoi: () => {
-            setPonds(prev => {
-                const activePond = prev[activePondId];
-                if (!activePond) return prev;
-
-                const updatedKois = activePond.kois.map(k => {
-                    if (k.sickTimestamp) {
-                        return {
-                            ...k,
-                            sickTimestamp: null,
-                            stamina: Math.max(k.stamina ?? 0, 20) // Restore to 20% if lower
-                        };
-                    }
-                    return k;
-                });
-
-                return {
-                    ...prev,
-                    [activePondId]: {
-                        ...activePond,
-                        kois: updatedKois
-                    }
-                };
-            });
-        },
         renameKoi: (koiId: string, nextName: string) => {
             setPonds(prev => {
                 const activePond = prev[activePondId];

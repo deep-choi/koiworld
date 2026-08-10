@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Store, Fish, Pill, Palette, Trophy, Menu, Medal } from 'lucide-react';
+import { Store, Fish, Palette, Trophy, Menu, Medal } from 'lucide-react';
 
 interface IconProps {
   size?: number;
@@ -49,9 +49,8 @@ interface ControlBarProps {
   onToggleFeedMode: () => void;
   foodCount: number;
   cornCount: number;
-  medicineCount: number;
-  selectedFoodType: 'normal' | 'corn' | 'medicine';
-  onSelectFoodType: (type: 'normal' | 'corn' | 'medicine') => void;
+  selectedFoodType: 'normal' | 'corn';
+  onSelectFoodType: (type: 'normal' | 'corn') => void;
   onPondInfoClick: () => void;
   onThemeClick: () => void;
   onRankingClick: () => void;
@@ -72,7 +71,6 @@ export const ControlBar: React.FC<ControlBarProps> = ({
   onToggleFeedMode,
   foodCount,
   cornCount,
-  medicineCount,
   selectedFoodType,
   onSelectFoodType,
   onPondInfoClick,
@@ -85,12 +83,11 @@ export const ControlBar: React.FC<ControlBarProps> = ({
   const itemLabels = {
     normal: '기본 사료',
     corn: '프리미엄 옥수수',
-    medicine: '치료제',
   };
   const selectedItemLabel = itemLabels[selectedFoodType];
-  const selectedItemCount = selectedFoodType === 'corn' ? cornCount : selectedFoodType === 'medicine' ? medicineCount : foodCount;
+  const selectedItemCount = selectedFoodType === 'corn' ? cornCount : foodCount;
 
-  const handleItemClick = (type: 'normal' | 'corn' | 'medicine') => {
+  const handleItemClick = (type: 'normal' | 'corn') => {
     if (!isFeedModeActive) {
       onToggleFeedMode();
     }
@@ -177,15 +174,6 @@ export const ControlBar: React.FC<ControlBarProps> = ({
               <CornIcon size={24} className="sm:w-[26px] sm:h-[26px]" />
               <span className="absolute -top-1 -right-1 bg-gray-800 text-yellow-400 border border-white/20 text-[10px] sm:text-[11px] font-bold rounded-full w-5 h-5 flex items-center justify-center">{cornCount}</span>
             </button>
-            <button
-              onClick={() => handleItemClick('medicine')}
-              className={getButtonClass(isFeedModeActive && selectedFoodType === 'medicine')}
-              aria-label={`치료제 선택, 보유 ${medicineCount}개`}
-              aria-pressed={isFeedModeActive && selectedFoodType === 'medicine'}
-            >
-              <Pill size={24} className="sm:w-[26px] sm:h-[26px]" />
-              <span className="absolute -top-1 -right-1 bg-gray-800 text-yellow-400 border border-white/20 text-[10px] sm:text-[11px] font-bold rounded-full w-5 h-5 flex items-center justify-center">{medicineCount}</span>
-            </button>
           </div>
         )}
         <button
@@ -195,7 +183,7 @@ export const ControlBar: React.FC<ControlBarProps> = ({
           aria-expanded={isInventoryOpen}
           aria-haspopup="menu"
         >
-          {selectedFoodType === 'corn' ? <CornIcon size={24} /> : selectedFoodType === 'medicine' ? <Pill size={24} /> : <FeedIcon size={24} />}
+          {selectedFoodType === 'corn' ? <CornIcon size={24} /> : <FeedIcon size={24} />}
           <span className="absolute -top-1 -right-1 bg-gray-800 text-yellow-400 border border-white/20 text-[10px] sm:text-[11px] font-bold rounded-full w-5 h-5 flex items-center justify-center">
             {selectedItemCount}
           </span>

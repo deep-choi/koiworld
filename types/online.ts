@@ -24,7 +24,6 @@ export interface UserGameData {
     money: number;           // ZP (인게임 재화)
     food: number;
     corn: number;
-    medicine: number;
     theme: PondTheme;
     pondCapacity: number;
     honorPoints?: number;

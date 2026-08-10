@@ -28,6 +28,8 @@ export const GENE_RARITY: Record<GeneType, number> = {
     [GeneType.CREAM]: 1, // Basic Type (Most Common, was 6)
 };
 
+const KOI_SELL_PRICE_MULTIPLIER = 1.5;
+
 // Determines the expressed phenotype
 const getRandomTraitWithRarity = <T extends string | number | symbol>(allTraits: T[], rarityMap: Record<T, number>): T => {
     // Filter out traits with rarity 0 (disabled)
@@ -168,7 +170,7 @@ export const calculateKoiValue = (koi: Koi): number => {
 
     // 9. Stamina/Health Penalties
     const stamina = koi.stamina ?? 0;
-    if (stamina <= 10 || koi.sickTimestamp) {
+    if (stamina <= 10) {
         return 0;
     }
     else if (stamina <= 40) {
@@ -178,7 +180,7 @@ export const calculateKoiValue = (koi: Koi): number => {
         value *= 0.5;
     }
 
-    return Math.floor(value);
+    return Math.floor(value * KOI_SELL_PRICE_MULTIPLIER);
 };
 
 const SPOT_COLOR_MUTATION_CHANCE = 0.04;

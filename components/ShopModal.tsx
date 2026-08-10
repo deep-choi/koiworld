@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, ShoppingCart, Minus, Plus, Dna, Pill, Trophy } from 'lucide-react';
+import { X, ShoppingCart, Minus, Plus, Dna, Trophy } from 'lucide-react';
 import { GENE_COLOR_MAP } from '../utils/genetics';
 import { GeneType } from '../types';
 
@@ -51,8 +51,6 @@ interface ShopModalProps {
     onBuyFoodLarge: (quantity: number) => void;
     onBuyCorn: (quantity: number) => void;
     onBuyCornLarge: (quantity: number) => void;
-    onBuyMedicine: (quantity: number) => void;
-
     onBuyKoi: (color: GeneType) => void;
     onBuyTrophy: (quantity: number) => void;
     onBuyPond: () => void;
@@ -64,7 +62,6 @@ const FOOD_PACK_PRICE = 200;
 const FOOD_LARGE_PACK_PRICE = 1000;
 const CORN_PACK_PRICE = 500;
 const CORN_LARGE_PACK_PRICE = 2500;
-const MEDICINE_PRICE = 3000;
 const RARE_KOI_PRICE = 30000;
 const TROPHY_PRICE = 100000;
 
@@ -136,7 +133,7 @@ const ShopItem: React.FC<{
 };
 
 
-export const ShopModal: React.FC<ShopModalProps> = ({ onClose, zenPoints, onBuyFood, onBuyFoodLarge, onBuyCorn, onBuyCornLarge, onBuyMedicine, onBuyKoi, onBuyTrophy, onBuyPond, pondCount, honorPoints }) => {
+export const ShopModal: React.FC<ShopModalProps> = ({ onClose, zenPoints, onBuyFood, onBuyFoodLarge, onBuyCorn, onBuyCornLarge, onBuyKoi, onBuyTrophy, onBuyPond, pondCount, honorPoints }) => {
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-40 p-4">
@@ -206,15 +203,6 @@ export const ShopModal: React.FC<ShopModalProps> = ({ onClose, zenPoints, onBuyF
                         price={CORN_LARGE_PACK_PRICE}
                         onBuy={(q) => onBuyCornLarge(q)}
                         canAfford={(q) => zenPoints >= CORN_LARGE_PACK_PRICE * q}
-                        hasQuantity={true}
-                    />
-                    <ShopItem
-                        icon={<Pill size={40} className="text-green-400" />}
-                        title="치료제"
-                        description="병든 코이를 모두 치료합니다."
-                        price={MEDICINE_PRICE}
-                        onBuy={(q) => onBuyMedicine(q)}
-                        canAfford={(q) => zenPoints >= MEDICINE_PRICE * q}
                         hasQuantity={true}
                     />
                     <ShopItem

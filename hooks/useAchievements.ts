@@ -10,6 +10,35 @@ const createEmptyAchievementState = (): AchievementState => ({
     lastChecked: Date.now(),
 });
 
+type AchievementSnapshot = {
+    unlockedIds?: string[];
+    claimedIds?: string[];
+};
+
+const uniqueIds = (ids: unknown): string[] => {
+    if (!Array.isArray(ids)) return [];
+    return Array.from(new Set(ids.filter((id): id is string => typeof id === 'string')));
+};
+
+const mergeAchievementSnapshots = (...snapshots: Array<AchievementSnapshot | null | undefined>): AchievementState => {
+    const unlockedIds = uniqueIds(snapshots.flatMap(snapshot => snapshot?.unlockedIds ?? []));
+    const claimedIds = uniqueIds(snapshots.flatMap(snapshot => snapshot?.claimedIds ?? []));
+
+    // A claimed reward always implies that the achievement was unlocked.
+    const mergedUnlockedIds = uniqueIds([...unlockedIds, ...claimedIds]);
+    const totalPoints = claimedIds.reduce((sum, id) => {
+        const achievement = ACHIEVEMENTS.find(item => item.id === id);
+        return sum + (achievement?.reward.achievementPoints || 0);
+    }, 0);
+
+    return {
+        unlockedIds: mergedUnlockedIds,
+        claimedIds,
+        totalPoints,
+        lastChecked: Date.now(),
+    };
+};
+
 export const useAchievements = (
     userId: string | undefined,
     initialData?: { unlockedIds: string[]; claimedIds: string[]; } | null
@@ -32,7 +61,8 @@ export const useAchievements = (
         }
     }, [userId]);
 
-    // Load initial data (Priority: cloud snapshot > localStorage)
+    // Load and merge all available sources. Achievement progress is monotonic:
+    // an older cloud snapshot must never erase a locally saved achievement.
     useEffect(() => {
         if (!userId) {
             setState(createEmptyAchievementState());
@@ -42,46 +72,24 @@ export const useAchievements = (
 
         const key = `koi_garden_achievements_${userId}`;
 
-        if (initialData) {
-            // Load from cloud data passed from App.tsx
-            const total = initialData.claimedIds.reduce((sum, id) => {
-                const ach = ACHIEVEMENTS.find(a => a.id === id);
-                return sum + (ach?.reward.achievementPoints || 0);
-            }, 0);
-
-            const nextState = {
-                unlockedIds: initialData.unlockedIds,
-                claimedIds: initialData.claimedIds,
-                totalPoints: total,
-                lastChecked: Date.now(),
-            };
-
-            setState(nextState);
-            setIsLoaded(true);
-
-            // Migration: Keep local storage in sync as secondary backup
-            persistLocalState(nextState);
-        } else {
-            // Check localStorage if cloud data is unavailable
-            const saved = localStorage.getItem(key);
-            if (saved) {
-                try {
-                    const parsed = JSON.parse(saved);
-                    setState({
-                        ...createEmptyAchievementState(),
-                        unlockedIds: parsed.unlockedIds || [],
-                        claimedIds: parsed.claimedIds || [],
-                        totalPoints: parsed.totalPoints || 0,
-                    });
-                } catch (e) {
-                    console.error("Failed to load achievements", e);
-                    setState(createEmptyAchievementState());
-                }
-            } else {
-                setState(createEmptyAchievementState());
+        let localData: AchievementSnapshot | null = null;
+        const saved = localStorage.getItem(key);
+        if (saved) {
+            try {
+                const parsed = JSON.parse(saved) as AchievementSnapshot;
+                localData = {
+                    unlockedIds: uniqueIds(parsed.unlockedIds),
+                    claimedIds: uniqueIds(parsed.claimedIds),
+                };
+            } catch (e) {
+                console.error("Failed to load achievements", e);
             }
-            setIsLoaded(true);
         }
+
+        const nextState = mergeAchievementSnapshots(localData, initialData);
+        setState(nextState);
+        setIsLoaded(true);
+        persistLocalState(nextState);
     }, [userId, initialData, persistLocalState]);
 
     const saveToCloud = useCallback(async (newState: Partial<AchievementState>) => {

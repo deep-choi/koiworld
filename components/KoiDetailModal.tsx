@@ -42,11 +42,6 @@ export const KoiDetailModal: React.FC<KoiDetailModalProps> = ({ koi, onClose, on
                                 className="text-2xl font-bold text-white flex items-center justify-center gap-2 mb-1"
                             >
                                 {koi.name}
-                                {(koi.stamina ?? 100) <= 10 && (
-                                    <span className="text-xs bg-red-900/50 text-red-400 border border-red-500/50 px-2 py-0.5 rounded-full animate-pulse font-normal whitespace-nowrap">
-                                        병듦
-                                    </span>
-                                )}
                                 {isAlbino && (
                                     <span className="text-xs bg-pink-500/20 text-pink-300 border border-pink-500/50 px-2 py-0.5 rounded-full font-normal whitespace-nowrap">
                                         알비노

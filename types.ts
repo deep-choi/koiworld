@@ -91,7 +91,6 @@ export interface Koi {
   foodTargetId: number | null;
   feedCooldownUntil: number | null;
   stamina?: number; // 0-100
-  sickTimestamp?: number | null; // Timestamp when sickness started
   isFavorite?: boolean;
 }
 
@@ -116,7 +115,7 @@ export interface Achievement {
   condition: (koi: any) => boolean; // Using any to avoid circular dependency issues if Koi is not fully defined here, but ideally Koi
   reward: {
     achievementPoints: number;
-    items?: { type: 'corn' | 'medicine', count: number }[];
+    items?: { type: 'corn', count: number }[];
   };
   category: 'spots' | 'color' | 'mutation' | 'collection';
   isHidden?: boolean; // If true, details are hidden until unlocked
@@ -161,7 +160,6 @@ export interface SavedGameState {
   zenPoints: number;
   foodCount: number;
   cornCount?: number; // Premium food
-  medicineCount?: number; // New item
   honorPoints?: number; // Honor Trophies
   achievementPoints?: number; // Achievement score for rankings
   achievements?: {

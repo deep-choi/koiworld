@@ -27,7 +27,7 @@ const getInitial = (nickname?: string | null) => {
 };
 
 export const RankingModal: React.FC<RankingModalProps> = ({ isOpen, onClose, userNickname, myHonorPoints, isLoggedIn, currUserId, myAchievementPoints = 0 }) => {
-    const [activeTab, setActiveTab] = useState<RankingTab>('trophy');
+    const [activeTab, setActiveTab] = useState<RankingTab>('achievement');
     const [rankings, setRankings] = useState<CloudUserDocument[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -91,18 +91,6 @@ export const RankingModal: React.FC<RankingModalProps> = ({ isOpen, onClose, use
                     {/* Tabs */}
                     <div className="flex bg-gray-800 p-1 rounded-lg border border-gray-700">
                         <button
-                            onClick={() => setActiveTab('trophy')}
-                            aria-label="트로피 랭킹 보기"
-                            aria-pressed={activeTab === 'trophy'}
-                            className={`flex-1 py-1.5 text-xs font-bold rounded flex items-center justify-center gap-1.5 transition-all ${activeTab === 'trophy'
-                                ? 'bg-yellow-500 text-black shadow'
-                                : 'text-gray-400 hover:text-gray-200'
-                                }`}
-                        >
-                            <Trophy size={14} />
-                            트로피 랭킹
-                        </button>
-                        <button
                             onClick={() => setActiveTab('achievement')}
                             aria-label="업적 랭킹 보기"
                             aria-pressed={activeTab === 'achievement'}
@@ -113,6 +101,18 @@ export const RankingModal: React.FC<RankingModalProps> = ({ isOpen, onClose, use
                         >
                             <Award size={14} />
                             업적 랭킹
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('trophy')}
+                            aria-label="트로피 랭킹 보기"
+                            aria-pressed={activeTab === 'trophy'}
+                            className={`flex-1 py-1.5 text-xs font-bold rounded flex items-center justify-center gap-1.5 transition-all ${activeTab === 'trophy'
+                                ? 'bg-yellow-500 text-black shadow'
+                                : 'text-gray-400 hover:text-gray-200'
+                                }`}
+                        >
+                            <Trophy size={14} />
+                            트로피 랭킹
                         </button>
                     </div>
 

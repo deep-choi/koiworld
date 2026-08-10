@@ -34,10 +34,10 @@ type MinifiedKoi = [string, string, MinifiedGenetics, number, number, number, nu
 // Pond: [id, name, themeIdx, [kois...], waterQuality] 
 type MinifiedPond = [string, string, number, MinifiedKoi[], number];
 
-// State: [version, zenPoints, foodCount, cornCount, koisNameCounter, [ponds...], activePondId, medicineCount]
-type MinifiedState = [number, number, number, number, number, MinifiedPond[], string, number];
+// State: [version, zenPoints, foodCount, cornCount, koisNameCounter, [ponds...], activePondId]
+type MinifiedState = [number, number, number, number, number, MinifiedPond[], string];
 
-const CURRENT_VERSION = 2;
+const CURRENT_VERSION = 3;
 
 
 export const compressGameStateAsync = async (state: SavedGameState): Promise<string> => {
@@ -91,8 +91,7 @@ export const compressGameStateAsync = async (state: SavedGameState): Promise<str
         state.cornCount || 0,
         state.koiNameCounter,
         minPonds,
-        state.activePondId,
-        state.medicineCount || 0
+        state.activePondId
     ];
 
     const json = JSON.stringify(minState);
@@ -210,7 +209,6 @@ export const decompressGameStateAsync = async (code: string): Promise<SavedGameS
             zenPoints: minState[1],
             foodCount: minState[2],
             cornCount: minState[3],
-            medicineCount: minState[7] || 0,
             koiNameCounter: minState[4],
             timestamp: Date.now()
         };

@@ -84,11 +84,6 @@ const KoiListItem: React.FC<{
             <span className="text-xs bg-gray-800 px-1.5 py-0.5 rounded border border-gray-600 text-gray-400 whitespace-nowrap">
               {koi.growthStage === 'adult' ? '성체' : koi.growthStage === 'juvenile' ? '준성체' : '치어'}
             </span>
-            {(koi.stamina ?? 0) <= 5 || koi.sickTimestamp ? (
-              <span className="text-xs bg-red-900/50 px-1.5 py-0.5 rounded border border-red-500/50 text-red-400 font-bold animate-pulse whitespace-nowrap">
-                병듦
-              </span>
-            ) : null}
           </div>
           <span className="text-xs font-mono text-yellow-400 bg-yellow-400/10 px-1.5 py-0.5 rounded border border-yellow-400/30 whitespace-nowrap">
             {value} ZP

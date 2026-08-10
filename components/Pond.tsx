@@ -211,7 +211,6 @@ export const Pond: React.FC<PondProps> = ({ gameState, koiList, decorations, the
       {/* Background Image for Watercolor Theme */}
 
       {/* Water effect */}
-      <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/subtle-waves.png')] opacity-5 pointer-events-none"></div>
       <div className="caustics-overlay pointer-events-none"></div>
 
       {/* Single Game Canvas */}

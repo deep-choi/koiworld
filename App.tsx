@@ -25,7 +25,6 @@ import { AuthModal } from './components/AuthModal';
 import { startSession } from './services/session';
 import { saveGameToCloud, loadUserDataOnce, listenToGameData } from './services/sync';
 import { SessionConflictModal } from './components/SessionConflictModal';
-import { MedicineConfirmModal } from './components/MedicineConfirmModal';
 import { FORCE_CLEAR_KEY, SAVE_GAME_KEY, clearLocalGameSaves, isLocalGameSaveSuppressed, resumeLocalGameSave, suppressLocalGameSave } from './services/localSave';
 import { startTabLock, type TabLockController } from './services/tabLock';
 import { ensureUserProfileNickname, updateUserNickname } from './services/profile';
@@ -46,7 +45,6 @@ const FOOD_PACK_PRICE = 200;
 const FOOD_PACK_AMOUNT = 50;
 const CORN_PACK_PRICE = 500; // Premium food
 const CORN_PACK_AMOUNT = 20; // Fewer quantity but 3x effect
-const MEDICINE_PRICE = 3000;
 const CLEANING_COST = 500;
 const FOOD_LARGE_PACK_PRICE = 1000;
 const FOOD_LARGE_PACK_AMOUNT = 250;
@@ -95,9 +93,6 @@ export const App: React.FC = () => {
     cleanPond,
     consumeStamina,
     reduceWaterQuality,
-    medicineCount,
-    setMedicineCount,
-    cureAllKoi,
     renameKoi,
     toggleKoiFavorite,
     moveKoi,
@@ -118,7 +113,6 @@ export const App: React.FC = () => {
   const [activeKoi, setActiveKoi] = useState<Koi | null>(null);
   const [isInfoModalOpen, setIsInfoModalOpen] = useState(false);
   const [isCleanConfirmOpen, setIsCleanConfirmOpen] = useState(false);
-  const [isMedicineConfirmOpen, setIsMedicineConfirmOpen] = useState(false);
   const [isRankingModalOpen, setIsRankingModalOpen] = useState(false);
   const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
 
@@ -133,7 +127,7 @@ export const App: React.FC = () => {
   const [isDuplicateTabPaused, setIsDuplicateTabPaused] = useState(false);
 
   // Achievement System
-  const [initialAchievementData, setInitialAchievementData] = useState<{ unlockedIds: string[]; claimedIds: string[]; } | null>(() => savedState?.achievements ?? null);
+  const [initialAchievementData, setInitialAchievementData] = useState<{ unlockedIds: string[]; claimedIds: string[]; } | null>(null);
   const {
     achievements,
     unlockedIds,
@@ -190,11 +184,10 @@ export const App: React.FC = () => {
       if (rewardContent.items) {
         rewardContent.items.forEach((item: any) => {
           if (item.type === 'corn') setCornCount(prev => prev + item.count);
-          if (item.type === 'medicine') setMedicineCount(prev => prev + item.count);
         });
       }
       const itemsText = rewardContent.items
-        ? rewardContent.items.map((i: any) => i.type === 'corn' ? `옥수수 ${i.count}개` : `${i.type} ${i.count}개`).join(', ')
+        ? rewardContent.items.map((i: any) => `옥수수 ${i.count}개`).join(', ')
         : '';
       setNotification({
         message: `보상 획득! 업적 포인트 ${rewardContent.achievementPoints}점${itemsText ? `, ${itemsText}` : ''}`,
@@ -217,7 +210,7 @@ export const App: React.FC = () => {
   const [foodCount, setFoodCount] = useState(savedState?.foodCount ?? 20);
   const [cornCount, setCornCount] = useState(savedState?.cornCount ?? 0);
 
-  const [selectedFoodType, setSelectedFoodType] = useState<'normal' | 'corn' | 'medicine'>('normal');
+  const [selectedFoodType, setSelectedFoodType] = useState<'normal' | 'corn'>('normal');
   const [koiNameCounter, setKoiNameCounter] = useState(savedState?.koiNameCounter ?? 3);
   const [isMuted, setIsMuted] = useState(false);
   const [notification, setNotification] = useState<{ message: string, type: 'success' | 'info' | 'error' } | null>(null);
@@ -226,6 +219,7 @@ export const App: React.FC = () => {
   const latestFoodCountsRef = useRef({ food: foodCount, corn: cornCount, type: selectedFoodType });
   const lastLocalSavePayloadRef = useRef<string | null>(null);
   const lastCloudSavePayloadRef = useRef<string | null>(null);
+  const cloudSaveInFlightRef = useRef(false);
   const tabLockRef = useRef<TabLockController | null>(null);
 
   useEffect(() => {
@@ -364,7 +358,6 @@ export const App: React.FC = () => {
       zenPoints,
       foodCount,
       cornCount,
-      medicineCount,
       honorPoints,
       achievementPoints: achievementScore,
       achievements: {
@@ -373,7 +366,7 @@ export const App: React.FC = () => {
       },
       koiNameCounter,
     };
-  }, [ponds, activePondId, zenPoints, foodCount, cornCount, medicineCount, honorPoints, achievementScore, unlockedIds, claimedIds, koiNameCounter]);
+  }, [ponds, activePondId, zenPoints, foodCount, cornCount, honorPoints, achievementScore, unlockedIds, claimedIds, koiNameCounter]);
 
   // Session & Cloud Sync Logic (통합 최적화: 모든 사용자 데이터를 병렬로 1회 로드)
   useEffect(() => {
@@ -441,9 +434,11 @@ export const App: React.FC = () => {
       // Cloud save only when payload changes.
       if (!user || !isCloudSyncReady) return;
       if (payload === lastCloudSavePayloadRef.current) return;
+      if (cloudSaveInFlightRef.current) return;
 
       const previousCloudPayload = lastCloudSavePayloadRef.current;
       lastCloudSavePayloadRef.current = payload;
+      cloudSaveInFlightRef.current = true;
       try {
         await saveGameToCloud(user.uid, currentState);
       } catch (error: any) {
@@ -453,8 +448,10 @@ export const App: React.FC = () => {
         if (error.code !== 'unavailable') {
           console.error("Cloud save failed:", error);
         }
+      } finally {
+        cloudSaveInFlightRef.current = false;
       }
-    }, 5000);
+    }, 15000);
 
     return () => clearInterval(saveInterval);
   }, [user, isCloudSyncReady, isDuplicateTabPaused]);
@@ -490,16 +487,6 @@ export const App: React.FC = () => {
     setIsCleanConfirmOpen(false);
   };
 
-  const confirmUseMedicine = () => {
-    if ((medicineCount || 0) <= 0) return;
-
-    cureAllKoi();
-    setMedicineCount(c => Math.max(0, (c || 0) - 1));
-    audioManager.playSFX('purchase');
-    setNotification({ message: `모든 코이에게 치료제를 사용했습니다.`, type: 'success' });
-    setIsMedicineConfirmOpen(false);
-  };
-
   const handleNewGame = async (): Promise<boolean> => {
     if (!window.confirm("정말 새 게임을 시작하시겠습니까? 현재 진행 상황이 모두 사라집니다.")) return false;
 
@@ -509,12 +496,11 @@ export const App: React.FC = () => {
       zenPoints: import.meta.env.DEV ? 10000 : 2000,
       foodCount: 20,
       cornCount: 0,
-      medicineCount: 0,
       honorPoints: 0,
-      achievementPoints: 0,
+      achievementPoints: achievementScore,
       achievements: {
-        unlockedIds: [],
-        claimedIds: [],
+        unlockedIds,
+        claimedIds,
       },
       koiNameCounter: 3,
     };
@@ -567,7 +553,6 @@ export const App: React.FC = () => {
     setZenPoints(loadedState.zenPoints);
     setFoodCount(loadedState.foodCount);
     setCornCount(loadedState.cornCount || 0);
-    setMedicineCount(loadedState.medicineCount || 0);
     setHonorPoints(loadedState.honorPoints || 0);
     setKoiNameCounter(loadedState.koiNameCounter);
     if (loadedState.achievements) {
@@ -816,15 +801,6 @@ export const App: React.FC = () => {
   // Helper for zen points deduction
   const prevZen = (p: number, cost: number) => Math.max(0, p - cost);
 
-  const handleBuyMedicine = (quantity: number) => {
-    const cost = MEDICINE_PRICE * quantity;
-    if (zenPoints < cost) return;
-    setZenPoints(p => p - cost);
-    audioManager.playSFX('purchase');
-    setMedicineCount(c => (c || 0) + quantity);
-    setIsShopModalOpen(false);
-  }
-
   const handleBuyTrophy = useCallback(async (quantity: number) => {
     const totalCost = 100000 * quantity;
     if (zenPoints < totalCost) {
@@ -888,15 +864,8 @@ export const App: React.FC = () => {
   const handlePondPointerDown = useCallback((event: React.PointerEvent<HTMLElement> | React.MouseEvent<HTMLElement>, koi?: Koi) => {
     // Feed Mode Logic
     if (isFeedModeActive) {
-      if (selectedFoodType === 'medicine') {
-        if ((medicineCount || 0) <= 0) {
-          setNotification({ message: '치료제가 없습니다!', type: 'error' });
-          return;
-        }
-        setIsMedicineConfirmOpen(true);
-      } else {
-        // Food Logic (Normal / Corn)
-        if (!koi) {
+      // Food Logic (Normal / Corn)
+      if (!koi) {
           const stopFeeding = () => {
             if (feedingIntervalRef.current) {
               clearInterval(feedingIntervalRef.current);
@@ -960,14 +929,13 @@ export const App: React.FC = () => {
               }, 100); // 100ms interval for faster feeding
             }, 250); // 250ms delay before continuous feeding starts
           }
-        } else {
-          setIsFeedModeActive(false);
-        }
+      } else {
+        setIsFeedModeActive(false);
       }
     }
 
     // Selection Logic
-    if (koi && !(isFeedModeActive && selectedFoodType === 'medicine')) {
+    if (koi && !isFeedModeActive) {
       audioManager.playSFX('click');
       if (breedingSelection.includes(koi.id)) {
         setBreedingSelection(prev => prev.filter(id => id !== koi.id));
@@ -977,7 +945,7 @@ export const App: React.FC = () => {
     } else if (!koi) {
       setBreedingSelection([]);
     }
-  }, [isFeedModeActive, breedingSelection, foodCount, cornCount, medicineCount, selectedFoodType, dropFood, audioManager, setNotification, setFoodDropAnimations]);
+  }, [isFeedModeActive, breedingSelection, foodCount, cornCount, selectedFoodType, dropFood, audioManager, setFoodDropAnimations]);
 
   const handlePondPointerMove = useCallback((event: React.PointerEvent<HTMLElement>) => {
     if (feedingIntervalRef.current) {
@@ -1229,7 +1197,6 @@ export const App: React.FC = () => {
         onToggleFeedMode={handleToggleFeedMode}
         foodCount={foodCount}
         cornCount={cornCount}
-        medicineCount={medicineCount ?? 0}
         selectedFoodType={selectedFoodType}
         onSelectFoodType={setSelectedFoodType}
         onPondInfoClick={() => {
@@ -1252,16 +1219,6 @@ export const App: React.FC = () => {
       />
 
       {
-        isMedicineConfirmOpen && (
-          <MedicineConfirmModal
-            onClose={() => setIsMedicineConfirmOpen(false)}
-            onConfirm={confirmUseMedicine}
-            currentCount={medicineCount}
-          />
-        )
-      }
-
-      {
         isShopModalOpen && (
           <ShopModal
             onClose={() => setIsShopModalOpen(false)}
@@ -1270,7 +1227,6 @@ export const App: React.FC = () => {
             onBuyFoodLarge={handleBuyFoodLarge}
             onBuyCorn={handleBuyCorn}
             onBuyCornLarge={handleBuyCornLarge}
-            onBuyMedicine={handleBuyMedicine}
             onBuyKoi={handleBuyKoi}
             onBuyTrophy={handleBuyTrophy}
             onBuyPond={handleBuyPondExpansion}

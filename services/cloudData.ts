@@ -76,7 +76,6 @@ const toRankingDocument = (userId: string, data: Record<string, any>): CloudUser
         money: 0,
         food: 0,
         corn: 0,
-        medicine: 0,
         theme: '기본 (맑은 물)' as UserGameData['theme'],
         pondCapacity: 0,
         honorPoints: Number(data.honorPoints || 0),
@@ -89,6 +88,28 @@ const extractGameScores = (gameState: SavedGameState) => ({
     honorPoints: Number(gameState.honorPoints || 0),
     achievementPoints: Number(gameState.achievementPoints || 0),
 });
+
+const mergeAchievementProgress = (
+    existing: SavedGameState['achievements'] | undefined,
+    incoming: SavedGameState['achievements'] | undefined,
+): SavedGameState['achievements'] | undefined => {
+    if (!existing && !incoming) return undefined;
+
+    const unlockedIds = Array.from(new Set([
+        ...(existing?.unlockedIds ?? []),
+        ...(incoming?.unlockedIds ?? []),
+    ]));
+    const claimedIds = Array.from(new Set([
+        ...(existing?.claimedIds ?? []),
+        ...(incoming?.claimedIds ?? []),
+    ]));
+
+    return {
+        // A claimed reward is also permanently unlocked.
+        unlockedIds: Array.from(new Set([...unlockedIds, ...claimedIds])),
+        claimedIds,
+    };
+};
 
 export async function ensureUserDocument(
     userId: string,
@@ -252,20 +273,37 @@ export async function saveGameState(userId: string, gameState: SavedGameState): 
     }
 
     const sanitizedGameState = sanitizeForFirestore(gameState);
-    const scores = extractGameScores(sanitizedGameState);
+    const privateRef = userDocRef(userId);
 
-    await Promise.all([
-        setDoc(userDocRef(userId), {
-            gameState: sanitizedGameState,
+    const mergedGameState = await runTransaction(db, async (transaction) => {
+        const snapshot = await transaction.get(privateRef);
+        const existingGameState = snapshot.exists()
+            ? snapshot.data().gameState as SavedGameState | undefined
+            : undefined;
+        const mergedAchievements = mergeAchievementProgress(
+            existingGameState?.achievements,
+            sanitizedGameState.achievements,
+        );
+        const nextGameState: SavedGameState = mergedAchievements
+            ? { ...sanitizedGameState, achievements: mergedAchievements }
+            : sanitizedGameState;
+        const scores = extractGameScores(nextGameState);
+
+        transaction.set(privateRef, {
+            gameState: nextGameState,
             ...scores,
             updatedAt: serverTimestamp(),
-        }, { merge: true }),
-        setDoc(rankingDocRef(userId), {
-            uid: userId,
-            ...scores,
-            updatedAt: serverTimestamp(),
-        }, { merge: true }),
-    ]);
+        }, { merge: true });
+
+        return nextGameState;
+    });
+
+    const scores = extractGameScores(mergedGameState);
+    await setDoc(rankingDocRef(userId), {
+        uid: userId,
+        ...scores,
+        updatedAt: serverTimestamp(),
+    }, { merge: true });
 }
 
 export async function updateUserGameData(

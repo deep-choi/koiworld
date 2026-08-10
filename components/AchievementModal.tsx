@@ -62,9 +62,9 @@ export const AchievementModal: React.FC<AchievementModalProps> = ({
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-            <div className="bg-gray-800 border border-gray-700 rounded-lg w-full max-w-4xl max-h-[85svh] flex flex-col shadow-2xl glass-panel modal-glass-panel">
+            <div className="bg-gray-800 border border-gray-700 rounded-lg w-full max-w-4xl max-h-[85svh] flex flex-col shadow-2xl glass-panel">
                 {/* Header - Pond Menu Style */}
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center p-3 gap-3 border-b border-gray-700 bg-gray-900 rounded-t-lg glass-header modal-glass-header">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center p-3 gap-3 border-b border-gray-700 bg-gray-900 rounded-t-lg glass-header">
                     <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-0.5 w-full sm:w-auto">
                         {TABS.map(tab => (
                             <button
@@ -83,7 +83,7 @@ export const AchievementModal: React.FC<AchievementModalProps> = ({
                     </div>
 
                     <div className="flex items-center justify-between sm:justify-end gap-3 w-full sm:w-auto">
-                        <div className="flex items-center gap-2 text-sm text-yellow-300 font-bold bg-gray-800/80 px-3 py-1.5 rounded-md border border-gray-700 whitespace-nowrap glass-section modal-glass-section">
+                        <div className="flex items-center gap-2 text-sm text-yellow-300 font-bold bg-gray-800/80 px-3 py-1.5 rounded-md border border-gray-700 whitespace-nowrap glass-section">
                             <Star className="w-4 h-4 fill-current" />
                             <span>{totalPoints.toLocaleString()} Pts</span>
                         </div>

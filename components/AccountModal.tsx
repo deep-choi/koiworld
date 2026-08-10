@@ -181,8 +181,8 @@ export const AccountModal: React.FC<AccountModalProps> = ({
 
     return (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={onClose}>
-            <div className="bg-gray-800 rounded-xl max-w-md w-full border border-gray-700 shadow-2xl overflow-hidden glass-panel modal-glass-panel" onClick={event => event.stopPropagation()}>
-                <div className="flex justify-between items-center p-4 bg-gray-900 border-b border-gray-700 glass-header modal-glass-header">
+            <div className="bg-gray-800 rounded-xl max-w-md w-full border border-gray-700 shadow-2xl overflow-hidden glass-panel" onClick={event => event.stopPropagation()}>
+                <div className="flex justify-between items-center p-4 bg-gray-900 border-b border-gray-700 glass-header">
                     <h2 className="text-xl font-black text-white flex items-center gap-2">
                         <User size={20} className="text-yellow-400" /> 계정 정보
                     </h2>
@@ -229,7 +229,7 @@ export const AccountModal: React.FC<AccountModalProps> = ({
                         </div>
                     </div>
 
-                    <div className="rounded-lg border border-gray-700 p-4 bg-gray-900/30 glass-section modal-glass-section">
+                    <div className="rounded-lg border border-gray-700 p-4 bg-gray-900/30 glass-section">
                         <div className="flex items-center gap-3">
                             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gray-950/30">
                                 <LoginMethodIcon source={user?.authSource} />

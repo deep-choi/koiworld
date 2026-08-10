@@ -89,11 +89,12 @@ const getAuthSource = (user: FirebaseUser, providerIds: string[]): AuthSource =>
 };
 
 const getAuthSourceLabel = (source: AuthSource, providerLabel: string) => {
-    if (source === 'playgames') return 'Play Games 자동 로그인 (Google)';
-    if (source === 'anonymous') return '게스트 (익명)';
+    if (source === 'playgames') return '플레이 게임즈';
+    if (source === 'anonymous') return '게스트';
+    if (source === 'google') return '구글';
     if (source === 'email') return '이메일';
     if (source === 'phone') return '전화번호';
-    return providerLabel;
+    return providerLabel || '알 수 없음';
 };
 
 const logFirebaseAuthState = (stage: string, user: FirebaseUser | null) => {

@@ -312,7 +312,7 @@ export const SpotGeneticsDebugPanel: React.FC<SpotGeneticsDebugPanelProps> = ({
                     {koi && (
                         <button
                             onClick={handleCopyAll}
-                            className="bg-blue-600 hover:bg-blue-500 text-white px-2 py-0.5 rounded text-xs font-bold"
+                            className="bg-yellow-600 hover:bg-yellow-500 text-white px-2 py-0.5 rounded text-xs font-bold"
                         >
                             📋 전부 복사
                         </button>
@@ -450,9 +450,9 @@ export const SpotGeneticsDebugPanel: React.FC<SpotGeneticsDebugPanelProps> = ({
                                 value={saturation}
                                 onChange={e => setSaturation(parseInt(e.target.value))}
                                 className="flex-1 h-3"
-                                style={{ accentColor: '#3b82f6' }}
+                                style={{ accentColor: '#facc15' }}
                             />
-                            <span className="text-blue-300 w-8 text-right">{saturation}</span>
+                            <span className="text-yellow-300 w-8 text-right">{saturation}</span>
                         </div>
 
                         {/* Albino Toggle */}
@@ -598,7 +598,7 @@ export const SpotGeneticsDebugPanel: React.FC<SpotGeneticsDebugPanelProps> = ({
                     {/* Spot Phenotype Gene Editor */}
                     <div className="border-t border-gray-700 pt-2 mb-3">
                         <div className="flex justify-between items-center mb-2">
-                            <h5 className="text-xs text-cyan-400">🧬 무늬 표현형 유전자</h5>
+                            <h5 className="text-xs text-yellow-400">🧬 무늬 표현형 유전자</h5>
                             <button
                                 onClick={handleRandomizeGenes}
                                 className="bg-purple-600 hover:bg-purple-500 text-white px-2 py-0.5 rounded text-xs"
@@ -622,7 +622,7 @@ export const SpotGeneticsDebugPanel: React.FC<SpotGeneticsDebugPanelProps> = ({
                                         className="flex-1 h-3"
                                         style={{ accentColor: '#00ff00' }}
                                     />
-                                    <span className="text-cyan-300 w-8 text-right">{Math.round(customGenes[id])}%</span>
+                                    <span className="text-yellow-300 w-8 text-right">{Math.round(customGenes[id])}%</span>
                                 </div>
                             ))}
                         </div>
@@ -698,7 +698,7 @@ export const SpotGeneticsDebugPanel: React.FC<SpotGeneticsDebugPanelProps> = ({
                                         ))}
                                     </div>
                                 </div>
-                                <div><span className="text-gray-500">명도:</span> <span className="text-pink-300">{koi.genetics.lightness}</span> | <span className="text-gray-500">채도:</span> <span className="text-blue-300">{koi.genetics.saturation}</span> | <span className="text-gray-500">알비노:</span> <span className={koi.genetics.albinoAlleles && koi.genetics.albinoAlleles[0] && koi.genetics.albinoAlleles[1] ? 'text-pink-300' : 'text-gray-500'}>{koi.genetics.albinoAlleles && koi.genetics.albinoAlleles[0] && koi.genetics.albinoAlleles[1] ? '네' : '아니오'}</span></div>
+                                <div><span className="text-gray-500">명도:</span> <span className="text-pink-300">{koi.genetics.lightness}</span> | <span className="text-gray-500">채도:</span> <span className="text-yellow-300">{koi.genetics.saturation}</span> | <span className="text-gray-500">알비노:</span> <span className={koi.genetics.albinoAlleles && koi.genetics.albinoAlleles[0] && koi.genetics.albinoAlleles[1] ? 'text-pink-300' : 'text-gray-500'}>{koi.genetics.albinoAlleles && koi.genetics.albinoAlleles[0] && koi.genetics.albinoAlleles[1] ? '네' : '아니오'}</span></div>
                                 <div><span className="text-gray-500">무늬:</span> <span className="text-orange-300">{koi.genetics.spots.length}개</span></div>
                             </div>
                         </div>
@@ -709,7 +709,7 @@ export const SpotGeneticsDebugPanel: React.FC<SpotGeneticsDebugPanelProps> = ({
                         <div className="border-t border-gray-700 pt-2 mt-2">
                             <h5 className="text-xs text-gray-400 mb-1">🎨 무늬 표현형</h5>
                             <div className="grid grid-cols-2 gap-1 text-xs">
-                                <span>채도: <span className="text-cyan-300">{(phenotype.colorSaturation * 100).toFixed(0)}</span></span>
+                                <span>채도: <span className="text-yellow-300">{(phenotype.colorSaturation * 100).toFixed(0)}</span></span>
                             </div>
                         </div>
                     )}

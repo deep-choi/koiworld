@@ -10,7 +10,7 @@ import { AccountModal } from './components/AccountModal';
 // SettingsModal removed
 
 
-import { breedKoi, calculateKoiValue, getPhenotype, GENE_COLOR_MAP, getDisplayColor, createFixedSpotPhenotypeGenes } from './utils/genetics';
+import { breedKoi, calculateKoiValue, createFixedSpotPhenotypeGenes } from './utils/genetics';
 import { useKoiPond, createInitialPonds } from './hooks/useKoiPond';
 import { Koi, GeneType, KoiGenetics, GrowthStage, Ponds, Decoration, DecorationType, PondTheme, SavedGameState } from './types';
 import { Wheat, DollarSign, ShoppingCart, Dna, Settings, User, X } from 'lucide-react';
@@ -18,6 +18,7 @@ import { audioManager } from './utils/audio';
 import { ThemeModal } from './components/ThemeModal';
 import { CleanConfirmModal } from './components/CleanConfirmModal';
 import { SpotGeneticsDebugPanel } from './components/debug/SpotGeneticsDebugPanel';
+import { KoiCSSPreview } from './components/KoiCSSPreview';
 
 // --- New Feature Imports ---
 import { useAuth } from './contexts/AuthContext';
@@ -27,7 +28,7 @@ import { saveGameToCloud, loadUserDataOnce, listenToGameData } from './services/
 import { SessionConflictModal } from './components/SessionConflictModal';
 import { FORCE_CLEAR_KEY, SAVE_GAME_KEY, clearLocalGameSaves, isLocalGameSaveSuppressed, resumeLocalGameSave, suppressLocalGameSave } from './services/localSave';
 import { startTabLock, type TabLockController } from './services/tabLock';
-import { ensureUserProfileNickname, updateUserNickname } from './services/profile';
+import { ensureUserProfileNickname, updateUserProfileSettings } from './services/profile';
 import { RankingModal } from './components/RankingModal';
 import { useAchievements } from './hooks/useAchievements';
 import { AchievementModal } from './components/AchievementModal';
@@ -43,13 +44,14 @@ interface Animation {
 const BREEDING_COST = 200;
 const FOOD_PACK_PRICE = 200;
 const FOOD_PACK_AMOUNT = 50;
-const CORN_PACK_PRICE = 500; // Premium food
-const CORN_PACK_AMOUNT = 20; // Fewer quantity but 3x effect
+const CORN_PACK_PRICE = 1000;
+const CORN_PACK_AMOUNT = 50;
+const CORN_FEED_AMOUNT = 3;
 const CLEANING_COST = 500;
 const FOOD_LARGE_PACK_PRICE = 1000;
 const FOOD_LARGE_PACK_AMOUNT = 250;
-const CORN_LARGE_PACK_PRICE = 2500;
-const CORN_LARGE_PACK_AMOUNT = 100;
+const CORN_LARGE_PACK_PRICE = 5000;
+const CORN_LARGE_PACK_AMOUNT = 250;
 
 const loadGameState = (): SavedGameState | null => {
   try {
@@ -94,7 +96,6 @@ export const App: React.FC = () => {
     consumeStamina,
     reduceWaterQuality,
     renameKoi,
-    toggleKoiFavorite,
     moveKoi,
   } = useKoiPond(savedState ? { ponds: savedState.ponds, activePondId: savedState.activePondId } : undefined);
 
@@ -123,6 +124,7 @@ export const App: React.FC = () => {
   // Session & Sync State
   const [isConflictOpen, setIsConflictOpen] = useState(false);
   const [userNickname, setUserNickname] = useState<string>('');
+  const [userPhotoURL, setUserPhotoURL] = useState<string | null>(null);
   const [isCloudSyncReady, setIsCloudSyncReady] = useState(false);
   const [isDuplicateTabPaused, setIsDuplicateTabPaused] = useState(false);
 
@@ -327,10 +329,17 @@ export const App: React.FC = () => {
   useEffect(() => {
     if (!user) {
       setUserNickname('');
+      setUserPhotoURL(null);
       lastCloudSavePayloadRef.current = null;
       lastAchievementCheckKeyRef.current = '';
     }
   }, [user]);
+
+  useEffect(() => {
+    if (user) {
+      setUserPhotoURL(user.photoURL ?? null);
+    }
+  }, [user?.uid, user?.photoURL]);
 
   useEffect(() => {
     // 사용자 전환 시 첫 클라우드 저장을 허용하도록 이전 저장 해시를 초기화합니다.
@@ -397,6 +406,7 @@ export const App: React.FC = () => {
 
         // 서버에 저장된 닉네임으로 로컬 상태 업데이트
         setUserNickname(verifiedNickname);
+        setUserPhotoURL(userData?.photoURL ?? user.photoURL ?? null);
 
         cloudReady = true;
       } catch (error) {
@@ -456,12 +466,13 @@ export const App: React.FC = () => {
     return () => clearInterval(saveInterval);
   }, [user, isCloudSyncReady, isDuplicateTabPaused]);
 
-  const handleSaveNickname = useCallback(async (nickname: string) => {
+  const handleSaveProfile = useCallback(async (nickname: string, photoURL: string | null) => {
     if (!user) return;
     const trimmed = nickname.trim();
-    await updateUserNickname(user.uid, trimmed);
+    await updateUserProfileSettings(user.uid, trimmed, photoURL);
     setUserNickname(trimmed);
-    setNotification({ message: '닉네임이 저장되었습니다.', type: 'success' });
+    setUserPhotoURL(photoURL);
+    setNotification({ message: '프로필이 저장되었습니다.', type: 'success' });
   }, [user]);
 
   const handleCleanPond = () => {
@@ -898,7 +909,7 @@ export const App: React.FC = () => {
               setCornCount(prev => prev - 1);
               // Update ref immediately for interval consistency
               latestFoodCountsRef.current.corn -= 1;
-              executeDrop(x, y, 2);
+              executeDrop(x, y, CORN_FEED_AMOUNT);
             } else if (type === 'normal') {
               if (food <= 0) {
                 stopFeeding();
@@ -1001,7 +1012,7 @@ export const App: React.FC = () => {
   }, []);
 
   return (
-    <div className="relative w-full h-[100svh] bg-gray-900 overflow-hidden select-none font-sans flex flex-col">
+    <div className="relative w-full h-[100svh] bg-gray-900 overflow-hidden select-none flex flex-col">
       <main
         className="flex-grow relative overflow-hidden touch-none"
       >
@@ -1078,21 +1089,21 @@ export const App: React.FC = () => {
       }
 
       <div className="absolute top-[calc(1rem+env(safe-area-inset-top))] left-4 z-20 flex flex-col gap-2">
-        <div className="bg-gray-900/60 backdrop-blur-sm p-3 rounded-lg border border-gray-700/50 min-w-[140px]">
+        <div className="bg-white/10 backdrop-blur-sm p-3 rounded-lg border border-white/10 min-w-[140px]">
           <p className="text-lg font-bold text-yellow-300">{zenPoints.toLocaleString()} ZP</p>
         </div>
 
         {/* Water Quality Indicator - Interactive */}
-        <div className="bg-gray-900/60 backdrop-blur-sm p-3 rounded-lg border border-gray-700/50 flex items-center gap-2 min-w-[140px]">
+        <div className="bg-white/10 backdrop-blur-sm p-3 rounded-lg border border-white/10 flex items-center gap-2 min-w-[140px]">
           <div className="flex flex-col items-start leading-none">
-            <span className="text-[10px] text-gray-400">수질</span>
+            <span className="text-[10px] text-white/70">수질</span>
             <span className={`text-sm font-bold ${waterQuality < 50 ? 'text-red-400' : 'text-white'}`}>
               {Math.round(waterQuality)}%
             </span>
           </div>
           <button
             onClick={handleCleanPond}
-            className="ml-auto text-xs bg-blue-600 hover:bg-blue-500 text-white font-bold px-2 py-1 rounded transition-colors"
+            className="ml-auto text-xs bg-yellow-600 hover:bg-yellow-500 text-white font-bold px-2 py-1 rounded transition-colors"
             aria-label="연못 청소하기"
           >
             + 청소
@@ -1103,7 +1114,7 @@ export const App: React.FC = () => {
       <div className="absolute top-[calc(1rem+env(safe-area-inset-top))] right-4 z-20 flex items-center gap-2">
         <button
           onClick={() => setIsSaveLoadModalOpen(true)}
-          className="bg-gray-900/40 backdrop-blur-sm p-3 rounded-full border border-white/10 text-white hover:text-yellow-400 transition-colors hover:bg-gray-800/60 hover:border-white/20"
+          className="bg-white/10 backdrop-blur-sm p-3 rounded-full border border-white/20 text-white hover:text-yellow-400 transition-colors hover:bg-white/20 hover:border-white/30"
           aria-label="설정 메뉴"
           title="설정 메뉴 (저장/불러오기/새 게임)"
         >
@@ -1116,18 +1127,18 @@ export const App: React.FC = () => {
             if (!user) setIsAuthModalOpen(true);
             else setIsAccountModalOpen(true);
           }}
-          className="bg-gray-900/40 backdrop-blur-sm p-0 rounded-full border border-white/10 text-white hover:text-yellow-400 transition-colors hover:bg-gray-800/60 hover:border-white/20 w-[46px] h-[46px] overflow-hidden flex items-center justify-center group shadow-xl ml-1"
+          className="bg-white/10 backdrop-blur-sm p-0 rounded-full border border-white/20 text-white hover:text-yellow-400 transition-colors hover:bg-white/20 hover:border-white/30 w-[46px] h-[46px] overflow-hidden flex items-center justify-center group shadow-xl ml-1"
           title={user ? `${user.displayName || userNickname || '게스트'} 님` : '클릭하여 로그인'}
           aria-label={user ? '계정 정보 열기' : '로그인 창 열기'}
         >
-          {user && user.photoURL ? (
+          {user && (userPhotoURL ?? user.photoURL) ? (
             <img
-              src={user.photoURL.replace(/^http:\/\//i, 'https://')}
+              src={(userPhotoURL ?? user.photoURL)!.replace(/^http:\/\//i, 'https://')}
               alt="Profile"
               className="w-full h-full object-cover"
             />
           ) : (
-            <div className="w-full h-full flex items-center justify-center text-gray-400 group-hover:text-yellow-400 bg-gray-900/40">
+            <div className="w-full h-full flex items-center justify-center text-white/80 group-hover:text-yellow-400 bg-white/10">
               <User size={24} strokeWidth={1.5} />
             </div>
           )}
@@ -1136,15 +1147,17 @@ export const App: React.FC = () => {
 
       {
         breedingSelection.length > 0 && (
-          <div className="absolute bottom-[calc(7rem+env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 z-30 flex flex-col items-center gap-3 w-full max-w-xs px-4">
+          <div className="absolute bottom-[calc(8rem+env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 z-30 flex flex-col items-center gap-3 w-full max-w-xs px-4">
 
             {/* Selection Indicators */}
-            <div className="flex items-center gap-2 bg-gray-900/70 backdrop-blur-md border border-gray-700/50 rounded-full p-2 shadow-lg">
+            <div className="flex items-center gap-2 bg-white/10 backdrop-blur-md border border-white/10 rounded-full p-2 shadow-lg">
               {selectedKoisForBreeding.map(k => {
-                const phenotype = getPhenotype(k.genetics.baseColorGenes);
-                const bgColor = getDisplayColor(phenotype, k.genetics.lightness, k.genetics.saturation);
                 return (
-                  <div key={k.id} className="w-8 h-8 rounded-full border-2 border-purple-400" style={{ backgroundColor: bgColor }}></div>
+                  <KoiCSSPreview
+                    key={k.id}
+                    koi={k}
+                    className="w-10 h-10 border border-white/70 shadow-sm"
+                  />
                 )
               })}
             </div>
@@ -1155,7 +1168,7 @@ export const App: React.FC = () => {
                 <button
                   onClick={handleMultiParentBreed}
                   disabled={!canBreed}
-                  className="w-full flex items-center justify-center gap-2 bg-purple-600 text-white font-bold py-2 px-4 rounded-xl shadow-lg transition-all hover:bg-purple-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-sm"
+                  className="w-full h-10 flex items-center justify-center gap-2 bg-purple-600 text-white font-bold py-0 px-4 rounded-xl shadow-lg transition-all hover:bg-purple-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-sm"
                   aria-label={`${selectedKoisForBreeding.length}마리 코이 교배하기`}
                 >
                   <Dna size={18} />
@@ -1166,7 +1179,7 @@ export const App: React.FC = () => {
               {/* Sell Button - Always visible if selection > 0 */}
               <button
                 onClick={() => handleSellSelected(selectedKoisForBreeding)}
-                className="w-full flex items-center justify-center gap-2 bg-red-600 text-white font-bold py-2 px-4 rounded-xl shadow-lg transition-all hover:bg-red-500 text-sm"
+                className="w-full h-10 flex items-center justify-center gap-2 bg-red-600 text-white font-bold py-0 px-4 rounded-xl shadow-lg transition-all hover:bg-red-500 text-sm"
                 aria-label={`${selectedKoisForBreeding.length}마리 코이 판매하기`}
               >
                 <DollarSign size={18} />
@@ -1273,7 +1286,8 @@ export const App: React.FC = () => {
         isOpen={isAccountModalOpen}
         onClose={() => setIsAccountModalOpen(false)}
         userNickname={userNickname}
-        onSaveNickname={handleSaveNickname}
+        profilePhotoURL={userPhotoURL}
+        onSaveProfile={handleSaveProfile}
         onLogoutCleanup={handleLogoutCleanup}
       />
       {
@@ -1294,7 +1308,6 @@ export const App: React.FC = () => {
           activePondId={activePondId}
           onPondChange={setActivePondId}
           koiList={koiList}
-          zenPoints={zenPoints}
           onKoiSelect={(koi) => {
             setActiveKoi(koi);
             setIsPondInfoModalOpen(false);
@@ -1306,15 +1319,14 @@ export const App: React.FC = () => {
             setIsPondInfoModalOpen(false);
             setNotification({ message: '코이들이 새로운 연못으로 이사했습니다!', type: 'success' });
           }}
-          onToggleFavorite={toggleKoiFavorite}
         />
       }
       {
         isInfoModalOpen && (
           <div className="absolute inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={() => setIsInfoModalOpen(false)}>
-            <div className="bg-gray-800 p-6 rounded-lg max-w-2xl w-full max-h-[85vh] overflow-y-auto border border-gray-700 shadow-xl custom-scrollbar" onClick={e => e.stopPropagation()}>
+            <div className="bg-gray-800 p-6 rounded-lg max-w-2xl w-full max-h-[85vh] overflow-y-auto border border-gray-700 shadow-xl custom-scrollbar glass-panel" onClick={e => e.stopPropagation()}>
               <div className="flex justify-between items-center mb-4">
-                <h2 className="text-2xl font-bold text-cyan-300">Koiworld</h2>
+                <h2 className="text-2xl font-bold text-yellow-300">Koiworld</h2>
                 <button onClick={() => setIsInfoModalOpen(false)} className="text-gray-400 hover:text-white" aria-label="게임 정보 닫기"><X /></button>
               </div>
               <p className="text-gray-300 mb-4">당신만의 평온한 코이 연못에 오신 것을 환영합니다. 아름다운 코이를 키우고, 교배하여 새로운 품종을 발견하세요.</p>
@@ -1327,17 +1339,17 @@ export const App: React.FC = () => {
 
                 <div className="mt-4 pt-4 border-t border-gray-700">
                   <h3 className="text-white font-bold mb-2 flex items-center gap-2">
-                    <Dna size={18} className="text-cyan-400" /> 열성 유전자 가이드
+                    <Dna size={18} className="text-yellow-400" /> 열성 유전자 가이드
                   </h3>
-                  <div className="text-sm space-y-3 bg-gray-900/50 p-3 rounded border border-gray-700 text-gray-300">
+                  <div className="text-sm space-y-3 bg-gray-900/50 p-3 rounded border border-gray-700 text-gray-300 glass-section">
                     <p>
-                      <span className="text-yellow-400 font-bold block mb-1">🔍 숨겨진 색상 (Recessive Genes)</span>
+                      <span className="text-yellow-300 font-bold block mb-1">🔍 숨겨진 색상 (Recessive Genes)</span>
                       코이는 겉으로 보이는 색 외에도 <strong className="text-white">수많은 숨겨진 색상 유전자</strong>를 가질 수 있습니다.
                       상세 정보창에서 코이가 보유한 모든 유전자 목록을 확인할 수 있습니다.
                     </p>
 
                     <p>
-                      <span className="text-cyan-400 font-bold block mb-1">🎨 색상 발현 규칙</span>
+                      <span className="text-yellow-400 font-bold block mb-1">🎨 색상 발현 규칙</span>
                       특정 색상이 눈에 보이려면, 그 색상의 유전자를 <strong className="text-white">최소 2개 이상</strong> 가지고 있어야 합니다.
                       <br />
                       <span className="text-xs text-gray-500 mt-1 block">예: [빨강, 빨강] → 빨강 발현 / [빨강, 검정] → 크림색(기본)</span>

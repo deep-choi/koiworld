@@ -22,6 +22,7 @@ export const listenToGameData = (userId: string, onUpdate: (data: SavedGameState
 export interface UserDataSnapshot {
     gameData: SavedGameState | null;
     nickname: string | null;
+    photoURL: string | null;
     activeDeviceId: string | null;
     achievements?: {
         unlockedIds: string[];
@@ -45,6 +46,7 @@ export const loadUserDataOnce = async (userId: string): Promise<UserDataSnapshot
     return {
         gameData: state || null,
         nickname: data.nickname || null,
+        photoURL: data.photoURL || null,
         activeDeviceId: data.activeDeviceId || null,
         achievements: state?.achievements || null,
     };

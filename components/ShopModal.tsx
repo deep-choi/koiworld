@@ -60,8 +60,8 @@ interface ShopModalProps {
 
 const FOOD_PACK_PRICE = 200;
 const FOOD_LARGE_PACK_PRICE = 1000;
-const CORN_PACK_PRICE = 500;
-const CORN_LARGE_PACK_PRICE = 2500;
+const CORN_PACK_PRICE = 1000;
+const CORN_LARGE_PACK_PRICE = 5000;
 const RARE_KOI_PRICE = 30000;
 const TROPHY_PRICE = 100000;
 
@@ -86,9 +86,9 @@ const ShopItem: React.FC<{
     const affordable = canAfford(quantity);
 
     return (
-        <div className="bg-gray-900/50 p-3 rounded-lg border border-gray-700 flex flex-col">
+        <div className="bg-gray-900/50 p-3 rounded-lg border border-gray-700 flex flex-col glass-section">
             <div className="flex items-center gap-3">
-                <div className="text-cyan-300">{icon}</div>
+                <div className="text-yellow-300">{icon}</div>
                 <div className="flex-grow">
                     <h3 className="text-base font-semibold text-white">{title}</h3>
                     <p className="text-xs text-gray-400 mt-1">{description}</p>
@@ -96,7 +96,7 @@ const ShopItem: React.FC<{
             </div>
 
             {hasQuantity && (
-                <div className="flex items-center justify-between mt-3 bg-gray-800 rounded-lg p-1">
+                <div className="flex items-center justify-between mt-3 bg-gray-800 rounded-lg p-1 glass-input">
                     <button
                         onClick={() => handleQuantityChange(-1)}
                         className="p-1 text-gray-400 hover:text-white disabled:opacity-50"
@@ -138,7 +138,7 @@ export const ShopModal: React.FC<ShopModalProps> = ({ onClose, zenPoints, onBuyF
     return (
         <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-40 p-4">
             <div
-                className="bg-gray-800 border border-gray-700 rounded-lg shadow-xl p-4 w-full max-w-sm animate-fade-in-up max-h-[85svh] overflow-y-auto custom-scrollbar"
+                className="bg-gray-800 border border-gray-700 rounded-lg shadow-xl p-4 w-full max-w-sm animate-fade-in-up max-h-[85svh] overflow-y-auto custom-scrollbar glass-panel"
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="shop-modal-title"
@@ -153,7 +153,7 @@ export const ShopModal: React.FC<ShopModalProps> = ({ onClose, zenPoints, onBuyF
                     </button>
                 </div>
 
-                <div className="flex flex-col gap-2 mb-4 bg-gray-900/50 p-3 rounded-lg border border-gray-700">
+                <div className="flex flex-col gap-2 mb-4 bg-gray-900/50 p-3 rounded-lg border border-gray-700 glass-section">
                     <div className="flex justify-between items-center">
                         <span className="text-xs text-gray-400 font-bold uppercase">Zen Points</span>
                         <span className="text-lg font-black text-yellow-400">{zenPoints.toLocaleString()} ZP</span>
@@ -189,8 +189,8 @@ export const ShopModal: React.FC<ShopModalProps> = ({ onClose, zenPoints, onBuyF
                     />
                     <ShopItem
                         icon={<CornIcon size={40} className="text-yellow-300" />}
-                        title="프리미엄 옥수수 (20개)"
-                        description="일반 먹이보다 2배 효과! 코이가 빠르게 성장합니다."
+                        title="프리미엄 옥수수 (50개)"
+                        description="일반 먹이보다 3배 효과! 코이가 빠르게 성장합니다."
                         price={CORN_PACK_PRICE}
                         onBuy={(q) => onBuyCorn(q)}
                         canAfford={(q) => zenPoints >= CORN_PACK_PRICE * q}
@@ -198,7 +198,7 @@ export const ShopModal: React.FC<ShopModalProps> = ({ onClose, zenPoints, onBuyF
                     />
                     <ShopItem
                         icon={<CornIcon size={40} className="text-yellow-300" />}
-                        title="프리미엄 옥수수 대용량 (100개)"
+                        title="프리미엄 옥수수 대용량 (250개)"
                         description="옥수수 대량 팩입니다. 대규모 양식에 적합합니다."
                         price={CORN_LARGE_PACK_PRICE}
                         onBuy={(q) => onBuyCornLarge(q)}
@@ -236,7 +236,7 @@ export const ShopModal: React.FC<ShopModalProps> = ({ onClose, zenPoints, onBuyF
                         {[
                             { color: GeneType.CREAM, name: "기본 크림 코이", price: 500, desc: "가장 기본적인 코이입니다." },
                         ].map((item) => (
-                            <div key={item.color} className="bg-gray-900/50 p-3 rounded-lg border border-gray-700 flex flex-col">
+                            <div key={item.color} className="bg-gray-900/50 p-3 rounded-lg border border-gray-700 flex flex-col glass-section">
                                 <div className="flex items-center gap-3">
                                     <div
                                         className="w-10 h-10 rounded-full border-2 border-gray-600 shadow-md transform hover:scale-110 transition-transform duration-300"

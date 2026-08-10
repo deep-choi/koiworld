@@ -434,12 +434,12 @@ export class GameEngine {
     private updateKoiScale(entity: KoiEntity, immediate: boolean = false) {
         const isMobile = this.width < 768; // Simple width check for mobile
 
-        let scale = isMobile ? 0.5 : 0.8; // Mobile: 0.5, Desktop: 0.8 (User requested smaller on mobile)
+        let scale = isMobile ? 0.5 : 0.7; // Mobile: 0.5, Desktop: 0.7
 
         if (entity.data.growthStage === 'fry') {
-            scale = isMobile ? 0.3 : 0.35; // Fry: Mobile 0.3, Desktop 0.35
+            scale = isMobile ? 0.3 : 0.3; // Fry: Mobile 0.3, Desktop 0.3
         } else if (entity.data.growthStage === 'juvenile') {
-            scale = isMobile ? 0.4 : 0.6; // Juvenile: Mobile 0.4, Desktop 0.6
+            scale = isMobile ? 0.4 : 0.5; // Juvenile: Mobile 0.4, Desktop 0.5
         }
 
         entity.renderer.setScale(scale, immediate);

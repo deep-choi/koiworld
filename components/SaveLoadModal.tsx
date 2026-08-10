@@ -69,11 +69,11 @@ export const SaveLoadModal: React.FC<SaveLoadModalProps> = ({
 
     return (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={onClose}>
-            <div className="bg-gray-800 rounded-xl max-w-md w-full border border-gray-700 shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="bg-gray-800 rounded-xl max-w-md w-full border border-gray-700 shadow-2xl overflow-hidden glass-panel" onClick={e => e.stopPropagation()}>
                 {/* 헤더 */}
-                <div className="flex justify-between items-center p-4 bg-gray-900 border-b border-gray-700">
+                <div className="flex justify-between items-center p-4 bg-gray-900 border-b border-gray-700 glass-header">
                     <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                        <Settings size={20} className="text-cyan-400" /> 설정
+                        <Settings size={20} className="text-yellow-400" /> 설정
                     </h2>
                     <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors" aria-label="설정 닫기">
                         <X size={24} />
@@ -81,9 +81,9 @@ export const SaveLoadModal: React.FC<SaveLoadModalProps> = ({
                 </div>
 
                 {/* 탭 */}
-                <div className="flex border-b border-gray-700 overflow-x-auto">
+                <div className="flex border-b border-gray-700 overflow-x-auto glass-header">
                     <button
-                        className={`flex-1 py-3 px-2 font-bold transition-colors whitespace-nowrap ${activeTab === 'settings' ? 'bg-gray-700 text-purple-300' : 'text-gray-400 hover:bg-gray-700/50'}`}
+                        className={`flex-1 py-3 px-2 font-bold transition-colors whitespace-nowrap ${activeTab === 'settings' ? 'bg-white/20 text-purple-200' : 'text-white/70 hover:bg-white/10'}`}
                         onClick={() => setActiveTab('settings')}
                         type="button"
                         aria-label="설정 탭 열기"
@@ -92,7 +92,7 @@ export const SaveLoadModal: React.FC<SaveLoadModalProps> = ({
                         설정
                     </button>
                     <button
-                        className={`flex-1 py-3 px-2 font-bold transition-colors whitespace-nowrap ${activeTab === 'new' ? 'bg-gray-700 text-red-300' : 'text-gray-400 hover:bg-gray-700/50'}`}
+                        className={`flex-1 py-3 px-2 font-bold transition-colors whitespace-nowrap ${activeTab === 'new' ? 'bg-white/20 text-red-200' : 'text-white/70 hover:bg-white/10'}`}
                         onClick={() => setActiveTab('new')}
                         type="button"
                         aria-label="새 게임 탭 열기"
@@ -106,7 +106,7 @@ export const SaveLoadModal: React.FC<SaveLoadModalProps> = ({
                 <div className="p-4 min-h-[300px]">
                     {activeTab === 'settings' && (
                         <div className="space-y-6 pt-4">
-                            <div className="text-sm text-gray-400 bg-gray-900/30 border border-gray-700 rounded-lg p-3">
+                            <div className="text-sm text-gray-300 bg-gray-900/30 border border-gray-700 rounded-lg p-3 glass-section">
                                 게임 진행은 자동 저장됩니다. 로그인하면 계정에도 자동 저장됩니다.
                             </div>
 
@@ -114,7 +114,7 @@ export const SaveLoadModal: React.FC<SaveLoadModalProps> = ({
                             <div className="space-y-2">
                                 <div className="flex justify-between items-center text-gray-300">
                                     <span className="flex items-center gap-2"><Music size={18} /> 배경 음악</span>
-                                    <span className="font-mono text-sm text-gray-500">{Math.round(bgmVolume * 100)}%</span>
+                                    <span className="font-mono text-sm text-white/70">{Math.round(bgmVolume * 100)}%</span>
                                 </div>
                                 <input
                                     type="range"
@@ -123,7 +123,7 @@ export const SaveLoadModal: React.FC<SaveLoadModalProps> = ({
                                     step="0.01"
                                     value={bgmVolume}
                                     onChange={handleBgmChange}
-                                    className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                                    className="w-full h-2 bg-white/20 rounded-lg appearance-none cursor-pointer accent-yellow-500"
                                 />
                             </div>
 
@@ -131,7 +131,7 @@ export const SaveLoadModal: React.FC<SaveLoadModalProps> = ({
                             <div className="space-y-2">
                                 <div className="flex justify-between items-center text-gray-300">
                                     <span className="flex items-center gap-2"><Speaker size={18} /> 효과음</span>
-                                    <span className="font-mono text-sm text-gray-500">{Math.round(sfxVolume * 100)}%</span>
+                                    <span className="font-mono text-sm text-white/70">{Math.round(sfxVolume * 100)}%</span>
                                 </div>
                                 <input
                                     type="range"
@@ -142,7 +142,7 @@ export const SaveLoadModal: React.FC<SaveLoadModalProps> = ({
                                     onChange={handleSfxChange}
                                     onMouseUp={handleSfxMouseUp}
                                     onTouchEnd={handleSfxMouseUp}
-                                    className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                                    className="w-full h-2 bg-white/20 rounded-lg appearance-none cursor-pointer accent-purple-500"
                                 />
                             </div>
 

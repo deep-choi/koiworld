@@ -91,7 +91,6 @@ export interface Koi {
   foodTargetId: number | null;
   feedCooldownUntil: number | null;
   stamina?: number; // 0-100
-  isFavorite?: boolean;
 }
 
 export enum DecorationType {

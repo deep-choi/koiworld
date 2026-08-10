@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Koi } from '../types';
-import { X, DollarSign, Pencil, Check } from 'lucide-react';
+import { X, DollarSign } from 'lucide-react';
 import { calculateKoiValue, GENE_COLOR_MAP, calculateSpotPhenotype } from '../utils/genetics';
 import { SingleKoiCanvas } from './SingleKoiCanvas';
 
@@ -17,10 +17,10 @@ export const KoiDetailModal: React.FC<KoiDetailModalProps> = ({ koi, onClose, on
     const canSell = totalKoiCount > 2;
     // For display in the modal, we want the "intrinsic" genetics (before environmental/growth modifiers)
     const displayPhenotype = calculateSpotPhenotype(koi.genetics.spotPhenotypeGenes);
-    const spotPhenotype = calculateSpotPhenotype(koi.genetics.spotPhenotypeGenes, koi);
-
     const albinoAlleles = koi.genetics.albinoAlleles || [false, false];
     const isAlbino = albinoAlleles[0] && albinoAlleles[1];
+    const stamina = Math.round(koi.stamina ?? 0);
+    const spotCount = koi.genetics.spots.length;
 
     const handleSell = () => {
         if (!canSell) return;
@@ -29,38 +29,53 @@ export const KoiDetailModal: React.FC<KoiDetailModalProps> = ({ koi, onClose, on
     };
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-[1300] p-4">
-            <div className="bg-gray-800 border border-gray-700 rounded-lg shadow-xl p-6 w-full max-w-sm animate-fade-in-up relative max-h-[85svh] overflow-y-auto custom-scrollbar">
-                <button onClick={onClose} className="absolute top-3 right-3 text-gray-400 hover:text-white" aria-label={`${koi.name} 상세 정보 닫기`}>
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[1300] p-4">
+            <div className="bg-gray-800 border border-gray-700 rounded-2xl shadow-xl p-5 w-full max-w-sm animate-fade-in-up relative max-h-[85svh] overflow-y-auto custom-scrollbar glass-panel">
+                <button onClick={onClose} className="absolute top-3 right-3 p-1.5 rounded-full text-white/60 hover:text-white hover:bg-white/10 transition-colors" aria-label={`${koi.name} 상세 정보 닫기`}>
                     <X size={24} />
                 </button>
 
                 <div className="space-y-4">
                     <div className="text-center">
-                        <div className="flex flex-col items-center">
-                            <h2
-                                className="text-2xl font-bold text-white flex items-center justify-center gap-2 mb-1"
-                            >
-                                {koi.name}
-                                {isAlbino && (
-                                    <span className="text-xs bg-pink-500/20 text-pink-300 border border-pink-500/50 px-2 py-0.5 rounded-full font-normal whitespace-nowrap">
-                                        알비노
-                                    </span>
-                                )}
-                            </h2>
+                        <h2 className="text-2xl font-bold text-white leading-tight">
+                            {koi.name}
+                        </h2>
+                        <div className="flex items-center justify-center gap-2 mt-2">
+                            <span className="text-xs font-bold bg-yellow-500/15 text-yellow-300 border border-yellow-400/30 px-3 py-1 rounded-full whitespace-nowrap">
+                                {koi.growthStage === 'fry' ? '치어' : koi.growthStage === 'juvenile' ? '준성체' : '성체'}
+                            </span>
+                            {isAlbino && (
+                                <span className="text-xs font-bold bg-pink-500/15 text-pink-300 border border-pink-400/30 px-3 py-1 rounded-full whitespace-nowrap">
+                                    알비노
+                                </span>
+                            )}
                         </div>
-                        <span className="text-sm font-semibold bg-cyan-500/20 text-cyan-300 px-3 py-0.5 rounded-full whitespace-nowrap inline-block">
-                            {koi.growthStage === 'fry' ? '치어' : koi.growthStage === 'juvenile' ? '준성체' : '성체'}
-                        </span>
-                        <p className="text-sm text-gray-400 mt-2 italic">"{koi.description}"</p>
                     </div>
 
-                    <div className="bg-gray-900/50 p-3 rounded-lg border border-gray-700">
-                        <h3 className="text-xs font-bold text-gray-400 mb-2 uppercase tracking-wider">유전자 정보</h3>
-                        <div className="flex flex-wrap gap-2 justify-center">
+                    <div className="grid grid-cols-3 gap-2">
+                        <div className="rounded-lg border border-white/15 bg-white/10 px-2 py-2.5 text-center">
+                            <span className="block text-[10px] text-white/55">체력</span>
+                            <strong className="block text-base text-yellow-300 mt-0.5">{stamina}</strong>
+                        </div>
+                        <div className="rounded-lg border border-white/15 bg-white/10 px-2 py-2.5 text-center">
+                            <span className="block text-[10px] text-white/55">점</span>
+                            <strong className="block text-base text-yellow-300 mt-0.5">{spotCount}개</strong>
+                        </div>
+                        <div className="rounded-lg border border-white/15 bg-white/10 px-2 py-2.5 text-center">
+                            <span className="block text-[10px] text-white/55">판매가</span>
+                            <strong className="block text-base text-yellow-300 mt-0.5">{sellValue}</strong>
+                        </div>
+                    </div>
+
+                    <div className="bg-gray-900/50 p-3 rounded-xl border border-gray-700 glass-section">
+                        <div className="flex items-center justify-between mb-3">
+                            <h3 className="text-xs font-bold text-white/65 uppercase tracking-wider">유전 정보</h3>
+                            <span className="text-[10px] text-white/40">기본 유전자</span>
+                        </div>
+                        <div className="flex flex-wrap gap-2 justify-start">
                             {koi.genetics.baseColorGenes.map((gene, idx) => (
                                 <span key={idx}
-                                    className="text-xs px-2 py-1 rounded-full border border-gray-600 bg-gray-800 text-gray-200 flex items-center gap-1"
+                                    className="text-xs px-2 py-1 rounded-full border border-white/20 bg-white/10 text-gray-100 flex items-center gap-1"
                                     title={gene}
                                 >
                                     <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: GENE_COLOR_MAP[gene] }}></span>
@@ -76,25 +91,33 @@ export const KoiDetailModal: React.FC<KoiDetailModalProps> = ({ koi, onClose, on
                                 </span>
                             ))}
                         </div>
-                        <div className="mt-3 space-y-1">
-                            <div className="flex items-center justify-between text-xs bg-gray-800/50 p-1.5 rounded">
-                                <span className="text-gray-500 font-bold w-12 text-center border-r border-gray-700 mr-2">몸</span>
-                                <div className="flex flex-1 justify-around">
-                                    <span>명도: <span className="text-pink-300">{koi.genetics.lightness ?? 50}</span></span>
-                                    <span>채도: <span className="text-blue-300">{koi.genetics.saturation ?? 50}</span></span>
+                        <div className="mt-3 grid grid-cols-2 gap-2">
+                            <div className="rounded-lg bg-white/10 border border-white/10 p-2">
+                                <span className="block text-[10px] text-white/50 mb-1">몸 색상</span>
+                                <div className="flex items-center justify-between text-xs">
+                                    <span className="text-white/65">명도</span>
+                                    <strong className="text-yellow-300">{koi.genetics.lightness ?? 50}</strong>
+                                </div>
+                                <div className="flex items-center justify-between text-xs mt-1">
+                                    <span className="text-white/65">채도</span>
+                                    <strong className="text-yellow-300">{koi.genetics.saturation ?? 50}</strong>
                                 </div>
                             </div>
-                            <div className="flex items-center justify-between text-xs bg-gray-800/50 p-1.5 rounded">
-                                <span className="text-gray-500 font-bold w-12 text-center border-r border-gray-700 mr-2">무늬</span>
-                                <div className="flex flex-1 justify-around">
-                                    <span>점: <span className="text-cyan-300">{koi.genetics.spots.length}개</span></span>
-                                    <span>채도: <span className="text-gray-300">{(displayPhenotype.colorSaturation * 100).toFixed(0)}</span></span>
+                            <div className="rounded-lg bg-white/10 border border-white/10 p-2">
+                                <span className="block text-[10px] text-white/50 mb-1">무늬</span>
+                                <div className="flex items-center justify-between text-xs">
+                                    <span className="text-white/65">점 개수</span>
+                                    <strong className="text-yellow-300">{spotCount}개</strong>
+                                </div>
+                                <div className="flex items-center justify-between text-xs mt-1">
+                                    <span className="text-white/65">점 채도</span>
+                                    <strong className="text-yellow-300">{(displayPhenotype.colorSaturation * 100).toFixed(0)}</strong>
                                 </div>
                             </div>
                         </div>
                     </div>
 
-                    <div className="bg-blue-900/30 p-2 rounded-lg border border-gray-700 flex items-center justify-center overflow-hidden">
+                    <div className="bg-white/10 p-2 rounded-xl border border-white/15 flex items-center justify-center overflow-hidden">
                         <SingleKoiCanvas koi={koi} width={350} height={200} isStatic={true} />
                     </div>
 

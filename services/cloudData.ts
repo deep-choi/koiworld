@@ -23,6 +23,7 @@ import { isValidSavedGameState } from '../utils/savedGameState';
 export interface CloudUserSnapshot {
     userId: string;
     nickname: string | null;
+    photoURL: string | null;
     activeDeviceId: string | null;
     gameState: SavedGameState | null;
     honorPoints: number;
@@ -123,12 +124,13 @@ export async function ensureUserDocument(
     const privateRef = userDocRef(userId);
     const publicRef = rankingDocRef(userId);
     let resolvedNickname = fallbackNickname;
-    const safePhotoURL = normalizePhotoURL(photoURL);
+    let safePhotoURL = normalizePhotoURL(photoURL);
 
     await runTransaction(db, async (transaction) => {
         const snapshot = await transaction.get(privateRef);
         const data = snapshot.exists() ? snapshot.data() : null;
-        const profile = (data?.profile ?? {}) as { nickname?: string };
+        const profile = (data?.profile ?? {}) as { nickname?: string; photoURL?: string | null };
+        const existingPhotoURL = profile.photoURL ?? null;
         const existingNickname = profile.nickname?.trim();
         const displayNickname = displayName?.trim();
         const emailPrefix = email?.split('@')?.[0]?.trim();
@@ -141,6 +143,9 @@ export async function ensureUserDocument(
         resolvedNickname = shouldUseDisplayName
             ? displayNickname
             : existingNickname || fallbackNickname;
+
+        // Keep a user-selected profile image across auth/session reinitialization.
+        safePhotoURL = normalizePhotoURL(existingPhotoURL || photoURL);
 
         const honorPoints = Number(data?.honorPoints || data?.gameState?.honorPoints || 0);
         const achievementPoints = Number(data?.achievementPoints || data?.gameState?.achievementPoints || 0);
@@ -177,12 +182,13 @@ export async function fetchUserSnapshot(userId: string): Promise<CloudUserSnapsh
     if (!snapshot.exists()) return null;
 
     const data = snapshot.data();
-    const profile = (data.profile ?? {}) as { nickname?: string };
+    const profile = (data.profile ?? {}) as { nickname?: string; photoURL?: string | null };
     const gameState = (data.gameState ?? null) as SavedGameState | null;
 
     return {
         userId,
         nickname: profile.nickname ?? null,
+        photoURL: normalizePhotoURL(profile.photoURL),
         activeDeviceId: typeof data.activeDeviceId === 'string' ? data.activeDeviceId : null,
         gameState,
         honorPoints: Number(data.honorPoints ?? gameState?.honorPoints ?? 0),
@@ -190,11 +196,18 @@ export async function fetchUserSnapshot(userId: string): Promise<CloudUserSnapsh
     };
 }
 
-export async function updateUserProfile(userId: string, nickname: string): Promise<void> {
+export async function updateUserProfile(userId: string, nickname: string, photoURL?: string | null): Promise<void> {
     const currentUser = assertCurrentUser(userId);
     const trimmed = nickname.trim();
-    const safePhotoURL = normalizePhotoURL(currentUser.photoURL);
-    const rankingSnapshot = await getDoc(rankingDocRef(userId));
+    const [profileSnapshot, rankingSnapshot] = await Promise.all([
+        getDoc(userDocRef(userId)),
+        getDoc(rankingDocRef(userId)),
+    ]);
+    const existingPhotoURL = profileSnapshot.exists()
+        ? (profileSnapshot.data()?.profile?.photoURL as string | null | undefined)
+        : undefined;
+    const resolvedPhotoURL = photoURL === undefined ? (existingPhotoURL ?? currentUser.photoURL) : photoURL;
+    const safePhotoURL = normalizePhotoURL(resolvedPhotoURL);
     const rankingData = rankingSnapshot.exists() ? rankingSnapshot.data() : {};
     const honorPoints = Number(rankingData.honorPoints || 0);
     const achievementPoints = Number(rankingData.achievementPoints || 0);

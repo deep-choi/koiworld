@@ -625,19 +625,6 @@ export const useKoiPond = (initialState?: UseKoiPondInitialState) => {
                 };
             });
         },
-        toggleKoiFavorite: (koiId: string) => {
-            setPonds(prev => {
-                const activePond = prev[activePondId];
-                if (!activePond) return prev;
-                return {
-                    ...prev,
-                    [activePondId]: {
-                        ...activePond,
-                        kois: activePond.kois.map(k => k.id === koiId ? { ...k, isFavorite: !k.isFavorite } : k)
-                    }
-                };
-            });
-        },
         moveKoi,
     };
 };

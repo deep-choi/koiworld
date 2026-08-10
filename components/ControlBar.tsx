@@ -62,7 +62,13 @@ interface ControlBarProps {
 const getButtonClass = (isActive: boolean) =>
   `p-3 sm:p-4 rounded-full border transition-all duration-200 flex items-center justify-center relative ${isActive
     ? 'bg-yellow-600 border-yellow-400 text-white' // Active: distinct but flat
-    : 'bg-gray-900/60 border-white/10 text-white hover:bg-gray-800' // Inactive: minimal
+    : 'bg-white/10 border-white/20 text-white hover:bg-white/20' // Inactive: translucent HUD
+  }`;
+
+const getPopupButtonClass = (isActive = false) =>
+  `p-3 sm:p-4 rounded-full transition-all duration-200 flex items-center justify-center relative ${isActive
+    ? 'bg-yellow-500/70 text-white'
+    : 'text-white hover:bg-white/20'
   }`;
 
 export const ControlBar: React.FC<ControlBarProps> = ({
@@ -116,23 +122,23 @@ export const ControlBar: React.FC<ControlBarProps> = ({
     <div className="absolute bottom-[calc(3rem+env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 z-30 flex items-center gap-2">
       {/* Main Menu Popup (Centered on Screen) */}
       {isMainMenuOpen && (
-        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 flex flex-row gap-2 bg-black/60 p-2 rounded-2xl border border-gray-700 backdrop-blur-md whitespace-nowrap">
-          <button onClick={() => handleSubMenuClick(onShopClick)} className={getButtonClass(false)} aria-label="상점 열기">
-            <Store size={24} />
+        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 flex flex-row gap-1 bg-white/10 p-2 rounded-[9999px] border border-white/20 backdrop-blur-md whitespace-nowrap shadow-lg">
+          <button onClick={() => handleSubMenuClick(onShopClick)} className={getPopupButtonClass()} aria-label="상점 열기">
+            <Store size={24} className="sm:w-[26px] sm:h-[26px]" />
           </button>
-          <button onClick={() => handleSubMenuClick(onRankingClick)} className={getButtonClass(false)} aria-label="랭킹 열기">
-            <Trophy size={24} />
+          <button onClick={() => handleSubMenuClick(onRankingClick)} className={getPopupButtonClass()} aria-label="랭킹 열기">
+            <Trophy size={24} className="sm:w-[26px] sm:h-[26px]" />
           </button>
-          <button onClick={() => handleSubMenuClick(onAchievementClick)} className={getButtonClass(false)} aria-label={hasUnclaimedAchievements ? '업적 열기, 받을 보상 있음' : '업적 열기'}>
+          <button onClick={() => handleSubMenuClick(onAchievementClick)} className={getPopupButtonClass()} aria-label={hasUnclaimedAchievements ? '업적 열기, 받을 보상 있음' : '업적 열기'}>
             <div className="relative">
-              <Medal size={24} />
+              <Medal size={24} className="sm:w-[26px] sm:h-[26px]" />
               {hasUnclaimedAchievements && (
-                <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 rounded-full border border-gray-900 animate-pulse" />
+                <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 rounded-full border border-white/30 animate-pulse" />
               )}
             </div>
           </button>
-          <button onClick={() => handleSubMenuClick(onThemeClick)} className={getButtonClass(false)} aria-label="테마 선택 열기">
-            <Palette size={24} />
+          <button onClick={() => handleSubMenuClick(onThemeClick)} className={getPopupButtonClass()} aria-label="테마 선택 열기">
+            <Palette size={24} className="sm:w-[26px] sm:h-[26px]" />
           </button>
         </div>
       )}
@@ -155,24 +161,24 @@ export const ControlBar: React.FC<ControlBarProps> = ({
       {/* Inventory System (Middle) */}
       <div className="relative">
         {isInventoryOpen && (
-          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 flex flex-row gap-2 bg-black/60 p-2 rounded-2xl border border-gray-700 backdrop-blur-md whitespace-nowrap">
+          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 flex flex-row gap-1 bg-white/10 p-2 rounded-[9999px] border border-white/20 backdrop-blur-md whitespace-nowrap shadow-lg">
             <button
               onClick={() => handleItemClick('normal')}
-              className={getButtonClass(isFeedModeActive && selectedFoodType === 'normal')}
+              className={getPopupButtonClass(isFeedModeActive && selectedFoodType === 'normal')}
               aria-label={`기본 사료 선택, 보유 ${foodCount}개`}
               aria-pressed={isFeedModeActive && selectedFoodType === 'normal'}
             >
               <FeedIcon size={24} className="sm:w-[26px] sm:h-[26px]" />
-              <span className="absolute -top-1 -right-1 bg-gray-800 text-yellow-400 border border-white/20 text-[10px] sm:text-[11px] font-bold rounded-full w-5 h-5 flex items-center justify-center">{foodCount}</span>
+              <span className="absolute -top-1 -right-1 bg-gray-900 text-yellow-300 border border-white/40 text-[10px] sm:text-[11px] font-bold rounded-full w-5 h-5 flex items-center justify-center shadow-sm">{foodCount}</span>
             </button>
             <button
               onClick={() => handleItemClick('corn')}
-              className={getButtonClass(isFeedModeActive && selectedFoodType === 'corn')}
+              className={getPopupButtonClass(isFeedModeActive && selectedFoodType === 'corn')}
               aria-label={`프리미엄 옥수수 선택, 보유 ${cornCount}개`}
               aria-pressed={isFeedModeActive && selectedFoodType === 'corn'}
             >
               <CornIcon size={24} className="sm:w-[26px] sm:h-[26px]" />
-              <span className="absolute -top-1 -right-1 bg-gray-800 text-yellow-400 border border-white/20 text-[10px] sm:text-[11px] font-bold rounded-full w-5 h-5 flex items-center justify-center">{cornCount}</span>
+              <span className="absolute -top-1 -right-1 bg-gray-900 text-yellow-300 border border-white/40 text-[10px] sm:text-[11px] font-bold rounded-full w-5 h-5 flex items-center justify-center shadow-sm">{cornCount}</span>
             </button>
           </div>
         )}
@@ -184,7 +190,7 @@ export const ControlBar: React.FC<ControlBarProps> = ({
           aria-haspopup="menu"
         >
           {selectedFoodType === 'corn' ? <CornIcon size={24} /> : <FeedIcon size={24} />}
-          <span className="absolute -top-1 -right-1 bg-gray-800 text-yellow-400 border border-white/20 text-[10px] sm:text-[11px] font-bold rounded-full w-5 h-5 flex items-center justify-center">
+          <span className="absolute -top-1 -right-1 bg-gray-900 text-yellow-300 border border-white/40 text-[10px] sm:text-[11px] font-bold rounded-full w-5 h-5 flex items-center justify-center shadow-sm">
             {selectedItemCount}
           </span>
         </button>

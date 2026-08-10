@@ -60,15 +60,15 @@ export const RankingModal: React.FC<RankingModalProps> = ({ isOpen, onClose, use
     return (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={onClose}>
             <div
-                className="bg-gray-800 rounded-2xl max-w-sm w-full max-h-[85svh] flex flex-col border border-gray-700 shadow-2xl overflow-hidden animate-fade-in-up"
+                className="bg-gray-800 rounded-2xl max-w-sm w-full max-h-[85svh] flex flex-col border border-gray-700 shadow-2xl overflow-hidden animate-fade-in-up glass-panel"
                 onClick={e => e.stopPropagation()}
             >
                 {/* Header */}
-                <div className="p-4 bg-gray-900 border-b border-gray-700 flex flex-col gap-3 shrink-0">
+                <div className="p-4 bg-gray-900 border-b border-gray-700 flex flex-col gap-3 shrink-0 glass-header">
                     <div className="flex justify-between items-center">
                         <div className="flex flex-col">
-                            <h2 className="text-xl font-bold text-yellow-400 flex items-center gap-2 leading-none">
-                                <Trophy size={22} className="text-yellow-400" />
+                            <h2 className="text-xl font-bold text-yellow-300 flex items-center gap-2 leading-none">
+                                <Trophy size={22} className="text-yellow-300" />
                                 명예의 전당
                             </h2>
                         </div>
@@ -76,58 +76,58 @@ export const RankingModal: React.FC<RankingModalProps> = ({ isOpen, onClose, use
                             <button
                                 onClick={fetchRankings}
                                 disabled={isLoading}
-                                className="p-1.5 hover:bg-gray-700 rounded-full text-gray-400 hover:text-yellow-400 transition-colors disabled:opacity-50"
+                                className="p-1.5 hover:bg-white/20 rounded-full text-white/70 hover:text-yellow-300 transition-colors disabled:opacity-50"
                                 title="새로고침"
                                 aria-label="랭킹 새로고침"
                             >
                                 <RotateCw size={20} className={isLoading ? 'animate-spin' : ''} />
                             </button>
-                            <button onClick={onClose} className="p-1 hover:bg-gray-700 rounded-full text-gray-400 hover:text-white transition-colors" aria-label="랭킹 닫기">
+                            <button onClick={onClose} className="p-1 hover:bg-white/20 rounded-full text-white/70 hover:text-white transition-colors" aria-label="랭킹 닫기">
                                 <X size={24} />
                             </button>
                         </div>
                     </div>
 
+                    {lastUpdated && (
+                        <span className="text-[10px] text-white/60 text-right -mb-1">
+                            {lastUpdated.toLocaleTimeString('ko-KR', { hour: 'numeric', minute: '2-digit' })} 기준
+                        </span>
+                    )}
+
                     {/* Tabs */}
-                    <div className="flex bg-gray-800 p-1 rounded-lg border border-gray-700">
+                    <div className="flex bg-gray-800 p-1.5 rounded-[9999px] border border-gray-700 glass-section">
                         <button
                             onClick={() => setActiveTab('achievement')}
                             aria-label="업적 랭킹 보기"
                             aria-pressed={activeTab === 'achievement'}
-                            className={`flex-1 py-1.5 text-xs font-bold rounded flex items-center justify-center gap-1.5 transition-all ${activeTab === 'achievement'
-                                ? 'bg-purple-500 text-white shadow'
+                            className={`flex-1 py-2.5 px-2 text-sm font-bold rounded-[9999px] flex items-center justify-center gap-2 transition-all ${activeTab === 'achievement'
+                                ? 'bg-yellow-500 text-gray-950 shadow'
                                 : 'text-gray-400 hover:text-gray-200'
                                 }`}
                         >
-                            <Award size={14} />
+                            <Award size={16} />
                             업적 랭킹
                         </button>
                         <button
                             onClick={() => setActiveTab('trophy')}
                             aria-label="트로피 랭킹 보기"
                             aria-pressed={activeTab === 'trophy'}
-                            className={`flex-1 py-1.5 text-xs font-bold rounded flex items-center justify-center gap-1.5 transition-all ${activeTab === 'trophy'
-                                ? 'bg-yellow-500 text-black shadow'
+                            className={`flex-1 py-2.5 px-2 text-sm font-bold rounded-[9999px] flex items-center justify-center gap-2 transition-all ${activeTab === 'trophy'
+                                ? 'bg-yellow-500 text-gray-950 shadow'
                                 : 'text-gray-400 hover:text-gray-200'
                                 }`}
                         >
-                            <Trophy size={14} />
+                            <Trophy size={16} />
                             트로피 랭킹
                         </button>
                     </div>
-
-                    {lastUpdated && (
-                        <span className="text-[10px] text-gray-500 text-right">
-                            {lastUpdated.toLocaleTimeString()} 기준
-                        </span>
-                    )}
                 </div>
 
                 {/* Content */}
                 <div className="flex-1 overflow-y-auto custom-scrollbar p-3">
                     {isLoading ? (
                         <div className="flex flex-col items-center justify-center py-20 gap-3">
-                            <div className={`w-10 h-10 border-4 rounded-full animate-spin ${activeTab === 'trophy' ? 'border-yellow-400/20 border-t-yellow-400' : 'border-purple-400/20 border-t-purple-400'}`}></div>
+                            <div className="w-10 h-10 border-4 border-yellow-400/20 border-t-yellow-400 rounded-full animate-spin"></div>
                             <p className="text-gray-400 font-medium text-sm">순위를 불러오는 중...</p>
                         </div>
                     ) : error ? (
@@ -169,22 +169,22 @@ export const RankingModal: React.FC<RankingModalProps> = ({ isOpen, onClose, use
                                     <div
                                         key={user.uid || index}
                                         className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${isCurrentUser
-                                            ? activeTab === 'trophy' ? 'ring-2 ring-yellow-400 bg-yellow-400/20' : 'ring-2 ring-purple-400 bg-purple-400/20'
+                                            ? 'ring-2 ring-yellow-400 bg-yellow-400/20'
                                             : rank === 1 ? 'bg-yellow-400/10 border-yellow-400/30' :
                                                 rank === 2 ? 'bg-gray-300/10 border-gray-300/30' :
-                                                    rank === 3 ? 'bg-orange-400/10 border-orange-400/30' :
-                                                        'bg-gray-700/30 border-gray-700/50'
+                                                    rank === 3 ? 'bg-yellow-400/10 border-yellow-400/30' :
+                                                        'bg-white/10 border-white/20'
                                             }`}
                                     >
                                         <div className="w-8 flex justify-center shrink-0">
                                             {rank === 1 ? <Medal className="text-yellow-400" size={24} /> :
                                                 rank === 2 ? <Medal className="text-gray-300" size={24} /> :
-                                                    rank === 3 ? <Medal className="text-orange-400" size={24} /> :
+                                                    rank === 3 ? <Medal className="text-yellow-400" size={24} /> :
                                                         <span className="text-gray-500 font-bold">{rank}</span>}
                                         </div>
 
-                                        <div className={`w-9 h-9 rounded-full overflow-hidden shrink-0 border bg-gray-900 flex items-center justify-center ${isCurrentUser
-                                            ? activeTab === 'trophy' ? 'border-yellow-300/70' : 'border-purple-300/70'
+                                        <div className={`w-9 h-9 rounded-full overflow-hidden shrink-0 border bg-white/10 flex items-center justify-center ${isCurrentUser
+                                            ? 'border-yellow-300/70'
                                             : 'border-white/10'
                                             }`}>
                                             {photoURL ? (
@@ -204,7 +204,7 @@ export const RankingModal: React.FC<RankingModalProps> = ({ isOpen, onClose, use
                                         <div className="flex-1 min-w-0">
                                             <div className={`text-sm font-bold truncate ${isCurrentUser ? 'text-white' : 'text-gray-200'}`}>
                                                 {nickname}
-                                                {isCurrentUser && <span className={`ml-2 text-[10px] px-1.5 py-0.5 rounded uppercase ${activeTab === 'trophy' ? 'bg-yellow-600' : 'bg-purple-600'}`}>Me</span>}
+                                                {isCurrentUser && <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded uppercase bg-yellow-600">Me</span>}
                                             </div>
                                         </div>
 
@@ -212,9 +212,9 @@ export const RankingModal: React.FC<RankingModalProps> = ({ isOpen, onClose, use
                                             {activeTab === 'trophy' ? (
                                                 <Trophy size={14} className="text-yellow-400" />
                                             ) : (
-                                                <Award size={14} className="text-purple-400" />
+                                                <Award size={14} className="text-yellow-400" />
                                             )}
-                                            <span className={`text-base font-black ${activeTab === 'trophy' ? 'text-yellow-500' : 'text-purple-400'}`}>
+                                            <span className="text-base font-black text-yellow-400">
                                                 {displayValue.toLocaleString()}
                                             </span>
                                         </div>
@@ -226,9 +226,9 @@ export const RankingModal: React.FC<RankingModalProps> = ({ isOpen, onClose, use
                 </div>
 
                 {/* User Status Bar */}
-                <div className="p-4 bg-gray-900 border-t border-gray-700">
+                <div className="p-4 bg-gray-900 border-t border-gray-700 glass-header">
                     {!isLoggedIn ? (
-                        <div className="flex items-center gap-2 text-orange-400 justify-center leading-tight">
+                        <div className="flex items-center gap-2 text-yellow-300 justify-center leading-tight">
                             <AlertCircle size={16} />
                             <span className="text-xs font-medium">로그인을 해야 랭킹에 등록됩니다.</span>
                         </div>
@@ -238,16 +238,16 @@ export const RankingModal: React.FC<RankingModalProps> = ({ isOpen, onClose, use
                                 <span className="text-[10px] text-gray-500 uppercase font-bold tracking-wider">나의 기록</span>
                                 <span className="text-sm font-bold text-white truncate max-w-[120px]">{userNickname}</span>
                             </div>
-                            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border ${activeTab === 'trophy' ? 'bg-yellow-400/10 border-yellow-400/20' : 'bg-purple-400/10 border-purple-400/20'}`}>
+                            <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl border bg-yellow-400/10 border-yellow-400/20">
                                 {activeTab === 'trophy' ? (
                                     <>
                                         <Trophy size={16} className="text-yellow-400" />
-                                        <span className="text-lg font-black text-yellow-500">{myHonorPoints.toLocaleString()}</span>
+                                        <span className="text-lg font-black text-yellow-400">{myHonorPoints.toLocaleString()}</span>
                                     </>
                                 ) : (
                                     <>
-                                        <Award size={16} className="text-purple-400" />
-                                        <span className="text-lg font-black text-purple-400">{(myAchievementPoints || 0).toLocaleString()}</span>
+                                        <Award size={16} className="text-yellow-400" />
+                                        <span className="text-lg font-black text-yellow-400">{(myAchievementPoints || 0).toLocaleString()}</span>
                                     </>
                                 )}
                             </div>
@@ -256,7 +256,7 @@ export const RankingModal: React.FC<RankingModalProps> = ({ isOpen, onClose, use
                 </div>
 
                 {/* Footer */}
-                <div className="p-3 bg-gray-900/50 border-t border-gray-800 text-center text-[9px] text-gray-600 leading-tight">
+                <div className="p-3 bg-gray-900/50 border-t border-gray-800 text-center text-[9px] text-gray-300/70 leading-tight glass-header">
                     랭킹은 20위까지만 표시됩니다.
                 </div>
             </div>

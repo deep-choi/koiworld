@@ -3,7 +3,7 @@ import { KoiGenetics, GeneType, Spot, Koi, GrowthStage, SpotShape, DominanceType
 const ALL_SPOT_COLORS = [GeneType.RED, GeneType.ORANGE, GeneType.YELLOW, GeneType.WHITE, GeneType.BLACK];
 
 const RECESSIVE_COLORS = [
-    GeneType.ORANGE, GeneType.YELLOW, GeneType.WHITE, GeneType.CREAM, GeneType.BLACK, GeneType.RED
+    GeneType.ORANGE, GeneType.YELLOW, GeneType.CREAM, GeneType.BLACK, GeneType.RED
 ];
 
 const SPECIAL_COLORS: GeneType[] = [
@@ -14,14 +14,14 @@ export const GENE_COLOR_MAP: Record<GeneType, string> = {
     [GeneType.BLACK]: '#252525', // Charcoal Black (Lighter per request)
     [GeneType.RED]: '#E53E3E',
     [GeneType.YELLOW]: '#F6E05E',
-    [GeneType.WHITE]: '#ffffff', // Pure White (Desaturated)
+    [GeneType.WHITE]: '#ffffff', // Spot pattern color only
     [GeneType.ORANGE]: '#ED8936',
     [GeneType.CREAM]: '#FEFDE7',
 };
 
 export const GENE_RARITY: Record<GeneType, number> = {
     [GeneType.BLACK]: 3, // Now a mutation (was 2)
-    [GeneType.WHITE]: 3,
+    [GeneType.WHITE]: 3, // Spot pattern rarity only
     [GeneType.YELLOW]: 3,
     [GeneType.ORANGE]: 3,
     [GeneType.RED]: 3,
@@ -58,7 +58,6 @@ const DOMINANCE_ORDER = [
     // Light Recessive
     GeneType.YELLOW,
     GeneType.CREAM,
-    GeneType.WHITE,
 ];
 
 // Determines the expressed phenotype from an arbitrary number of genes
@@ -66,7 +65,9 @@ export const getPhenotype = (genes: GeneType[]): GeneType => {
     if (!genes || genes.length === 0) return GeneType.CREAM;
 
     // Filter out undefined/null
-    const validGenes = genes.filter(g => g);
+    // White is retained for spot patterns and legacy saves, but is no longer
+    // a valid base-color phenotype. Old white base genes fall back to cream.
+    const validGenes = genes.filter(g => g && g !== GeneType.WHITE);
     if (validGenes.length === 0) return GeneType.CREAM;
 
     // Strict Recessive Logic:
@@ -115,49 +116,48 @@ export const calculateKoiValue = (koi: Koi): number => {
     // 1. Base value
     value += 200;
 
-    // 2. Value from Phenotype Rarity (Multiplier reduced 50 -> 15)
-    value += (GENE_RARITY[phenotype] || 1) * 15;
+    // 2. Value from Phenotype Rarity
+    value += (GENE_RARITY[phenotype] || 1) * 10;
 
     // 2.5 Bonus for Non-Cream Body Color (User Request)
     if (phenotype !== GeneType.CREAM) {
-        value += 50;
+        value += 35;
     }
 
     // 3. Value from Hidden Genes (Carriers) (Reduced multiplier)
     genetics.baseColorGenes.forEach(gene => {
         if (gene !== GeneType.CREAM) {
-            value += (GENE_RARITY[gene] || 1) * 2;
+            value += (GENE_RARITY[gene] || 1);
         }
     });
 
-    // 4. Value from Lightness (More linear, less explosive)
-    // pow(diff, 1.5) * 2.0 (Boosted per user request)
+    // 4. Value from Lightness. Extremes remain valuable without dominating price.
     const lightnessDifference = Math.abs(genetics.lightness - 50);
-    value += Math.pow(lightnessDifference, 1.5) * 2.0;
+    value += Math.pow(lightnessDifference, 1.5) * 0.8;
 
     // 5. Value from Body Saturation (Extremes are better)
-    // abs(sat - 50) * 2 (Max at 50 diff is 100)
+    // abs(sat - 50) (Max at 50 diff is 50)
     const saturationDifference = Math.abs((genetics.saturation ?? 50) - 50);
-    value += saturationDifference * 2;
+    value += saturationDifference;
 
     // 6. Value from Spots
     // Tiered bonus based on count (Multiples of 4)
     const spotCount = genetics.spots.length;
     let spotTierBonus = 0;
-    if (spotCount >= 12) spotTierBonus = 400;
-    else if (spotCount >= 8) spotTierBonus = 150;
-    else if (spotCount >= 4) spotTierBonus = 50;
+    if (spotCount >= 12) spotTierBonus = 175;
+    else if (spotCount >= 8) spotTierBonus = 75;
+    else if (spotCount >= 4) spotTierBonus = 25;
 
     // Base spot value and color rarity
     const spotColorValue = genetics.spots.reduce((sum, spot) => sum + (GENE_RARITY[spot.color] || 1), 0);
-    value += spotTierBonus + (spotColorValue * 2);
+    value += spotTierBonus + spotColorValue;
 
     // 7. Value from intrinsic spot saturation extremes.
     // calculateSpotPhenotype returns 0-1, so convert to 0-100 before scoring.
     const spotPheno = calculateSpotPhenotype(genetics.spotPhenotypeGenes);
     const spotSaturationPercent = spotPheno.colorSaturation * 100;
     const spotSatDiff = Math.abs(spotSaturationPercent - 50);
-    value += spotSatDiff * 6;
+    value += spotSatDiff * 3;
 
     // 8. Multiplier for growth stage
     if (growthStage === GrowthStage.ADULT) {
@@ -393,30 +393,12 @@ export const breedKoi = (genetics1: KoiGenetics, genetics2: KoiGenetics): { gene
         childSpots.push(createNewRandomSpot(nextColor));
     }
 
-    // 6. Breed albino alleles (Recessive inheritance + Mutation)
-    let childAlbinoAlleles: [boolean, boolean] | undefined;
-    const parent1Alleles = genetics1.albinoAlleles || [false, false];
-    const parent2Alleles = genetics2.albinoAlleles || [false, false];
-
-    // Normal Inheritance
-    const fromParent1 = parent1Alleles[Math.random() < 0.5 ? 0 : 1];
-    const fromParent2 = parent2Alleles[Math.random() < 0.5 ? 0 : 1];
-    childAlbinoAlleles = [fromParent1, fromParent2];
-
-    // Albino Mutation (User Request: Add Albino to mutations)
-    // Chance to spontaneously become Albino (Homozygous [true, true])
-    if (Math.random() < BASE_COLOR_MUTATION_CHANCE) { // Use same chance as color mutation
-        childAlbinoAlleles = [true, true];
-        // Note: Albino overrides base color rendering visually, handled in renderer
-    }
-
     return {
         genetics: {
             baseColorGenes: childGenes,
             spots: childSpots,
             lightness: childLightness,
             saturation: childSaturation,
-            albinoAlleles: childAlbinoAlleles,
             spotPhenotypeGenes: childSpotPhenotypeGenes,
         },
         mutations
@@ -425,7 +407,7 @@ export const breedKoi = (genetics1: KoiGenetics, genetics2: KoiGenetics): { gene
 
 export const createRandomGenetics = (): KoiGenetics => {
     return {
-        baseColorGenes: [GeneType.WHITE, GeneType.WHITE],
+        baseColorGenes: [GeneType.CREAM, GeneType.CREAM],
         spots: [],
         lightness: 50,
         saturation: 50,
@@ -500,21 +482,46 @@ export const hexToHSL = (hex: string): { h: number, s: number, l: number } => {
     return { h, s: +(s * 100).toFixed(1), l: +(l * 100).toFixed(1) };
 }
 
-export const getDisplayColor = (phenotype: GeneType, lightness: number, saturation: number = 50, isAlbino: boolean = false): string => {
-    // White also goes through normal logic now to support saturation/lightness changes
+const getCreamDisplayHsl = (
+    lightness: number,
+    saturation: number
+): { h: number, s: number, l: number } => {
+    // Near-white cream has misleadingly high HSL saturation. Lowering its
+    // lightness with the generic formula reveals a vivid yellow, so cream uses
+    // a neutral warm palette and a narrower, beige-safe variation range.
+    const saturationMultiplier = 0.5 + (saturation / 100);
+    const finalS = Math.max(8, Math.min(28, 18 * saturationMultiplier));
+    const finalL = Math.max(77, Math.min(96, 92 + (lightness - 50) * (lightness < 50 ? 0.3 : 0.4)));
+
+    return { h: 48, s: finalS, l: finalL };
+};
+
+const getSafeDisplayLightness = (baseLightness: number, lightness: number): number => {
+    const clampedLightness = Math.max(0, Math.min(100, lightness));
+    const distanceFromCenter = clampedLightness - 50;
+
+    // Preserve each gene's base color at the extremes. Dark values have less
+    // influence than bright values so lightness 0 no longer turns every koi black.
+    const shiftMultiplier = distanceFromCenter < 0 ? 0.35 : 0.5;
+    const shiftedLightness = baseLightness + (distanceFromCenter * shiftMultiplier);
+
+    return Math.max(12, Math.min(90, shiftedLightness));
+};
+
+const getSafeSpineLightness = (bodyLightness: number): number => (
+    Math.max(8, bodyLightness - 10)
+);
+
+export const getDisplayColor = (phenotype: GeneType, lightness: number, saturation: number = 50): string => {
+    if (phenotype === GeneType.CREAM) {
+        const cream = getCreamDisplayHsl(lightness, saturation);
+        return `hsla(${cream.h}, ${cream.s}%, ${cream.l}%, 1)`;
+    }
+
     const hex = GENE_COLOR_MAP[phenotype] || '#000000';
     const hsl = hexToHSL(hex);
 
-    // Apply safe Lightness (Expanded range per user request: 0.8 -> 1.2 multiplier, Min 10 -> 5)
-    // Center is 50. Input 0 -> -60, Input 100 -> +60.
-    // Max extended but clamped to 90 to prevent pure white, Min 5 to prevent pure black
-    let safeLightnessShift = (lightness - 50) * 1.2;
-    let finalL = Math.max(5, Math.min(90, hsl.l + safeLightnessShift));
-
-    // ALBINO: Force max lightness (pastel/pale version of base color)
-    if (isAlbino) {
-        finalL = 90; // Maximum safe lightness
-    }
+    let finalL = getSafeDisplayLightness(hsl.l, lightness);
 
     // Apply safe Saturation
     const saturationMultiplier = 0.5 + (saturation / 100);
@@ -523,7 +530,12 @@ export const getDisplayColor = (phenotype: GeneType, lightness: number, saturati
     return `hsla(${hsl.h}, ${finalS}%, ${finalL}%, 1)`;
 };
 
-export const getSpineColor = (phenotype: GeneType, lightness: number, saturation: number = 50, isAlbino: boolean = false): string => {
+export const getSpineColor = (phenotype: GeneType, lightness: number, saturation: number = 50): string => {
+    if (phenotype === GeneType.CREAM) {
+        const cream = getCreamDisplayHsl(lightness, saturation);
+        return `hsla(${cream.h}, ${cream.s}%, ${getSafeSpineLightness(cream.l)}%, 0.3)`;
+    }
+
     const hex = GENE_COLOR_MAP[phenotype] || '#000000';
     const hsl = hexToHSL(hex);
 
@@ -531,16 +543,9 @@ export const getSpineColor = (phenotype: GeneType, lightness: number, saturation
     const saturationMultiplier = 0.5 + (saturation / 100);
     const finalS = Math.max(10, Math.min(95, hsl.s * saturationMultiplier));
 
-    // Apply safe Lightness (Match getDisplayColor logic)
-    const safeLightnessShift = (lightness - 50) * 1.2;
-    let finalL = Math.max(5, Math.min(90, hsl.l + safeLightnessShift));
+    let finalL = getSafeDisplayLightness(hsl.l, lightness);
 
-    // ALBINO: Force max lightness
-    if (isAlbino) {
-        finalL = 85; // Slightly less than body for spine visibility
-    }
-
-    return `hsla(${hsl.h}, ${finalS}%, ${Math.max(0, finalL - 10)}%, 0.3)`;
+    return `hsla(${hsl.h}, ${finalS}%, ${getSafeSpineLightness(finalL)}%, 0.3)`;
 };
 
 // ============================================

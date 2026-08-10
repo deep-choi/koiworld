@@ -45,10 +45,8 @@ export const SingleKoiCanvas: React.FC<SingleKoiCanvasProps> = ({ koi, width = 3
         const colorsObject = () => {
             // Calculate colors from genetics
             const phenotype = getPhenotype(koi.genetics.baseColorGenes);
-            const albinoAlleles = koi.genetics.albinoAlleles || [false, false];
-            const isAlbinoExpr = albinoAlleles[0] && albinoAlleles[1];
-            const bodyColor = getDisplayColor(phenotype, koi.genetics.lightness, koi.genetics.saturation, isAlbinoExpr);
-            const spineColor = getSpineColor(phenotype, koi.genetics.lightness, koi.genetics.saturation, isAlbinoExpr);
+            const bodyColor = getDisplayColor(phenotype, koi.genetics.lightness, koi.genetics.saturation);
+            const spineColor = getSpineColor(phenotype, koi.genetics.lightness, koi.genetics.saturation);
             const spotPhenotype = calculateSpotPhenotype(koi.genetics.spotPhenotypeGenes, koi);
 
             const colors = {
@@ -67,10 +65,10 @@ export const SingleKoiCanvas: React.FC<SingleKoiCanvasProps> = ({ koi, width = 3
                 color: GENE_COLOR_MAP[spot.color]
             }));
 
-            return { colors, spots, spotPhenotype, isAlbinoExpr };
+            return { colors, spots, spotPhenotype };
         };
 
-        const { colors, spots, spotPhenotype, isAlbinoExpr } = colorsObject();
+        const { colors, spots, spotPhenotype } = colorsObject();
 
         // Animation loop - 코이가 중앙에서 원을 그리며 헤엄칩니다.
         const animate = () => {
@@ -104,7 +102,7 @@ export const SingleKoiCanvas: React.FC<SingleKoiCanvasProps> = ({ koi, width = 3
 
             rendererRef.current.update(swimKoi, dt, true);
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            rendererRef.current.drawWorld(ctx, colors, spots, false, Date.now(), spotPhenotype, isAlbinoExpr);
+            rendererRef.current.drawWorld(ctx, colors, spots, false, Date.now(), spotPhenotype);
 
             animationRef.current = requestAnimationFrame(animate);
         };

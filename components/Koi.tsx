@@ -39,8 +39,7 @@ export const Koi: React.FC<KoiProps> = ({ koi, onClick, isSelected }) => {
           const bodyColor = getDisplayColor(
             phenotype,
             currentKoi.genetics.lightness,
-            currentKoi.genetics.saturation,
-            !!(currentKoi.genetics.albinoAlleles?.[0] && currentKoi.genetics.albinoAlleles?.[1])
+            currentKoi.genetics.saturation
           );
 
           const colors = {
@@ -50,8 +49,7 @@ export const Koi: React.FC<KoiProps> = ({ koi, onClick, isSelected }) => {
             spine: getSpineColor(
               phenotype,
               currentKoi.genetics.lightness,
-              currentKoi.genetics.saturation,
-              !!(currentKoi.genetics.albinoAlleles?.[0] && currentKoi.genetics.albinoAlleles?.[1])
+              currentKoi.genetics.saturation
             ),
             fin: bodyColor.replace(/hsla\((\d+),\s*([.\d]+)%,\s*([.\d]+)%,\s*1\)/, (match: string, h: string, s: string, l: string) => {
               const desaturatedS = Math.max(0, parseFloat(s) * 0.4);

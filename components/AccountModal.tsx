@@ -180,13 +180,13 @@ export const AccountModal: React.FC<AccountModalProps> = ({
     const displayPhotoURL = normalizeImageURL(selectedPhotoURL);
 
     return (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[100] p-4" onClick={onClose}>
-            <div className="bg-gray-900 border border-white/10 rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl scale-in glass-panel" onClick={event => event.stopPropagation()}>
-                <div className="p-4 border-b border-white/5 flex justify-between items-center bg-gray-900/50 glass-header">
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={onClose}>
+            <div className="bg-gray-800 rounded-xl max-w-md w-full border border-gray-700 shadow-2xl overflow-hidden glass-panel modal-glass-panel" onClick={event => event.stopPropagation()}>
+                <div className="flex justify-between items-center p-4 bg-gray-900 border-b border-gray-700 glass-header modal-glass-header">
                     <h2 className="text-xl font-black text-white flex items-center gap-2">
                         <User size={20} className="text-yellow-400" /> 계정 정보
                     </h2>
-                    <button onClick={onClose} className="text-gray-500 hover:text-white transition-colors" aria-label="계정 정보 닫기">
+                    <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors" aria-label="계정 정보 닫기">
                         <X size={24} />
                     </button>
                 </div>
@@ -225,20 +225,17 @@ export const AccountModal: React.FC<AccountModalProps> = ({
                         />
                         <div className="text-center">
                             <p className="text-lg font-bold text-white">{user?.displayName || '게스트'}</p>
-                            <p className="text-xs text-gray-500">{user?.email || '게스트 계정'}</p>
+                            <p className="text-xs text-white/60">{user?.email || '게스트 계정'}</p>
                         </div>
                     </div>
 
-                    <div className={`rounded-2xl border p-4 ${user?.isAnonymous
-                        ? 'border-yellow-400/25 bg-yellow-400/10'
-                        : 'border-emerald-400/20 bg-emerald-400/5'
-                        } glass-section`}>
+                    <div className="rounded-lg border border-gray-700 p-4 bg-gray-900/30 glass-section modal-glass-section">
                         <div className="flex items-center gap-3">
                             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gray-950/30">
                                 <LoginMethodIcon source={user?.authSource} />
                             </div>
                             <div>
-                                <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">로그인 방식</p>
+                                <p className="text-[10px] font-black uppercase tracking-widest text-white/60">로그인 방식</p>
                                 <p className={`mt-1 text-base font-black ${user?.isAnonymous ? 'text-yellow-300' : 'text-emerald-300'}`}>
                                     {user?.authSourceLabel ?? '확인 중'}
                                 </p>
@@ -269,7 +266,7 @@ export const AccountModal: React.FC<AccountModalProps> = ({
                             disabled={isSaving || isProcessingImage || success}
                             className={`w-full py-3 rounded-xl transition-all flex items-center justify-center gap-2 font-bold ${success
                                 ? 'bg-green-500 text-white'
-                                : 'bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-300 border border-yellow-500/30'
+                                : 'bg-yellow-500 hover:bg-yellow-400 text-gray-950 border border-yellow-400'
                                 } disabled:opacity-60`}
                             aria-label={success ? '프로필 저장 완료' : '프로필 저장하기'}
                         >
@@ -279,7 +276,7 @@ export const AccountModal: React.FC<AccountModalProps> = ({
                         <button
                             onClick={handleLogout}
                             disabled={isLoggingOut}
-                            className="w-full py-4 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 transition-all flex items-center justify-center gap-2 font-bold group"
+                            className="w-full py-4 rounded-xl bg-transparent hover:bg-white/10 text-red-400 border border-transparent transition-all flex items-center justify-center gap-2 font-bold group"
                             aria-label={isLoggingOut ? '로그아웃 진행 중' : '로그아웃하기'}
                         >
                             <LogOut size={20} className="group-hover:-translate-x-1 transition-transform" />

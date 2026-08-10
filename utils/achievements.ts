@@ -67,25 +67,9 @@ SPOT_ACHIEVEMENT_COLORS.forEach(color => {
 });
 
 // ==========================================
-// 3. SPECIAL INTERMEDIATE ACHIEVEMENTS (Albino & 5-Color)
+// 3. SPECIAL INTERMEDIATE ACHIEVEMENTS (5-Color)
 // ==========================================
 ACHIEVEMENTS.push(
-    {
-        id: 'special_albino',
-        title: '알비노 잉어',
-        description: '알비노 유전자를 가진 잉어를 획득하세요.',
-        icon: 'medal',
-        tier: 'intermediate',
-        displayColor: '#c0c0c0', // Silver
-        category: 'mutation',
-        reward: {
-            achievementPoints: 200,
-            items: [{ type: 'corn', count: 30 }]
-        },
-        condition: (koi: Koi) => {
-            return !!(koi.genetics.albinoAlleles?.[0] && koi.genetics.albinoAlleles?.[1]);
-        }
-    },
     {
         id: 'special_five_color',
         title: '오색 잉어',
@@ -120,7 +104,6 @@ const COLORS = [
     { type: GeneType.ORANGE, name: '주황', color: GENE_COLOR_MAP[GeneType.ORANGE] },
     { type: GeneType.YELLOW, name: '노랑', color: GENE_COLOR_MAP[GeneType.YELLOW] },
     { type: GeneType.CREAM, name: '크림', color: GENE_COLOR_MAP[GeneType.CREAM] },
-    { type: GeneType.WHITE, name: '하양', color: GENE_COLOR_MAP[GeneType.WHITE] },
     { type: GeneType.BLACK, name: '검정', color: GENE_COLOR_MAP[GeneType.BLACK] },
 ];
 
@@ -170,7 +153,7 @@ const VARIATIONS: VariationConfig[] = [
         getPrefix: (colorName: string) => {
             if (colorName === '빨강') return '검붉은 ';
             if (colorName === '노랑' || colorName === '주황') return '구릿빛 ';
-            if (colorName === '하양' || colorName === '크림') return '그림자 ';
+            if (colorName === '크림') return '그림자 ';
             return '짙은 ';
         },
         condition: (koi: Koi) => koi.genetics.lightness <= 0

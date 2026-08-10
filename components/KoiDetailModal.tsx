@@ -17,8 +17,6 @@ export const KoiDetailModal: React.FC<KoiDetailModalProps> = ({ koi, onClose, on
     const canSell = totalKoiCount > 2;
     // For display in the modal, we want the "intrinsic" genetics (before environmental/growth modifiers)
     const displayPhenotype = calculateSpotPhenotype(koi.genetics.spotPhenotypeGenes);
-    const albinoAlleles = koi.genetics.albinoAlleles || [false, false];
-    const isAlbino = albinoAlleles[0] && albinoAlleles[1];
     const stamina = Math.round(koi.stamina ?? 0);
     const spotCount = koi.genetics.spots.length;
 
@@ -44,11 +42,6 @@ export const KoiDetailModal: React.FC<KoiDetailModalProps> = ({ koi, onClose, on
                             <span className="text-xs font-bold bg-yellow-500/15 text-yellow-300 border border-yellow-400/30 px-3 py-1 rounded-full whitespace-nowrap">
                                 {koi.growthStage === 'fry' ? '치어' : koi.growthStage === 'juvenile' ? '준성체' : '성체'}
                             </span>
-                            {isAlbino && (
-                                <span className="text-xs font-bold bg-pink-500/15 text-pink-300 border border-pink-400/30 px-3 py-1 rounded-full whitespace-nowrap">
-                                    알비노
-                                </span>
-                            )}
                         </div>
                     </div>
 
@@ -80,14 +73,6 @@ export const KoiDetailModal: React.FC<KoiDetailModalProps> = ({ koi, onClose, on
                                 >
                                     <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: GENE_COLOR_MAP[gene] }}></span>
                                     {gene}
-                                </span>
-                            ))}
-                            {(koi.genetics.albinoAlleles || []).map((isAc, geneIdx) => isAc && (
-                                <span key={`albino-${geneIdx}`}
-                                    className="text-xs px-2 py-1 rounded-full border border-pink-500/30 bg-pink-900/40 text-pink-200 flex items-center gap-1 font-bold"
-                                    title="Albino Allele"
-                                >
-                                    알비노
                                 </span>
                             ))}
                         </div>

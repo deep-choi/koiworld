@@ -19,8 +19,9 @@ const GENE_LABELS: Record<string, string> = {
     CS: '채도',
 };
 
-// Available color genes
-const COLOR_GENES: GeneType[] = [GeneType.BLACK, GeneType.RED, GeneType.YELLOW, GeneType.WHITE, GeneType.ORANGE, GeneType.CREAM];
+// Base colors exclude white. White remains available for spot patterns.
+const BASE_COLOR_GENES: GeneType[] = [GeneType.BLACK, GeneType.RED, GeneType.YELLOW, GeneType.ORANGE, GeneType.CREAM];
+const SPOT_COLOR_GENES: GeneType[] = [GeneType.BLACK, GeneType.RED, GeneType.YELLOW, GeneType.WHITE, GeneType.ORANGE, GeneType.CREAM];
 
 // Growth stages
 const GROWTH_STAGES: GrowthStage[] = [GrowthStage.FRY, GrowthStage.JUVENILE, GrowthStage.ADULT];
@@ -44,7 +45,6 @@ export const SpotGeneticsDebugPanel: React.FC<SpotGeneticsDebugPanelProps> = ({
     const [lightness, setLightness] = useState(50);
     const [saturation, setSaturation] = useState(50);
     const [growthStage, setGrowthStage] = useState<GrowthStage>(GrowthStage.ADULT);
-    const [isAlbino, setIsAlbino] = useState(false);
 
     // Spots state (actual spots on the koi)
     const [spots, setSpots] = useState<Spot[]>([]);
@@ -59,7 +59,6 @@ export const SpotGeneticsDebugPanel: React.FC<SpotGeneticsDebugPanelProps> = ({
     // Sim Results State
     const [simResults, setSimResults] = useState<{
         total: number;
-        albinoCount: number;
         mutationCount: number;
         colorCounts: Record<string, number>;
     } | null>(null);
@@ -144,7 +143,6 @@ export const SpotGeneticsDebugPanel: React.FC<SpotGeneticsDebugPanelProps> = ({
         setLightness(koi.genetics.lightness);
         setSaturation(koi.genetics.saturation);
         setGrowthStage(koi.growthStage as GrowthStage);
-        setIsAlbino(koi.genetics.albinoAlleles ? koi.genetics.albinoAlleles[0] && koi.genetics.albinoAlleles[1] : false);
 
         // Copy spots
         setSpots([...koi.genetics.spots]);
@@ -166,7 +164,7 @@ export const SpotGeneticsDebugPanel: React.FC<SpotGeneticsDebugPanelProps> = ({
     };
 
     const handleRandomizeColors = () => {
-        const randomGene = () => COLOR_GENES[Math.floor(Math.random() * COLOR_GENES.length)];
+        const randomGene = () => BASE_COLOR_GENES[Math.floor(Math.random() * BASE_COLOR_GENES.length)];
         const count = Math.floor(Math.random() * 4) + 2;
         const genes: GeneType[] = [];
         for (let i = 0; i < count; i++) {
@@ -183,7 +181,7 @@ export const SpotGeneticsDebugPanel: React.FC<SpotGeneticsDebugPanelProps> = ({
             x: Math.floor(Math.random() * 80) + 10,
             y: Math.floor(Math.random() * 80) + 10,
             size: Math.floor(Math.random() * 51) + 40, // 40-90% size range
-            color: COLOR_GENES[Math.floor(Math.random() * COLOR_GENES.length)],
+            color: SPOT_COLOR_GENES[Math.floor(Math.random() * SPOT_COLOR_GENES.length)],
             shape: SpotShape.CIRCLE,
         };
         setSpots(prev => [...prev, newSpot]);
@@ -205,7 +203,6 @@ export const SpotGeneticsDebugPanel: React.FC<SpotGeneticsDebugPanelProps> = ({
                 saturation,
                 spots,
                 spotPhenotypeGenes: createGenesFromCustom(),
-                albinoAlleles: isAlbino ? [true, true] : [false, false],
             }, growthStage);
         }
     };
@@ -219,7 +216,6 @@ export const SpotGeneticsDebugPanel: React.FC<SpotGeneticsDebugPanelProps> = ({
                     saturation,
                     spots,
                     spotPhenotypeGenes: createGenesFromCustom(),
-                    albinoAlleles: isAlbino ? [true, true] : [false, false],
                 },
                 growthStage,
             });
@@ -250,12 +246,10 @@ export const SpotGeneticsDebugPanel: React.FC<SpotGeneticsDebugPanelProps> = ({
             lightness,
             saturation,
             spotPhenotypeGenes: createGenesFromCustom(),
-            albinoAlleles: isAlbino ? [true, true] : [false, false],
         };
 
         const results = {
             total: 100,
-            albinoCount: 0,
             mutationCount: 0,
             colorCounts: {} as Record<string, number>,
         };
@@ -263,11 +257,6 @@ export const SpotGeneticsDebugPanel: React.FC<SpotGeneticsDebugPanelProps> = ({
         for (let i = 0; i < 100; i++) {
             // Self-breeding for testing recessive traits visibility
             const { genetics: child, mutations } = breedKoi(parentGenetics, parentGenetics);
-
-            // Check Albino
-            if (child.albinoAlleles && child.albinoAlleles[0] && child.albinoAlleles[1]) {
-                results.albinoCount++;
-            }
 
             // Check Mutations
             if (mutations.length > 0) {
@@ -410,7 +399,7 @@ export const SpotGeneticsDebugPanel: React.FC<SpotGeneticsDebugPanelProps> = ({
 
                         {/* Add Color Gene Buttons */}
                         <div className="flex flex-wrap gap-1 mb-2">
-                            {COLOR_GENES.map(gene => (
+                            {BASE_COLOR_GENES.map(gene => (
                                 <button
                                     key={gene}
                                     onClick={() => addColorGene(gene)}
@@ -455,16 +444,6 @@ export const SpotGeneticsDebugPanel: React.FC<SpotGeneticsDebugPanelProps> = ({
                             <span className="text-yellow-300 w-8 text-right">{saturation}</span>
                         </div>
 
-                        {/* Albino Toggle */}
-                        <div className="flex items-center gap-2 mb-1">
-                            <span className="text-gray-400 w-12">알비노:</span>
-                            <button
-                                onClick={() => setIsAlbino(!isAlbino)}
-                                className={`flex-1 py-1 rounded text-xs font-bold ${isAlbino ? 'bg-pink-500 text-white' : 'bg-gray-700 text-gray-400'}`}
-                            >
-                                {isAlbino ? '✓ ON (핑크 눈)' : 'OFF'}
-                            </button>
-                        </div>
                     </div>
 
                     {/* SPOTS EDITOR (무늬) */}
@@ -516,7 +495,7 @@ export const SpotGeneticsDebugPanel: React.FC<SpotGeneticsDebugPanelProps> = ({
                                                     className="bg-gray-700 text-white text-xs rounded px-1 py-0.5 border border-gray-600"
                                                     style={{ backgroundColor: GENE_COLOR_MAP[spot.color] }}
                                                 >
-                                                    {COLOR_GENES.map(g => (
+                                                    {SPOT_COLOR_GENES.map(g => (
                                                         <option key={g} value={g}>{g}</option>
                                                     ))}
                                                 </select>
@@ -641,12 +620,6 @@ export const SpotGeneticsDebugPanel: React.FC<SpotGeneticsDebugPanelProps> = ({
                         {simResults && (
                             <div className="bg-gray-800 p-2 rounded border border-gray-600 text-xs">
                                 <div className="flex justify-between mb-1">
-                                    <span className="text-gray-400">알비노 발생:</span>
-                                    <span className={simResults.albinoCount > 0 ? "text-pink-300 font-bold" : "text-gray-500"}>
-                                        {simResults.albinoCount}마리 ({simResults.albinoCount}%)
-                                    </span>
-                                </div>
-                                <div className="flex justify-between mb-1">
                                     <span className="text-gray-400">돌연변이 감지:</span>
                                     <span className={simResults.mutationCount > 0 ? "text-yellow-300 font-bold" : "text-gray-500"}>
                                         {simResults.mutationCount}회
@@ -698,7 +671,7 @@ export const SpotGeneticsDebugPanel: React.FC<SpotGeneticsDebugPanelProps> = ({
                                         ))}
                                     </div>
                                 </div>
-                                <div><span className="text-gray-500">명도:</span> <span className="text-pink-300">{koi.genetics.lightness}</span> | <span className="text-gray-500">채도:</span> <span className="text-yellow-300">{koi.genetics.saturation}</span> | <span className="text-gray-500">알비노:</span> <span className={koi.genetics.albinoAlleles && koi.genetics.albinoAlleles[0] && koi.genetics.albinoAlleles[1] ? 'text-pink-300' : 'text-gray-500'}>{koi.genetics.albinoAlleles && koi.genetics.albinoAlleles[0] && koi.genetics.albinoAlleles[1] ? '네' : '아니오'}</span></div>
+                                <div><span className="text-gray-500">명도:</span> <span className="text-pink-300">{koi.genetics.lightness}</span> | <span className="text-gray-500">채도:</span> <span className="text-yellow-300">{koi.genetics.saturation}</span></div>
                                 <div><span className="text-gray-500">무늬:</span> <span className="text-orange-300">{koi.genetics.spots.length}개</span></div>
                             </div>
                         </div>

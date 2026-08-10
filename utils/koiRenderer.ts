@@ -15,6 +15,20 @@ interface KoiColors {
     fin: string; // New cached property
 }
 
+interface RenderSpot {
+    x: number;
+    y: number;
+    size: number;
+    color: string;
+    shape?: SpotShape;
+}
+
+interface SpotShapeTemplate {
+    key: string;
+    pointCount: number;
+    coordinates: Float64Array;
+}
+
 const WORLD_TRANSFORM = (x: number, y: number) => ({ x, y });
 const LEGACY_RENDER_SEGMENT_COUNT = 52;
 const RENDER_SEGMENT_COUNT = 27;
@@ -46,6 +60,9 @@ export class KoiRenderer {
     private readonly spineLeftY = new Float64Array(SPINE_POINT_COUNT);
     private readonly spineRightX = new Float64Array(SPINE_POINT_COUNT);
     private readonly spineRightY = new Float64Array(SPINE_POINT_COUNT);
+    private readonly spotShapeTemplateCache = new WeakMap<RenderSpot, SpotShapeTemplate>();
+    private readonly spotScratchX = new Float64Array(12);
+    private readonly spotScratchY = new Float64Array(12);
 
     private initialized = false;
 
@@ -211,7 +228,7 @@ export class KoiRenderer {
         return { x: this.segments[0].x, y: this.segments[0].y };
     }
 
-    public draw(ctx: CanvasRenderingContext2D, width: number, height: number, colors: KoiColors, spots: Array<{ x: number, y: number, size: number, color: string }>, phenotype?: SpotPhenotype, isAlbino: boolean = false) {
+    public draw(ctx: CanvasRenderingContext2D, width: number, height: number, colors: KoiColors, spots: RenderSpot[], phenotype?: SpotPhenotype) {
         if (!this.initialized) return;
         const head = this.segments[0];
         const toLocal = (x: number, y: number) => {
@@ -220,7 +237,7 @@ export class KoiRenderer {
                 y: y - head.y + height / 2
             };
         };
-        this.renderKoi(ctx, colors, spots, toLocal, 0, phenotype, isAlbino);
+        this.renderKoi(ctx, colors, spots, toLocal, 0, phenotype);
     }
 
     public hitTest(x: number, y: number, hitMargin: number = 0): boolean {
@@ -291,14 +308,14 @@ export class KoiRenderer {
         ctx.restore();
     }
 
-    public drawWorld(ctx: CanvasRenderingContext2D, colors: KoiColors, spots: Array<{ x: number, y: number, size: number, color: string }>, isSelected: boolean = false, time: number = 0, phenotype?: SpotPhenotype, isAlbino: boolean = false) {
+    public drawWorld(ctx: CanvasRenderingContext2D, colors: KoiColors, spots: RenderSpot[], isSelected: boolean = false, time: number = 0, phenotype?: SpotPhenotype) {
         if (!this.initialized) return;
 
         if (isSelected) {
             this.drawSelectionOutline(ctx, WORLD_TRANSFORM);
         }
 
-        this.renderKoi(ctx, colors, spots, WORLD_TRANSFORM, time, phenotype, isAlbino);
+        this.renderKoi(ctx, colors, spots, WORLD_TRANSFORM, time, phenotype);
     }
 
     private drawHitboxDebug(ctx: CanvasRenderingContext2D) {
@@ -351,7 +368,7 @@ export class KoiRenderer {
         ctx.restore();
     }
 
-    private renderKoi(ctx: CanvasRenderingContext2D, colors: KoiColors, spots: Array<{ x: number, y: number, size: number, color: string }>, transform: (x: number, y: number) => { x: number, y: number }, time: number = 0, phenotype?: SpotPhenotype, isAlbino: boolean = false) {
+    private renderKoi(ctx: CanvasRenderingContext2D, colors: KoiColors, spots: RenderSpot[], transform: (x: number, y: number) => { x: number, y: number }, time: number = 0, phenotype?: SpotPhenotype) {
         // USE CACHED FIN COLOR directly! No Regex!
         const finColor = colors.fin;
 
@@ -378,7 +395,7 @@ export class KoiRenderer {
         ctx.fill();
 
         // 3. Eyes (Layer 2.5)
-        this.drawEyes(ctx, this.segments[0], transform, isAlbino);
+        this.drawEyes(ctx, this.segments[0], transform);
 
 
         // 4. Patterns (Layer 3) - SHAPES
@@ -391,16 +408,16 @@ export class KoiRenderer {
 
             // 성능 최적화: ctx.filter 제거됨, 채도는 색상 생성 시 적용됨
 
-            spots.forEach(spot => {
+            for (const spot of spots) {
                 const segmentIndex = Math.floor((spot.y / 100) * this.segmentCount);
                 if (segmentIndex >= 0 && segmentIndex < this.segmentCount) {
                     const s = this.segments[segmentIndex];
                     const radius = this.getRadius(segmentIndex);
                     const offsetX = ((spot.x / 100) - 0.5) * 2 * radius;
-
-                    const perpAngle = s.angle + Math.PI / 2;
-                    const spotX = s.x + Math.cos(perpAngle) * offsetX;
-                    const spotY = s.y + Math.sin(perpAngle) * offsetX;
+                    const cosAngle = Math.cos(s.angle);
+                    const sinAngle = Math.sin(s.angle);
+                    const spotX = s.x - sinAngle * offsetX;
+                    const spotY = s.y + cosAngle * offsetX;
                     const p = transform(spotX, spotY);
 
                     // Spot inherent size
@@ -411,150 +428,16 @@ export class KoiRenderer {
 
                     ctx.beginPath();
 
-                    // @ts-ignore
                     const shape = spot.shape || SpotShape.CIRCLE;
 
-                    if (shape === SpotShape.HEXAGON) {
-                        // Pre-calculate vertices
-                        const vertices: { x: number, y: number }[] = [];
-                        // Align rotation with body segment
-                        const rotationOffset = s.angle + Math.PI / 2;
-
-                        // Normalization Scale: 1.2x
-                        const normalizedRadius = spotRadius * 1.2;
-
-                        for (let i = 0; i < 6; i++) {
-                            const angle = (Math.PI * 2 / 6) * i + rotationOffset;
-                            vertices.push({
-                                x: p.x + Math.cos(angle) * normalizedRadius,
-                                y: p.y + Math.sin(angle) * normalizedRadius
-                            });
+                    if (shape === SpotShape.HEXAGON || shape === SpotShape.POLYGON || shape === SpotShape.OVAL_H) {
+                        const template = this.getSpotShapeTemplate(spot, shape);
+                        this.projectSpotShape(template, p.x, p.y, spotRadius, cosAngle, sinAngle);
+                        if (shape === SpotShape.HEXAGON) {
+                            this.appendRoundedHexagon(ctx);
+                        } else {
+                            this.appendSmoothSpotPath(ctx, template.pointCount);
                         }
-
-                        // Draw rounded polygon (User request: "A bit rounded")
-                        const cornerRadius = 0.3; // 0 to 0.5 (0 = sharp, 0.5 = max roundness)
-                        ctx.moveTo(
-                            vertices[0].x * (1 - cornerRadius) + vertices[1].x * cornerRadius,
-                            vertices[0].y * (1 - cornerRadius) + vertices[1].y * cornerRadius
-                        );
-
-                        for (let i = 1; i <= 6; i++) {
-                            const curr = vertices[i % 6];
-                            const next = vertices[(i + 1) % 6];
-                            // Line to start of round corner
-                            const startX = curr.x * (1 - cornerRadius) + vertices[(i - 1) % 6].x * cornerRadius;
-                            const startY = curr.y * (1 - cornerRadius) + vertices[(i - 1) % 6].y * cornerRadius;
-
-                            // End of round corner
-                            const endX = curr.x * (1 - cornerRadius) + next.x * cornerRadius;
-                            const endY = curr.y * (1 - cornerRadius) + next.y * cornerRadius;
-
-                            ctx.lineTo(startX, startY);
-                            // Curve around the vertex
-                            ctx.quadraticCurveTo(curr.x, curr.y, endX, endY);
-                        }
-                        ctx.closePath();
-                    } else if (shape === SpotShape.POLYGON) {
-                        // Renamed from BLOTCH: Smooth organic spline
-                        const pointsCount = 10 + Math.floor((spot.x % 3));
-                        const spotSeed = (spot.x * 123.45 + spot.y * 678.91);
-                        const rotationOffset = s.angle + Math.PI / 2;
-
-                        // Normalization Scale: 1.3x
-                        const normalizedRadius = spotRadius * 1.3;
-
-                        const points: { x: number, y: number }[] = [];
-
-                        // Generate jagged points first
-                        for (let i = 0; i < pointsCount; i++) {
-                            const angle = (Math.PI * 2 / pointsCount) * i + rotationOffset;
-                            const seed = (i * 997 + spotSeed);
-                            // Variance 0.8 to 1.2
-                            const rVar = 1.0 + 0.2 * Math.sin(seed);
-                            // Reduced size removed (User request: spots too small)
-                            const r = normalizedRadius * rVar;
-                            points.push({
-                                x: p.x + Math.cos(angle) * r,
-                                y: p.y + Math.sin(angle) * r
-                            });
-                        }
-
-                        // Smooth spline drawing (Midpoint Quadratic Averaging)
-                        const midX = (points[pointsCount - 1].x + points[0].x) / 2;
-                        const midY = (points[pointsCount - 1].y + points[0].y) / 2;
-
-                        ctx.moveTo(midX, midY);
-
-                        for (let i = 0; i < pointsCount; i++) {
-                            const nextI = (i + 1) % pointsCount;
-                            const nextMidX = (points[i].x + points[nextI].x) / 2;
-                            const nextMidY = (points[i].y + points[nextI].y) / 2;
-                            ctx.quadraticCurveTo(points[i].x, points[i].y, nextMidX, nextMidY);
-                        }
-                        ctx.closePath();
-                    } else if (shape === SpotShape.OVAL_H) {
-                        // "Rounded Bumpy" (Cloud/Potato like)
-                        // User Request: Remove OVAL_V, make OVAL_H bumpy and rounded
-
-                        // Horizontal orientation (Aligned with body spine)
-                        const rotation = s.angle;
-                        const spotSeed = (spot.x * 543.21 + spot.y * 123.45);
-
-                        // Normalization Scale: 1.3x
-                        const normalizedRadius = spotRadius * 1.3;
-
-                        // Base dimensions (Slender)
-                        const baseLen = normalizedRadius * 1.0;
-                        const baseWidth = normalizedRadius * 0.6;
-
-                        // 12 points is good for organic curves without too much jaggedness
-                        const numPoints = 12;
-                        const points: { x: number, y: number }[] = [];
-
-                        for (let i = 0; i < numPoints; i++) {
-                            const theta = (i / numPoints) * Math.PI * 2;
-
-                            // 1. Base Ellipse
-                            const localX = Math.cos(theta) * baseLen;
-                            const localY = Math.sin(theta) * baseWidth;
-
-                            // 2. Bumpy Noise (Soft/Rounded bumps)
-                            // "Simple Bumpy" (Potato-like): Moderate frequencies, lower amplitude
-                            const noise1 = Math.sin(theta * 3 + spotSeed);
-                            const noise2 = Math.cos(theta * 5 + spotSeed * 2);
-
-                            // Reduced amplitude to avoid "complex map" look
-                            const rNoise = 1.0 + 0.2 * noise1 + 0.15 * noise2;
-
-                            const noisyX = localX * rNoise;
-                            const noisyY = localY * rNoise;
-
-                            // 3. Rotate
-                            const rotatedX = noisyX * Math.cos(rotation) - noisyY * Math.sin(rotation);
-                            const rotatedY = noisyX * Math.sin(rotation) + noisyY * Math.cos(rotation);
-
-                            points.push({
-                                x: p.x + rotatedX,
-                                y: p.y + rotatedY
-                            });
-                        }
-
-                        // Draw SMOOTH curves (Rounded)
-                        if (points.length > 0) {
-                            const midX = (points[numPoints - 1].x + points[0].x) / 2;
-                            const midY = (points[numPoints - 1].y + points[0].y) / 2;
-
-                            ctx.moveTo(midX, midY);
-
-                            for (let i = 0; i < numPoints; i++) {
-                                const nextI = (i + 1) % numPoints;
-                                const nextMidX = (points[i].x + points[nextI].x) / 2;
-                                const nextMidY = (points[i].y + points[nextI].y) / 2;
-                                ctx.quadraticCurveTo(points[i].x, points[i].y, nextMidX, nextMidY);
-                            }
-                            ctx.closePath();
-                        }
-
                     } else {
                         // Default Circle
                         ctx.arc(p.x, p.y, spotRadius, 0, Math.PI * 2);
@@ -563,7 +446,7 @@ export class KoiRenderer {
                     ctx.fill();
                     // ctx.restore(); // 제거: save/restore는 spots 전체에서 한 번만
                 }
-            });
+            }
             ctx.restore();
         }
 
@@ -572,6 +455,118 @@ export class KoiRenderer {
         this.drawSpineRibbon(ctx, transform, colors.spine);
 
         ctx.restore();
+    }
+
+    private getSpotShapeTemplate(spot: RenderSpot, shape: SpotShape): SpotShapeTemplate {
+        const key = `${shape}:${spot.x}:${spot.y}`;
+        const cached = this.spotShapeTemplateCache.get(spot);
+        if (cached?.key === key) return cached;
+
+        let pointCount = 0;
+        let coordinates: Float64Array;
+
+        if (shape === SpotShape.HEXAGON) {
+            pointCount = 6;
+            coordinates = new Float64Array(pointCount * 2);
+            for (let i = 0; i < pointCount; i++) {
+                const angle = (Math.PI * 2 / pointCount) * i + Math.PI / 2;
+                coordinates[i * 2] = Math.cos(angle) * 1.2;
+                coordinates[i * 2 + 1] = Math.sin(angle) * 1.2;
+            }
+        } else if (shape === SpotShape.POLYGON) {
+            pointCount = 10 + Math.floor(spot.x % 3);
+            coordinates = new Float64Array(pointCount * 2);
+            const spotSeed = spot.x * 123.45 + spot.y * 678.91;
+            for (let i = 0; i < pointCount; i++) {
+                const angle = (Math.PI * 2 / pointCount) * i + Math.PI / 2;
+                const radiusVariation = 1 + 0.2 * Math.sin(i * 997 + spotSeed);
+                const radius = 1.3 * radiusVariation;
+                coordinates[i * 2] = Math.cos(angle) * radius;
+                coordinates[i * 2 + 1] = Math.sin(angle) * radius;
+            }
+        } else {
+            pointCount = 12;
+            coordinates = new Float64Array(pointCount * 2);
+            const spotSeed = spot.x * 543.21 + spot.y * 123.45;
+            for (let i = 0; i < pointCount; i++) {
+                const theta = (i / pointCount) * Math.PI * 2;
+                const radiusNoise = 1
+                    + 0.2 * Math.sin(theta * 3 + spotSeed)
+                    + 0.15 * Math.cos(theta * 5 + spotSeed * 2);
+                coordinates[i * 2] = Math.cos(theta) * 1.3 * radiusNoise;
+                coordinates[i * 2 + 1] = Math.sin(theta) * 0.6 * 1.3 * radiusNoise;
+            }
+        }
+
+        const template = { key, pointCount, coordinates };
+        this.spotShapeTemplateCache.set(spot, template);
+        return template;
+    }
+
+    private projectSpotShape(
+        template: SpotShapeTemplate,
+        centerX: number,
+        centerY: number,
+        radius: number,
+        cosAngle: number,
+        sinAngle: number
+    ) {
+        for (let i = 0; i < template.pointCount; i++) {
+            const localX = template.coordinates[i * 2] * radius;
+            const localY = template.coordinates[i * 2 + 1] * radius;
+            this.spotScratchX[i] = centerX + localX * cosAngle - localY * sinAngle;
+            this.spotScratchY[i] = centerY + localX * sinAngle + localY * cosAngle;
+        }
+    }
+
+    private appendRoundedHexagon(ctx: CanvasRenderingContext2D) {
+        const pointCount = 6;
+        const cornerRadius = 0.3;
+        ctx.moveTo(
+            this.spotScratchX[0] * (1 - cornerRadius) + this.spotScratchX[1] * cornerRadius,
+            this.spotScratchY[0] * (1 - cornerRadius) + this.spotScratchY[1] * cornerRadius
+        );
+
+        for (let i = 1; i <= pointCount; i++) {
+            const currentIndex = i % pointCount;
+            const previousIndex = (i - 1) % pointCount;
+            const nextIndex = (i + 1) % pointCount;
+            const startX = this.spotScratchX[currentIndex] * (1 - cornerRadius)
+                + this.spotScratchX[previousIndex] * cornerRadius;
+            const startY = this.spotScratchY[currentIndex] * (1 - cornerRadius)
+                + this.spotScratchY[previousIndex] * cornerRadius;
+            const endX = this.spotScratchX[currentIndex] * (1 - cornerRadius)
+                + this.spotScratchX[nextIndex] * cornerRadius;
+            const endY = this.spotScratchY[currentIndex] * (1 - cornerRadius)
+                + this.spotScratchY[nextIndex] * cornerRadius;
+
+            ctx.lineTo(startX, startY);
+            ctx.quadraticCurveTo(
+                this.spotScratchX[currentIndex],
+                this.spotScratchY[currentIndex],
+                endX,
+                endY
+            );
+        }
+        ctx.closePath();
+    }
+
+    private appendSmoothSpotPath(ctx: CanvasRenderingContext2D, pointCount: number) {
+        ctx.moveTo(
+            (this.spotScratchX[pointCount - 1] + this.spotScratchX[0]) / 2,
+            (this.spotScratchY[pointCount - 1] + this.spotScratchY[0]) / 2
+        );
+
+        for (let i = 0; i < pointCount; i++) {
+            const nextIndex = (i + 1) % pointCount;
+            ctx.quadraticCurveTo(
+                this.spotScratchX[i],
+                this.spotScratchY[i],
+                (this.spotScratchX[i] + this.spotScratchX[nextIndex]) / 2,
+                (this.spotScratchY[i] + this.spotScratchY[nextIndex]) / 2
+            );
+        }
+        ctx.closePath();
     }
 
     private appendBodyPath(
@@ -788,7 +783,7 @@ export class KoiRenderer {
         ctx.restore();
     }
 
-    private drawEyes(ctx: CanvasRenderingContext2D, head: Segment, toLocal: (x: number, y: number) => { x: number, y: number }, isAlbino: boolean = false) {
+    private drawEyes(ctx: CanvasRenderingContext2D, head: Segment, toLocal: (x: number, y: number) => { x: number, y: number }) {
         const angle = head.angle;
         const headRadius = this.getRadius(0);
 
@@ -843,8 +838,8 @@ export class KoiRenderer {
         ctx.closePath();
         ctx.fill();
 
-        // Draw Pupil (Black or Pink for Albino) - FLATTENED
-        ctx.fillStyle = isAlbino ? '#E53E3E' : '#1a1a1a'; // Red/Pink for Albino, Dark grey for normal
+        // Draw dark pupils - FLATTENED
+        ctx.fillStyle = '#1a1a1a';
 
         // Left Eye Pupil
         ctx.beginPath();

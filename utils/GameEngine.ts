@@ -279,11 +279,8 @@ export class GameEngine {
 
                 // Pre-calculate colors
                 const baseColorPhenotype = getPhenotype(koiData.genetics.baseColorGenes);
-                // Albino expression: Both alleles must be true (recessive)
-                const albinoAlleles = koiData.genetics.albinoAlleles || [false, false];
-                const isAlbino = albinoAlleles[0] && albinoAlleles[1];
-                const bodyColor = getDisplayColor(baseColorPhenotype, koiData.genetics.lightness ?? 50, koiData.genetics.saturation ?? 50, isAlbino);
-                const spineColor = getSpineColor(baseColorPhenotype, koiData.genetics.lightness ?? 50, koiData.genetics.saturation ?? 50, isAlbino);
+                const bodyColor = getDisplayColor(baseColorPhenotype, koiData.genetics.lightness ?? 50, koiData.genetics.saturation ?? 50);
+                const spineColor = getSpineColor(baseColorPhenotype, koiData.genetics.lightness ?? 50, koiData.genetics.saturation ?? 50);
 
                 // Calculate Fin Color (Regex logic moved here to run once)
                 // "hsla(h, s%, l%, 1)" -> "hsla(h, s*0.4%, l%, 0.5)"
@@ -301,7 +298,7 @@ export class GameEngine {
                     ...spot,
                     color: getSpotColorWithSaturation(GENE_COLOR_MAP[spot.color], colorSaturation, idx)
                 }));
-                const geneticsHash = `${koiData.genetics.baseColorGenes.join('')}-${koiData.genetics.lightness}-${koiData.genetics.saturation}-${koiData.genetics.albinoAlleles?.join('')}-${koiData.genetics.spots.length}`;
+                const geneticsHash = `${koiData.genetics.baseColorGenes.join('')}-${koiData.genetics.lightness}-${koiData.genetics.saturation}-${koiData.genetics.spots.length}`;
 
                 this.kois.set(koiData.id, {
                     id: koiData.id,
@@ -332,15 +329,13 @@ export class GameEngine {
                 const entity = this.kois.get(koiData.id)!;
 
                 // 유전자 해시 비교 - 변경 시에만 색상 재계산 (성능 최적화)
-                const geneticsHash = `${koiData.genetics.baseColorGenes.join('')}-${koiData.genetics.lightness}-${koiData.genetics.saturation}-${koiData.genetics.albinoAlleles?.join('')}-${koiData.genetics.spots.length}`;
+                const geneticsHash = `${koiData.genetics.baseColorGenes.join('')}-${koiData.genetics.lightness}-${koiData.genetics.saturation}-${koiData.genetics.spots.length}`;
 
                 if (entity.geneticsHash !== geneticsHash) {
                     // 유전자가 변경되었을 때만 색상 재계산
                     const baseColorPhenotype = getPhenotype(koiData.genetics.baseColorGenes);
-                    const albinoAlleles = koiData.genetics.albinoAlleles || [false, false];
-                    const isAlbino = albinoAlleles[0] && albinoAlleles[1];
-                    const bodyColor = getDisplayColor(baseColorPhenotype, koiData.genetics.lightness ?? 50, koiData.genetics.saturation ?? 50, isAlbino);
-                    const spineColor = getSpineColor(baseColorPhenotype, koiData.genetics.lightness ?? 50, koiData.genetics.saturation ?? 50, isAlbino);
+                    const bodyColor = getDisplayColor(baseColorPhenotype, koiData.genetics.lightness ?? 50, koiData.genetics.saturation ?? 50);
+                    const spineColor = getSpineColor(baseColorPhenotype, koiData.genetics.lightness ?? 50, koiData.genetics.saturation ?? 50);
                     const finColor = bodyColor.replace(/hsla\((\d+),\s*([.\d]+)%,\s*([.\d]+)%,\s*1\)/, (match, h, s, l) => {
                         const desaturatedS = Math.max(0, parseFloat(s) * 0.4);
                         return `hsla(${h}, ${desaturatedS}%, ${l}%, 0.5)`;
@@ -619,12 +614,8 @@ export class GameEngine {
         this.kois.forEach(entity => {
             const isSelected = this.selectedIds.has(entity.id);
 
-            // Albino expression: Both alleles must be true (recessive)
-            const albinoAlleles = entity.data.genetics.albinoAlleles;
-            const isAlbino = albinoAlleles?.[0] === true && albinoAlleles[1] === true;
-
             try {
-                entity.renderer.drawWorld(this.ctx, entity.cachedColors, entity.cachedColors.spots, isSelected, now, entity.phenotype, isAlbino);
+                entity.renderer.drawWorld(this.ctx, entity.cachedColors, entity.cachedColors.spots, isSelected, now, entity.phenotype);
             } catch (e) {
                 console.error("Error drawing koi:", e);
             }

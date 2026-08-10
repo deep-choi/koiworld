@@ -3,6 +3,7 @@ export enum GeneType {
   BLACK = '검정',
   RED = '빨강', // Represents the 'standard' color gene
   YELLOW = '노랑',
+  // White remains available for spot patterns; it is not a base koi color.
   WHITE = '하양',
   ORANGE = '주황',
   CREAM = '크림',
@@ -70,10 +71,6 @@ export interface KoiGenetics {
   spots: Spot[];
   lightness: number; // For standard color variation (0-100), represents HSL lightness. 50 is standard red.
   saturation: number; // For standard color variation (0-100), represents HSL saturation. 50 is standard.
-
-  // Albino Morph: Recessive trait. Both alleles must be true for expression.
-  // [maternal, paternal] - true = albino allele, false = normal allele
-  albinoAlleles?: [boolean, boolean];
 
   spotPhenotypeGenes?: SpotPhenotypeGenes;
 }

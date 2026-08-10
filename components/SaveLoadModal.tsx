@@ -69,9 +69,9 @@ export const SaveLoadModal: React.FC<SaveLoadModalProps> = ({
 
     return (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={onClose}>
-            <div className="bg-gray-800 rounded-xl max-w-md w-full border border-gray-700 shadow-2xl overflow-hidden glass-panel" onClick={e => e.stopPropagation()}>
+            <div className="bg-gray-800 rounded-xl max-w-md w-full border border-gray-700 shadow-2xl overflow-hidden glass-panel modal-glass-panel" onClick={e => e.stopPropagation()}>
                 {/* 헤더 */}
-                <div className="flex justify-between items-center p-4 bg-gray-900 border-b border-gray-700 glass-header">
+                <div className="flex justify-between items-center p-4 bg-gray-900 border-b border-gray-700 glass-header modal-glass-header">
                     <h2 className="text-xl font-bold text-white flex items-center gap-2">
                         <Settings size={20} className="text-yellow-400" /> 설정
                     </h2>
@@ -81,7 +81,7 @@ export const SaveLoadModal: React.FC<SaveLoadModalProps> = ({
                 </div>
 
                 {/* 탭 */}
-                <div className="flex border-b border-gray-700 overflow-x-auto glass-header">
+                <div className="flex border-b border-gray-700 overflow-x-auto glass-header modal-glass-header">
                     <button
                         className={`flex-1 py-3 px-2 font-bold transition-colors whitespace-nowrap ${activeTab === 'settings' ? 'bg-white/20 text-purple-200' : 'text-white/70 hover:bg-white/10'}`}
                         onClick={() => setActiveTab('settings')}
@@ -106,7 +106,7 @@ export const SaveLoadModal: React.FC<SaveLoadModalProps> = ({
                 <div className="p-4 min-h-[300px]">
                     {activeTab === 'settings' && (
                         <div className="space-y-6 pt-4">
-                            <div className="text-sm text-gray-300 bg-gray-900/30 border border-gray-700 rounded-lg p-3 glass-section">
+                            <div className="text-sm text-gray-300 bg-gray-900/30 border border-gray-700 rounded-lg p-3 glass-section modal-glass-section">
                                 게임 진행은 자동 저장됩니다. 로그인하면 계정에도 자동 저장됩니다.
                             </div>
 

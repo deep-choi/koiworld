@@ -9,9 +9,7 @@ interface KoiCSSPreviewProps {
 
 export const KoiCSSPreview: React.FC<KoiCSSPreviewProps> = ({ koi, className = "" }) => {
     const phenotype = getPhenotype(koi.genetics.baseColorGenes);
-    const albinoAlleles = koi.genetics.albinoAlleles || [false, false];
-    const isAlbino = albinoAlleles[0] && albinoAlleles[1];
-    const bodyColor = getDisplayColor(phenotype as any, koi.genetics.lightness, koi.genetics.saturation, isAlbino);
+    const bodyColor = getDisplayColor(phenotype as any, koi.genetics.lightness, koi.genetics.saturation);
     const spotPhenotype = calculateSpotPhenotype(koi.genetics.spotPhenotypeGenes, koi);
 
     return (

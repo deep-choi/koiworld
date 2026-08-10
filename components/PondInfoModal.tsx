@@ -13,9 +13,7 @@ const KoiListItem: React.FC<{
   onToggleSelect: (id: string) => void;
 }> = ({ koi, index, onViewDetail, isSelected, onToggleSelect }) => {
   const phenotype = getPhenotype(koi.genetics.baseColorGenes);
-  const albinoAlleles = koi.genetics.albinoAlleles || [false, false];
-  const isAlbino = albinoAlleles[0] && albinoAlleles[1];
-  const bodyColor = getDisplayColor(phenotype as any, koi.genetics.lightness, koi.genetics.saturation, isAlbino);
+  const bodyColor = getDisplayColor(phenotype as any, koi.genetics.lightness, koi.genetics.saturation);
   // For display in the list, we want the "intrinsic" genetics (before environmental/growth modifiers)
   const displayPhenotype = calculateSpotPhenotype(koi.genetics.spotPhenotypeGenes);
   const spotPhenotype = calculateSpotPhenotype(koi.genetics.spotPhenotypeGenes, koi);
@@ -96,10 +94,7 @@ const KoiListItem: React.FC<{
           <span className="text-gray-700">|</span>
           <span className="text-gray-400">유전자:</span>
           <span className="text-yellow-300">
-            {[
-              ...koi.genetics.baseColorGenes,
-              ...(koi.genetics.albinoAlleles || []).filter(a => a).map(() => '알비노')
-            ].join(' / ')}
+            {koi.genetics.baseColorGenes.join(' / ')}
           </span>
         </div>
       </div>

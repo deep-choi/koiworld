@@ -16,21 +16,41 @@ interface KoiColors {
 }
 
 const WORLD_TRANSFORM = (x: number, y: number) => ({ x, y });
+const LEGACY_RENDER_SEGMENT_COUNT = 52;
+const RENDER_SEGMENT_COUNT = 27;
+const PHYSICS_SEGMENT_COUNT = 27;
+const mapLegacySegmentIndex = (index: number) =>
+    Math.round((index / (LEGACY_RENDER_SEGMENT_COUNT - 1)) * (RENDER_SEGMENT_COUNT - 1));
+const PECTORAL_FIN_INDEX = mapLegacySegmentIndex(10);
+const PELVIC_FIN_INDEX = mapLegacySegmentIndex(26);
+const SPINE_START_INDEX = mapLegacySegmentIndex(8);
+const SPINE_END_INDEX = mapLegacySegmentIndex(40);
+const SPINE_POINT_COUNT = SPINE_END_INDEX - SPINE_START_INDEX + 1;
 
 export class KoiRenderer {
-    private segmentCount = 52;
+    // The old renderer drew only every second one of its 52 body samples.
+    // Use the 27 physics controls directly while preserving the old body length.
+    private readonly segmentCount = RENDER_SEGMENT_COUNT;
+    private readonly physicsSegmentCount = PHYSICS_SEGMENT_COUNT;
     private baseSpacing = 3.0;
     private spacing = 3.0;
     private segments: Segment[] = [];
+    private physicsSegments: Segment[] = [];
     private scale = 1.0;
     private targetScale = 1.0;
     private startScale = 1.0;
     private scaleStartTime = 0;
     private readonly SCALE_DURATION = 5000;
+    private readonly radiusCache = new Float64Array(RENDER_SEGMENT_COUNT);
+    private readonly spineLeftX = new Float64Array(SPINE_POINT_COUNT);
+    private readonly spineLeftY = new Float64Array(SPINE_POINT_COUNT);
+    private readonly spineRightX = new Float64Array(SPINE_POINT_COUNT);
+    private readonly spineRightY = new Float64Array(SPINE_POINT_COUNT);
 
     private initialized = false;
 
     constructor() {
+        this.rebuildRadiusCache();
     }
 
     public getScale(): number {
@@ -38,11 +58,17 @@ export class KoiRenderer {
     }
 
     private initSegments(x: number, y: number) {
-        this.segments = [];
-        for (let i = 0; i < this.segmentCount; i++) {
-            this.segments.push({ x: x, y: y + i * this.spacing, angle: -Math.PI / 2 });
+        const physicsSpacing = this.getPhysicsSpacing();
+        this.physicsSegments = [];
+        for (let i = 0; i < this.physicsSegmentCount; i++) {
+            this.physicsSegments.push({ x: x, y: y + i * physicsSpacing, angle: -Math.PI / 2 });
         }
+        this.segments = this.physicsSegments;
         this.initialized = true;
+    }
+
+    private getPhysicsSpacing(): number {
+        return this.spacing * (LEGACY_RENDER_SEGMENT_COUNT - 1) / (this.physicsSegmentCount - 1);
     }
 
     public setScale(targetScale: number, immediate: boolean = false) {
@@ -50,6 +76,7 @@ export class KoiRenderer {
             this.scale = targetScale;
             this.targetScale = targetScale;
             this.spacing = this.baseSpacing * targetScale;
+            this.rebuildRadiusCache();
             return;
         }
 
@@ -65,31 +92,39 @@ export class KoiRenderer {
      */
     public forceStaticState(x: number, y: number, angle: number) {
         this.spacing = this.baseSpacing * this.scale;
-        this.segments = [];
-        for (let i = 0; i < this.segmentCount; i++) {
-            this.segments.push({
-                x: x - Math.cos(angle) * i * this.spacing,
-                y: y - Math.sin(angle) * i * this.spacing,
+        const physicsSpacing = this.getPhysicsSpacing();
+        this.physicsSegments = [];
+        for (let i = 0; i < this.physicsSegmentCount; i++) {
+            this.physicsSegments.push({
+                x: x - Math.cos(angle) * i * physicsSpacing,
+                y: y - Math.sin(angle) * i * physicsSpacing,
                 angle: angle
             });
         }
+        this.segments = this.physicsSegments;
         this.initialized = true;
     }
 
-    private getRadius(index: number): number {
-        const t = index / (this.segmentCount - 1);
+    private rebuildRadiusCache() {
         const peakPoint = 0.25;
         const maxRadius = 24 * this.scale;
         const noseRadius = 13 * this.scale;
         const tailRadius = 1 * this.scale;
 
-        if (t < peakPoint) {
-            const progress = t / peakPoint;
-            return noseRadius + (maxRadius - noseRadius) * Math.sin(progress * Math.PI / 2);
-        } else {
-            const progress = (t - peakPoint) / (1 - peakPoint);
-            return maxRadius - (maxRadius - tailRadius) * Math.pow(progress, 1.5);
+        for (let index = 0; index < this.segmentCount; index++) {
+            const t = index / (this.segmentCount - 1);
+            if (t < peakPoint) {
+                const progress = t / peakPoint;
+                this.radiusCache[index] = noseRadius + (maxRadius - noseRadius) * Math.sin(progress * Math.PI / 2);
+            } else {
+                const progress = (t - peakPoint) / (1 - peakPoint);
+                this.radiusCache[index] = maxRadius - (maxRadius - tailRadius) * Math.pow(progress, 1.5);
+            }
         }
+    }
+
+    private getRadius(index: number): number {
+        return this.radiusCache[index];
     }
 
     public update(koi: KoiType, dt: number, isAbsolutePosition: boolean = false) {
@@ -114,21 +149,22 @@ export class KoiRenderer {
                 this.scale = this.startScale + (this.targetScale - this.startScale) * progress;
             }
             this.spacing = this.baseSpacing * this.scale;
+            this.rebuildRadiusCache();
         }
 
         if (!this.initialized) {
             this.initSegments(targetX, targetY);
         }
 
-        const head = this.segments[0];
+        const head = this.physicsSegments[0];
 
         const dx = targetX - head.x;
         const dy = targetY - head.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
+        const distanceSquared = dx * dx + dy * dy;
 
         const moveFactor = 6.0 * dt;
 
-        if (dist > 100) {
+        if (distanceSquared > 100 * 100) {
             head.x = targetX;
             head.y = targetY;
         } else {
@@ -136,8 +172,8 @@ export class KoiRenderer {
             head.y += dy * moveFactor;
         }
 
-        const speed = Math.sqrt(koi.velocity.vx * koi.velocity.vx + koi.velocity.vy * koi.velocity.vy);
-        if (speed > 0.001) {
+        const speedSquared = koi.velocity.vx * koi.velocity.vx + koi.velocity.vy * koi.velocity.vy;
+        if (speedSquared > 0.001 * 0.001) {
             const targetAngle = Math.atan2(koi.velocity.vy, koi.velocity.vx);
 
             let diff = targetAngle - head.angle;
@@ -148,15 +184,24 @@ export class KoiRenderer {
             head.angle += diff * turnFactor;
         }
 
-        for (let i = 1; i < this.segmentCount; i++) {
-            const cur = this.segments[i];
-            const prev = this.segments[i - 1];
+        const physicsSpacing = this.getPhysicsSpacing();
+        for (let i = 1; i < this.physicsSegmentCount; i++) {
+            const cur = this.physicsSegments[i];
+            const prev = this.physicsSegments[i - 1];
             const dx = cur.x - prev.x;
             const dy = cur.y - prev.y;
             const targetAngle = Math.atan2(dy, dx);
+            const distance = Math.sqrt(dx * dx + dy * dy);
 
-            cur.x = prev.x + Math.cos(targetAngle) * this.spacing;
-            cur.y = prev.y + Math.sin(targetAngle) * this.spacing;
+            if (distance > 0.000001) {
+                const spacingRatio = physicsSpacing / distance;
+                cur.x = prev.x + dx * spacingRatio;
+                cur.y = prev.y + dy * spacingRatio;
+            } else {
+                // Match the former atan2(0, 0) behavior for the degenerate case.
+                cur.x = prev.x + physicsSpacing;
+                cur.y = prev.y;
+            }
             cur.angle = targetAngle;
         }
     }
@@ -183,7 +228,7 @@ export class KoiRenderer {
 
         const points: { x: number, y: number }[] = [];
 
-        for (let i = 0; i < this.segmentCount; i += 2) {
+        for (let i = 0; i < this.segmentCount; i++) {
             const r = this.getRadius(i) + hitMargin;
             const s = this.segments[i];
             const angle = s.angle + Math.PI / 2;
@@ -193,7 +238,7 @@ export class KoiRenderer {
             });
         }
 
-        for (let i = this.segmentCount - 1; i >= 0; i -= 2) {
+        for (let i = this.segmentCount - 1; i >= 0; i--) {
             const r = this.getRadius(i) + hitMargin;
             const s = this.segments[i];
             const angle = s.angle - Math.PI / 2;
@@ -227,9 +272,8 @@ export class KoiRenderer {
         const shadowScale = 0.8;
         const head = this.segments[0];
 
-        // 렌더링 스킵: 2개씩 건너뛰며 그리기 (물리는 52개 유지, 렌더링만 절반)
-        for (let i = this.segmentCount - 1; i >= 0; i -= 2) {
-            const r = this.getRadius(i) * shadowScale * 1.1; // 스킵으로 인한 빈틈 보완
+        for (let i = this.segmentCount - 1; i >= 0; i--) {
+            const r = this.getRadius(i) * shadowScale * 1.1;
 
             const dx = this.segments[i].x - head.x;
             const dy = this.segments[i].y - head.y;
@@ -317,35 +361,21 @@ export class KoiRenderer {
 
         // Fins
         // Pectoral: Steeper angle (0.2), Size 0.6
-        this.drawFin(ctx, this.segments[10], 'left', 0.6, 15, transform, finColor, time, 0.05);
-        this.drawFin(ctx, this.segments[10], 'right', 0.6, 15, transform, finColor, time, 0.05);
+        this.drawFin(ctx, PECTORAL_FIN_INDEX, 'left', 0.6, 15, transform, finColor, time, 0.05);
+        this.drawFin(ctx, PECTORAL_FIN_INDEX, 'right', 0.6, 15, transform, finColor, time, 0.05);
 
         // Pelvic: Normal angle (0.2), Smaller size (0.35)
-        this.drawFin(ctx, this.segments[26], 'left', 0.3, 6, transform, finColor, time, 0.5);
-        this.drawFin(ctx, this.segments[26], 'right', 0.3, 6, transform, finColor, time, 0.5);
+        this.drawFin(ctx, PELVIC_FIN_INDEX, 'left', 0.3, 6, transform, finColor, time, 0.5);
+        this.drawFin(ctx, PELVIC_FIN_INDEX, 'right', 0.3, 6, transform, finColor, time, 0.5);
 
-        // 1. Body Outline (Layer 1) - 렌더링 스킵: 2개씩 건너뛰기
-        ctx.fillStyle = colors.outline;
-        for (let i = this.segmentCount - 1; i >= 0; i -= 2) {
-            const r = this.getRadius(i) * 1.1; // 스킵으로 인한 빈틈 보완
-            const p = transform(this.segments[i].x, this.segments[i].y);
-            ctx.beginPath();
-            ctx.arc(p.x, p.y, r + 2, 0, Math.PI * 2);
-            ctx.fill();
-        }
-
-        // 2. Body (Layer 2) - 렌더링 스킵: 2개씩 건너뛰기
-        ctx.save();
+        // 1-2. Body Outline & Fill - build the same circle union once and reuse it.
         ctx.beginPath();
-        for (let i = this.segmentCount - 1; i >= 0; i -= 2) {
-            const r = this.getRadius(i) * 1.1; // 스킵으로 인한 빈틈 보완
-            const p = transform(this.segments[i].x, this.segments[i].y);
-            ctx.moveTo(p.x + r, p.y);
-            ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-        }
+        this.appendBodyPath(ctx, transform, 1.1);
+        ctx.strokeStyle = colors.outline;
+        ctx.lineWidth = 4;
+        ctx.stroke();
         ctx.fillStyle = colors.body;
         ctx.fill();
-        ctx.restore();
 
         // 3. Eyes (Layer 2.5)
         this.drawEyes(ctx, this.segments[0], transform, isAlbino);
@@ -354,14 +384,9 @@ export class KoiRenderer {
         // 4. Patterns (Layer 3) - SHAPES
         if (spots && spots.length > 0) {
             ctx.save();
+            // Keep the original, slightly tighter pattern clipping boundary.
             ctx.beginPath();
-            // Use precise union of circles for clipping
-            for (let i = 0; i < this.segmentCount; i++) {
-                const r = this.getRadius(i);
-                const p = transform(this.segments[i].x, this.segments[i].y);
-                ctx.moveTo(p.x + r, p.y);
-                ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-            }
+            this.appendBodyPath(ctx, transform, 1);
             ctx.clip();
 
             // 성능 최적화: ctx.filter 제거됨, 채도는 색상 생성 시 적용됨
@@ -543,38 +568,119 @@ export class KoiRenderer {
         }
 
 
-        // 6. Spine (Layer 5)
-        const startIdx = 8;
-        const endIdx = this.segmentCount - 12;
-        const totalSpineSegments = endIdx - startIdx;
-        const maxSpineWidth = 6 * this.scale;
-
-        ctx.lineCap = 'round';
-        ctx.strokeStyle = colors.spine;
-
-        for (let i = startIdx; i < endIdx; i++) {
-            const p1 = transform(this.segments[i].x, this.segments[i].y);
-            const p2 = transform(this.segments[i + 1].x, this.segments[i + 1].y);
-
-            const progress = (i - startIdx) / totalSpineSegments;
-            const currentWidth = maxSpineWidth * (1 - progress * 0.8);
-
-            ctx.beginPath();
-            ctx.lineWidth = currentWidth;
-            ctx.moveTo(p1.x, p1.y);
-            ctx.lineTo(p2.x, p2.y);
-            ctx.stroke();
-        }
+        // 6. Spine (Layer 5) - one smooth tapered ribbon instead of many strokes
+        this.drawSpineRibbon(ctx, transform, colors.spine);
 
         ctx.restore();
     }
 
-    private drawFin(ctx: CanvasRenderingContext2D, s: Segment, type: 'left' | 'right', sizeScale: number, yOffset: number, toLocal: (x: number, y: number) => { x: number, y: number }, color: string, time: number, baseAngleOffset: number = 0.2) {
+    private appendBodyPath(
+        ctx: CanvasRenderingContext2D,
+        transform: (x: number, y: number) => { x: number, y: number },
+        radiusScale: number
+    ) {
+        for (let i = this.segmentCount - 1; i >= 0; i--) {
+            const radius = this.getRadius(i) * radiusScale;
+            const point = transform(this.segments[i].x, this.segments[i].y);
+            ctx.moveTo(point.x + radius, point.y);
+            ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
+        }
+    }
+
+    private drawSpineRibbon(
+        ctx: CanvasRenderingContext2D,
+        transform: (x: number, y: number) => { x: number, y: number },
+        color: string
+    ) {
+        const lastPointIndex = SPINE_POINT_COUNT - 1;
+        const maxSpineWidth = 6 * this.scale;
+        let startTangentX = 1;
+        let startTangentY = 0;
+        let endTangentX = 1;
+        let endTangentY = 0;
+        let startHalfWidth = maxSpineWidth / 2;
+        let endHalfWidth = maxSpineWidth / 2;
+
+        for (let pointIndex = 0; pointIndex < SPINE_POINT_COUNT; pointIndex++) {
+            const segmentIndex = SPINE_START_INDEX + pointIndex;
+            const previous = this.segments[Math.max(SPINE_START_INDEX, segmentIndex - 1)];
+            const next = this.segments[Math.min(SPINE_END_INDEX, segmentIndex + 1)];
+            const tangentDx = next.x - previous.x;
+            const tangentDy = next.y - previous.y;
+            const tangentLength = Math.sqrt(tangentDx * tangentDx + tangentDy * tangentDy);
+            const tangentX = tangentLength > 0.000001 ? tangentDx / tangentLength : Math.cos(this.segments[segmentIndex].angle);
+            const tangentY = tangentLength > 0.000001 ? tangentDy / tangentLength : Math.sin(this.segments[segmentIndex].angle);
+            const normalX = -tangentY;
+            const normalY = tangentX;
+            // The old final stroke used the penultimate taper value, so clamp
+            // the endpoint to the same width before applying the round cap.
+            const taperStep = Math.min(pointIndex, lastPointIndex - 1);
+            const progress = taperStep / lastPointIndex;
+            const halfWidth = (maxSpineWidth * (1 - progress * 0.8)) / 2;
+            const center = transform(this.segments[segmentIndex].x, this.segments[segmentIndex].y);
+
+            this.spineLeftX[pointIndex] = center.x + normalX * halfWidth;
+            this.spineLeftY[pointIndex] = center.y + normalY * halfWidth;
+            this.spineRightX[pointIndex] = center.x - normalX * halfWidth;
+            this.spineRightY[pointIndex] = center.y - normalY * halfWidth;
+
+            if (pointIndex === 0) {
+                startTangentX = tangentX;
+                startTangentY = tangentY;
+                startHalfWidth = halfWidth;
+            } else if (pointIndex === lastPointIndex) {
+                endTangentX = tangentX;
+                endTangentY = tangentY;
+                endHalfWidth = halfWidth;
+            }
+        }
+
+        ctx.beginPath();
+        ctx.fillStyle = color;
+        ctx.moveTo(this.spineLeftX[0], this.spineLeftY[0]);
+
+        for (let i = 1; i < lastPointIndex; i++) {
+            const midpointX = (this.spineLeftX[i] + this.spineLeftX[i + 1]) / 2;
+            const midpointY = (this.spineLeftY[i] + this.spineLeftY[i + 1]) / 2;
+            ctx.quadraticCurveTo(this.spineLeftX[i], this.spineLeftY[i], midpointX, midpointY);
+        }
+        ctx.lineTo(this.spineLeftX[lastPointIndex], this.spineLeftY[lastPointIndex]);
+
+        const endCenterX = (this.spineLeftX[lastPointIndex] + this.spineRightX[lastPointIndex]) / 2;
+        const endCenterY = (this.spineLeftY[lastPointIndex] + this.spineRightY[lastPointIndex]) / 2;
+        ctx.quadraticCurveTo(
+            endCenterX + endTangentX * endHalfWidth,
+            endCenterY + endTangentY * endHalfWidth,
+            this.spineRightX[lastPointIndex],
+            this.spineRightY[lastPointIndex]
+        );
+
+        for (let i = lastPointIndex - 1; i > 0; i--) {
+            const midpointX = (this.spineRightX[i] + this.spineRightX[i - 1]) / 2;
+            const midpointY = (this.spineRightY[i] + this.spineRightY[i - 1]) / 2;
+            ctx.quadraticCurveTo(this.spineRightX[i], this.spineRightY[i], midpointX, midpointY);
+        }
+        ctx.lineTo(this.spineRightX[0], this.spineRightY[0]);
+
+        const startCenterX = (this.spineLeftX[0] + this.spineRightX[0]) / 2;
+        const startCenterY = (this.spineLeftY[0] + this.spineRightY[0]) / 2;
+        ctx.quadraticCurveTo(
+            startCenterX - startTangentX * startHalfWidth,
+            startCenterY - startTangentY * startHalfWidth,
+            this.spineLeftX[0],
+            this.spineLeftY[0]
+        );
+        ctx.closePath();
+        ctx.fill();
+    }
+
+    private drawFin(ctx: CanvasRenderingContext2D, segmentIndex: number, type: 'left' | 'right', sizeScale: number, yOffset: number, toLocal: (x: number, y: number) => { x: number, y: number }, color: string, time: number, baseAngleOffset: number = 0.2) {
+        const s = this.segments[segmentIndex];
         // 애니메이션 제거 - 고정 각도 (성능 최적화)
         const angleOffset = type === 'left' ? (-baseAngleOffset) : (baseAngleOffset);
         const angle = s.angle + angleOffset;
         const sideScale = type === 'left' ? 1 : -1;
-        const bodyRadius = this.getRadius(this.segments.indexOf(s));
+        const bodyRadius = this.getRadius(segmentIndex);
 
         const perpAngle = s.angle + Math.PI / 2;
         const rootDist = bodyRadius * 0.85 * sideScale;

@@ -10,35 +10,44 @@ service cloud.firestore {
       return signedIn() && request.auth.uid == userId;
     }
 
-    function validRanking(userId) {
-      return request.resource.data.keys().hasOnly([
-          'uid',
-          'nickname',
-          'photoURL',
-          'honorPoints',
-          'achievementPoints',
-          'updatedAt'
-        ])
-        && request.resource.data.keys().hasAll([
-          'uid',
-          'honorPoints',
-          'achievementPoints'
-        ])
-        && request.resource.data.uid == userId
-        && request.resource.data.honorPoints is number
-        && request.resource.data.achievementPoints is number
-        && (!('nickname' in request.resource.data) || request.resource.data.nickname is string)
-        && (!('photoURL' in request.resource.data) || request.resource.data.photoURL == null || request.resource.data.photoURL is string);
+    function initialUserDocument() {
+      return request.resource.data.get('honorPoints', 0) == 0
+        && request.resource.data.get('achievementPoints', 0) == 0
+        && request.resource.data.get('gameState', {}).get('honorPoints', 0) == 0
+        && request.resource.data.get('gameState', {}).get('achievementPoints', 0) == 0;
+    }
+
+    function protectedUserFieldsUnchanged() {
+      return request.resource.data.get('honorPoints', null) == resource.data.get('honorPoints', null)
+        && request.resource.data.get('achievementPoints', null) == resource.data.get('achievementPoints', null)
+        && request.resource.data.get('gameState', {}).get('honorPoints', null)
+          == resource.data.get('gameState', {}).get('honorPoints', null)
+        && request.resource.data.get('gameState', {}).get('achievementPoints', null)
+          == resource.data.get('gameState', {}).get('achievementPoints', null)
+        && request.resource.data.get('gameState', {}).get('achievements', {}).get('claimedIds', null)
+          == resource.data.get('gameState', {}).get('achievements', {}).get('claimedIds', null);
     }
 
     match /users/{userId} {
-      allow read, create, update, delete: if isOwner(userId);
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && initialUserDocument();
+      allow update: if isOwner(userId) && protectedUserFieldsUnchanged();
+      // Account deletion is performed by the Admin SDK callable so the
+      // server-owned ranking documents are deleted atomically with the user.
+      allow delete: if false;
     }
 
     match /rankings/{userId} {
       allow read: if true;
-      allow create, update: if isOwner(userId) && validRanking(userId);
-      allow delete: if isOwner(userId);
+      allow write: if false;
+    }
+
+    match /rankingState/{userId} {
+      allow read, write: if false;
+    }
+
+    match /rankingEvents/{eventId} {
+      allow read, write: if false;
     }
   }
 }

@@ -1,11 +1,15 @@
 import {
     User as FirebaseUser,
     createUserWithEmailAndPassword,
+    EmailAuthProvider,
+    deleteUser,
     getRedirectResult,
     linkWithCredential,
     onAuthStateChanged,
     OAuthProvider,
     GoogleAuthProvider as FirebaseGoogleAuthProvider,
+    reauthenticateWithCredential,
+    reauthenticateWithPopup,
     signInAnonymously,
     signInWithEmailAndPassword,
     signInWithCredential,
@@ -327,6 +331,68 @@ export const logout = async (): Promise<void> => {
         console.error("Logout Error:", error);
         throw error;
     }
+};
+
+export const deleteCurrentUser = async (): Promise<void> => {
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
+        throw new Error('삭제할 로그인 계정을 찾을 수 없습니다.');
+    }
+
+    try {
+        await deleteUser(currentUser);
+        clearAuthSource();
+    } catch (error) {
+        console.error('Account deletion failed:', error);
+        throw error;
+    }
+};
+
+const createAuthError = (code: string, message: string) => {
+    const error = new Error(message) as Error & { code: string };
+    error.code = code;
+    return error;
+};
+
+export const reauthenticateCurrentUser = async (password?: string): Promise<void> => {
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
+        throw new Error('재인증할 로그인 계정을 찾을 수 없습니다.');
+    }
+    if (currentUser.isAnonymous) return;
+
+    const providerIds = currentUser.providerData.map(provider => provider.providerId);
+    if (providerIds.includes('password')) {
+        if (!password || !currentUser.email) {
+            throw createAuthError('auth/password-required', '계정 삭제를 위해 이메일 비밀번호가 필요합니다.');
+        }
+        await reauthenticateWithCredential(
+            currentUser,
+            EmailAuthProvider.credential(currentUser.email, password),
+        );
+        return;
+    }
+
+    if (Capacitor.getPlatform() === 'android') {
+        const authSource = readAuthSource();
+        const result = authSource === 'playgames'
+            ? await FirebaseAuthentication.signInWithPlayGames({ skipNativeAuth: true })
+            : await FirebaseAuthentication.signInWithGoogle({ skipNativeAuth: true });
+        const idToken = result.credential?.idToken;
+        const accessToken = result.credential?.accessToken;
+        if (!idToken && !accessToken) {
+            throw createAuthError('auth/reauthentication-failed', '재인증 자격 증명을 받지 못했습니다.');
+        }
+        const credential = idToken
+            ? FirebaseGoogleAuthProvider.credential(idToken, accessToken ?? undefined)
+            : authSource === 'playgames'
+                ? new OAuthProvider(PLAY_GAMES_PROVIDER_ID).credential({ accessToken })
+                : FirebaseGoogleAuthProvider.credential(undefined, accessToken);
+        await reauthenticateWithCredential(currentUser, credential);
+        return;
+    }
+
+    await reauthenticateWithPopup(currentUser, googleProvider);
 };
 
 export const subscribeToAuthChanges = (callback: (user: AppUser | null) => void) => {

@@ -33,6 +33,7 @@ import { RankingModal } from './components/RankingModal';
 import { useAchievements } from './hooks/useAchievements';
 import { AchievementModal } from './components/AchievementModal';
 import { isValidSavedGameState } from './utils/savedGameState';
+import { purchaseHonorTrophies } from './services/ranking';
 
 interface Animation {
   id: number;
@@ -187,8 +188,15 @@ export const App: React.FC = () => {
     }
   }, [koiList, user?.uid, checkAchievements]);
 
-  const handleClaimReward = (id: string, reward: any) => {
-    claimReward(id, (rewardContent) => {
+  const handleClaimReward = async (id: string, reward: any) => {
+    try {
+      // Make the latest koi state visible to the server before it verifies the
+      // achievement. Reward points and items are still calculated server-side.
+      if (user && gameStateRef.current) {
+        await saveGameToCloud(user.uid, gameStateRef.current);
+      }
+
+      await claimReward(id, (rewardContent) => {
       // Add items if present
       if (rewardContent.items) {
         rewardContent.items.forEach((item: any) => {
@@ -203,7 +211,11 @@ export const App: React.FC = () => {
         type: 'success'
       });
       audioManager.playSFX('coin');
-    });
+      });
+    } catch (error) {
+      console.error('Achievement reward claim failed:', error);
+      setNotification({ message: '업적 보상을 서버에서 확인하지 못했습니다. 잠시 후 다시 시도해주세요.', type: 'error' });
+    }
   };
   const feedingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const feedingDelayTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -822,9 +834,38 @@ export const App: React.FC = () => {
       return;
     }
 
-    // 상태 업데이트
-    const nextZenPoints = zenPoints - totalCost;
-    const nextHonorPoints = (honorPoints || 0) + quantity;
+    let nextZenPoints = zenPoints - totalCost;
+    let nextHonorPoints = (honorPoints || 0) + quantity;
+
+    if (user) {
+      try {
+        const latestState = gameStateRef.current ?? {
+          ponds,
+          activePondId,
+          zenPoints,
+          foodCount,
+          cornCount,
+          honorPoints,
+          achievementPoints: achievementScore,
+          achievements: { unlockedIds, claimedIds },
+          koiNameCounter,
+        };
+
+        // Sync the mutable game snapshot first so the server can check the
+        // current balance. The score mutation itself happens only in the
+        // callable transaction.
+        if (isCloudSyncReady && !isDuplicateTabPaused && !isLocalGameSaveSuppressed()) {
+          await enqueueCloudSave(user.uid, latestState);
+        }
+        const result = await purchaseHonorTrophies(quantity);
+        nextZenPoints = result.zenPoints ?? nextZenPoints;
+        nextHonorPoints = result.honorPoints;
+      } catch (error) {
+        console.error('Trophy purchase was rejected by the ranking server:', error);
+        setNotification({ message: '랭킹 서버에서 구매를 확인하지 못했습니다. 잠시 후 다시 시도해주세요.', type: 'error' });
+        return;
+      }
+    }
 
     setZenPoints(nextZenPoints);
     setHonorPoints(nextHonorPoints);
@@ -878,6 +919,7 @@ export const App: React.FC = () => {
     koiNameCounter,
     enqueueCloudSave,
     persistLocalGameState,
+    purchaseHonorTrophies,
   ]);
 
   const handlePondPointerDown = useCallback((event: React.PointerEvent<HTMLElement> | React.MouseEvent<HTMLElement>, koi?: Koi) => {

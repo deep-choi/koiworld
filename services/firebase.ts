@@ -1,6 +1,7 @@
 import { initializeApp, getApp, getApps } from 'firebase/app';
 import { getAuth, GoogleAuthProvider } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
+import { getFunctions } from 'firebase/functions';
 
 const firebaseConfig = {
     apiKey: 'AIzaSyARlVas7c57X0f3apFfJjztslnYjFD8OkQ',
@@ -15,6 +16,7 @@ const firebaseConfig = {
 export const firebaseApp = getApps().length ? getApp() : initializeApp(firebaseConfig);
 export const auth = getAuth(firebaseApp);
 export const db = getFirestore(firebaseApp);
+export const functions = getFunctions(firebaseApp, 'asia-northeast1');
 
 auth.languageCode = 'ko';
 

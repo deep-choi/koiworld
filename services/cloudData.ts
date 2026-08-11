@@ -18,6 +18,11 @@ import {
     UserProfile,
 } from '../types/online';
 import { auth, db } from './firebase';
+import {
+    deleteAccountData,
+    initializeRankingProfile,
+    updateRankingProfile,
+} from './ranking';
 import { isValidSavedGameState } from '../utils/savedGameState';
 
 export interface CloudUserSnapshot {
@@ -38,7 +43,6 @@ export interface ProfileSnapshot {
 
 const createPlaceholderTimestamp = () => new Date().toISOString();
 const userDocRef = (userId: string) => doc(db, 'users', userId);
-const rankingDocRef = (userId: string) => doc(db, 'rankings', userId);
 const sanitizeForFirestore = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
 const assertCurrentUser = (userId: string) => {
@@ -85,33 +89,6 @@ const toRankingDocument = (userId: string, data: Record<string, any>): CloudUser
     kois: [],
 });
 
-const extractGameScores = (gameState: SavedGameState) => ({
-    honorPoints: Number(gameState.honorPoints || 0),
-    achievementPoints: Number(gameState.achievementPoints || 0),
-});
-
-const mergeAchievementProgress = (
-    existing: SavedGameState['achievements'] | undefined,
-    incoming: SavedGameState['achievements'] | undefined,
-): SavedGameState['achievements'] | undefined => {
-    if (!existing && !incoming) return undefined;
-
-    const unlockedIds = Array.from(new Set([
-        ...(existing?.unlockedIds ?? []),
-        ...(incoming?.unlockedIds ?? []),
-    ]));
-    const claimedIds = Array.from(new Set([
-        ...(existing?.claimedIds ?? []),
-        ...(incoming?.claimedIds ?? []),
-    ]));
-
-    return {
-        // A claimed reward is also permanently unlocked.
-        unlockedIds: Array.from(new Set([...unlockedIds, ...claimedIds])),
-        claimedIds,
-    };
-};
-
 export async function ensureUserDocument(
     userId: string,
     displayName?: string | null,
@@ -122,7 +99,6 @@ export async function ensureUserDocument(
 
     const fallbackNickname = buildDefaultNickname(userId, displayName, email);
     const privateRef = userDocRef(userId);
-    const publicRef = rankingDocRef(userId);
     let resolvedNickname = fallbackNickname;
     let safePhotoURL = normalizePhotoURL(photoURL);
 
@@ -147,9 +123,6 @@ export async function ensureUserDocument(
         // Keep a user-selected profile image across auth/session reinitialization.
         safePhotoURL = normalizePhotoURL(existingPhotoURL || photoURL);
 
-        const honorPoints = Number(data?.honorPoints || data?.gameState?.honorPoints || 0);
-        const achievementPoints = Number(data?.achievementPoints || data?.gameState?.achievementPoints || 0);
-
         transaction.set(privateRef, {
             profile: {
                 nickname: resolvedNickname,
@@ -157,20 +130,17 @@ export async function ensureUserDocument(
                 createdAt: data?.profile?.createdAt ?? serverTimestamp(),
                 lastLogin: serverTimestamp(),
             },
-            honorPoints,
-            achievementPoints,
-            updatedAt: serverTimestamp(),
-        }, { merge: true });
-
-        transaction.set(publicRef, {
-            uid: userId,
-            nickname: resolvedNickname,
-            photoURL: safePhotoURL,
-            honorPoints,
-            achievementPoints,
             updatedAt: serverTimestamp(),
         }, { merge: true });
     });
+
+    // Ranking documents are server-owned. The callable creates or updates the
+    // public document without exposing a client write path to score fields.
+    try {
+        await initializeRankingProfile({ nickname: resolvedNickname, photoURL: safePhotoURL });
+    } catch (error) {
+        console.warn('Ranking profile initialization is unavailable:', error);
+    }
 
     return resolvedNickname;
 }
@@ -199,37 +169,22 @@ export async function fetchUserSnapshot(userId: string): Promise<CloudUserSnapsh
 export async function updateUserProfile(userId: string, nickname: string, photoURL?: string | null): Promise<void> {
     const currentUser = assertCurrentUser(userId);
     const trimmed = nickname.trim();
-    const [profileSnapshot, rankingSnapshot] = await Promise.all([
-        getDoc(userDocRef(userId)),
-        getDoc(rankingDocRef(userId)),
-    ]);
+    const profileSnapshot = await getDoc(userDocRef(userId));
     const existingPhotoURL = profileSnapshot.exists()
         ? (profileSnapshot.data()?.profile?.photoURL as string | null | undefined)
         : undefined;
     const resolvedPhotoURL = photoURL === undefined ? (existingPhotoURL ?? currentUser.photoURL) : photoURL;
     const safePhotoURL = normalizePhotoURL(resolvedPhotoURL);
-    const rankingData = rankingSnapshot.exists() ? rankingSnapshot.data() : {};
-    const honorPoints = Number(rankingData.honorPoints || 0);
-    const achievementPoints = Number(rankingData.achievementPoints || 0);
-
-    await Promise.all([
-        setDoc(userDocRef(userId), {
-            profile: {
-                nickname: trimmed,
-                photoURL: safePhotoURL,
-                lastLogin: serverTimestamp(),
-            },
-            updatedAt: serverTimestamp(),
-        }, { merge: true }),
-        setDoc(rankingDocRef(userId), {
-            uid: userId,
+    await setDoc(userDocRef(userId), {
+        profile: {
             nickname: trimmed,
             photoURL: safePhotoURL,
-            honorPoints,
-            achievementPoints,
-            updatedAt: serverTimestamp(),
-        }, { merge: true }),
-    ]);
+            lastLogin: serverTimestamp(),
+        },
+        updatedAt: serverTimestamp(),
+    }, { merge: true });
+
+    await updateRankingProfile({ nickname: trimmed, photoURL: safePhotoURL });
 }
 
 export async function updateUserSession(userId: string, activeDeviceId: string, touchLastLogin = true): Promise<void> {
@@ -240,6 +195,11 @@ export async function updateUserSession(userId: string, activeDeviceId: string, 
         ...(touchLastLogin ? { profile: { lastLogin: serverTimestamp() } } : {}),
         updatedAt: serverTimestamp(),
     }, { merge: true });
+}
+
+export async function deleteUserData(userId: string): Promise<void> {
+    assertCurrentUser(userId);
+    await deleteAccountData();
 }
 
 export function subscribeToUserProfile(
@@ -288,73 +248,40 @@ export async function saveGameState(userId: string, gameState: SavedGameState): 
     const sanitizedGameState = sanitizeForFirestore(gameState);
     const privateRef = userDocRef(userId);
 
-    const mergedGameState = await runTransaction(db, async (transaction) => {
+    await runTransaction(db, async (transaction) => {
         const snapshot = await transaction.get(privateRef);
         const existingGameState = snapshot.exists()
             ? snapshot.data().gameState as SavedGameState | undefined
             : undefined;
-        const mergedAchievements = mergeAchievementProgress(
-            existingGameState?.achievements,
-            sanitizedGameState.achievements,
-        );
-        const nextGameState: SavedGameState = mergedAchievements
-            ? { ...sanitizedGameState, achievements: mergedAchievements }
-            : sanitizedGameState;
-        const scores = extractGameScores(nextGameState);
+        // Score and achievement fields are server-owned. Keep the client's
+        // local copy for rendering, but never allow a normal game-state save to
+        // change those fields in Firestore.
+        const {
+            honorPoints: _honorPoints,
+            achievementPoints: _achievementPoints,
+            achievements: _achievements,
+            ...mutableGameState
+        } = sanitizedGameState;
+        const existingProtectedState = existingGameState ?? {} as SavedGameState;
+        const nextGameState: SavedGameState = {
+            ...mutableGameState,
+            ...(typeof existingProtectedState.honorPoints === 'number'
+                ? { honorPoints: existingProtectedState.honorPoints }
+                : {}),
+            ...(typeof existingProtectedState.achievementPoints === 'number'
+                ? { achievementPoints: existingProtectedState.achievementPoints }
+                : {}),
+            ...(existingProtectedState.achievements
+                ? { achievements: existingProtectedState.achievements }
+                : {}),
+        };
 
         transaction.set(privateRef, {
             gameState: nextGameState,
-            ...scores,
             updatedAt: serverTimestamp(),
         }, { merge: true });
 
-        return nextGameState;
     });
-
-    const scores = extractGameScores(mergedGameState);
-    await setDoc(rankingDocRef(userId), {
-        uid: userId,
-        ...scores,
-        updatedAt: serverTimestamp(),
-    }, { merge: true });
-}
-
-export async function updateUserGameData(
-    userId: string,
-    gameData: Partial<UserGameData>
-): Promise<void> {
-    const snapshot = await fetchUserSnapshot(userId);
-    const currentState = isValidSavedGameState(snapshot?.gameState) ? snapshot.gameState : null;
-    const honorPoints = typeof gameData.honorPoints === 'number'
-        ? gameData.honorPoints
-        : Number(snapshot?.honorPoints ?? currentState?.honorPoints ?? 0);
-    const achievementPoints = typeof gameData.achievementPoints === 'number'
-        ? gameData.achievementPoints
-        : Number(snapshot?.achievementPoints ?? currentState?.achievementPoints ?? 0);
-
-    if (currentState) {
-        await saveGameState(userId, {
-            ...currentState,
-            honorPoints,
-            achievementPoints,
-            achievements: gameData.achievements ?? currentState.achievements,
-        });
-        return;
-    }
-
-    await Promise.all([
-        setDoc(userDocRef(userId), {
-            honorPoints,
-            achievementPoints,
-            updatedAt: serverTimestamp(),
-        }, { merge: true }),
-        setDoc(rankingDocRef(userId), {
-            uid: userId,
-            honorPoints,
-            achievementPoints,
-            updatedAt: serverTimestamp(),
-        }, { merge: true }),
-    ]);
 }
 
 export async function getRankings(

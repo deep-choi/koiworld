@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Camera, Check, Edit2, Gamepad2, LogOut, Mail, Phone, Save, User, UserRound, X } from 'lucide-react';
+import { Camera, Check, Edit2, Gamepad2, LogOut, Mail, Phone, Save, Trash2, User, UserRound, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { audioManager } from '../utils/audio';
-import { broadcastForceClear, resumeLocalGameSave, suppressLocalGameSave } from '../services/localSave';
+import { broadcastForceClear, clearLocalGameSaves, resumeLocalGameSave, suppressLocalGameSave } from '../services/localSave';
 
 interface AccountModalProps {
     isOpen: boolean;
@@ -79,7 +79,7 @@ export const AccountModal: React.FC<AccountModalProps> = ({
     onSaveProfile,
     onLogoutCleanup,
 }) => {
-    const { user, logout } = useAuth();
+    const { user, logout, deleteAccount } = useAuth();
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [nicknameInput, setNicknameInput] = useState(userNickname);
     const [selectedPhotoURL, setSelectedPhotoURL] = useState<string | null>(null);
@@ -87,6 +87,9 @@ export const AccountModal: React.FC<AccountModalProps> = ({
     const [isSaving, setIsSaving] = useState(false);
     const [isProcessingImage, setIsProcessingImage] = useState(false);
     const [isLoggingOut, setIsLoggingOut] = useState(false);
+    const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+    const [requiresReauthPassword, setRequiresReauthPassword] = useState(false);
+    const [reauthPassword, setReauthPassword] = useState('');
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState(false);
 
@@ -98,6 +101,8 @@ export const AccountModal: React.FC<AccountModalProps> = ({
             setInitialPhotoURL(currentPhotoURL);
             setError(null);
             setSuccess(false);
+            setRequiresReauthPassword(false);
+            setReauthPassword('');
         }
     }, [isOpen, profilePhotoURL, user?.photoURL, userNickname]);
 
@@ -174,6 +179,42 @@ export const AccountModal: React.FC<AccountModalProps> = ({
             alert('로그아웃에 실패했습니다.');
         } finally {
             setIsLoggingOut(false);
+        }
+    };
+
+    const handleDeleteAccount = async () => {
+        if (isDeletingAccount) return;
+        const confirmed = window.confirm(
+            '계정을 삭제하면 Firebase 계정, 클라우드 게임 데이터, 랭킹 기록과 이 기기의 저장 데이터가 모두 삭제됩니다. 계속하시겠습니까?',
+        );
+        if (!confirmed) return;
+
+        try {
+            suppressLocalGameSave();
+            setIsDeletingAccount(true);
+            setError(null);
+            await deleteAccount(reauthPassword || undefined);
+            clearLocalGameSaves();
+            broadcastForceClear();
+            onClose();
+            onLogoutCleanup();
+            resumeLocalGameSave();
+            window.location.reload();
+        } catch (deleteError) {
+            resumeLocalGameSave();
+            const code = typeof deleteError === 'object' && deleteError && 'code' in deleteError
+                ? String((deleteError as { code?: string }).code ?? '')
+                : '';
+            if (code === 'auth/password-required' || user?.providerIds.includes('password')) {
+                setRequiresReauthPassword(true);
+            }
+            setError(code === 'auth/requires-recent-login'
+                ? '보안을 위해 최근 로그인 후 계정 삭제가 가능합니다. 로그아웃한 뒤 다시 로그인하고 재시도해주세요.'
+                : deleteError instanceof Error
+                    ? deleteError.message
+                    : '계정 삭제에 실패했습니다. 잠시 후 다시 시도해주세요.');
+        } finally {
+            setIsDeletingAccount(false);
         }
     };
 
@@ -258,6 +299,22 @@ export const AccountModal: React.FC<AccountModalProps> = ({
                         <p className="text-[10px] text-white/55">랭킹 시스템에 표시되는 이름입니다.</p>
                     </div>
 
+                    {requiresReauthPassword && (
+                        <div className="space-y-2 rounded-xl border border-red-400/20 bg-red-500/5 p-3">
+                            <label className="text-xs font-bold text-red-200" htmlFor="account-deletion-password">
+                                계정 삭제를 위해 이메일 비밀번호를 다시 입력해주세요.
+                            </label>
+                            <input
+                                id="account-deletion-password"
+                                type="password"
+                                value={reauthPassword}
+                                onChange={event => setReauthPassword(event.target.value)}
+                                autoComplete="current-password"
+                                className="w-full bg-gray-900/60 border border-white/20 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-red-400/60 transition-all"
+                                placeholder="비밀번호"
+                            />
+                        </div>
+                    )}
                     {error && <p className="text-red-400 text-xs leading-relaxed">{error}</p>}
 
                     <div className="pt-3 border-t border-white/15 space-y-2">
@@ -275,12 +332,21 @@ export const AccountModal: React.FC<AccountModalProps> = ({
                         </button>
                         <button
                             onClick={handleLogout}
-                            disabled={isLoggingOut}
+                            disabled={isLoggingOut || isDeletingAccount}
                             className="w-full py-2.5 rounded-xl bg-transparent hover:bg-white/10 text-red-300 border border-transparent transition-all flex items-center justify-center gap-2 font-bold group"
                             aria-label={isLoggingOut ? '로그아웃 진행 중' : '로그아웃하기'}
                         >
                             <LogOut size={20} className="group-hover:-translate-x-1 transition-transform" />
                             {isLoggingOut ? '로그아웃 중...' : '로그아웃'}
+                        </button>
+                        <button
+                            onClick={handleDeleteAccount}
+                            disabled={isLoggingOut || isDeletingAccount}
+                            className="w-full py-2.5 rounded-xl bg-transparent hover:bg-red-500/10 text-red-400 border border-red-400/20 transition-all flex items-center justify-center gap-2 font-bold disabled:opacity-60"
+                            aria-label={isDeletingAccount ? '계정 삭제 진행 중' : '계정 삭제하기'}
+                        >
+                            <Trash2 size={18} />
+                            {isDeletingAccount ? '계정 삭제 중...' : requiresReauthPassword ? '비밀번호 확인 후 삭제' : '계정 삭제'}
                         </button>
                     </div>
                 </div>

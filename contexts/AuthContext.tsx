@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useRef, useState, ReactNode } from 'react';
 import { Capacitor } from '@capacitor/core';
-import { AppUser, subscribeToAuthChanges, loginWithGoogle, logout, checkRedirectResult, initializeAndroidSession, loginWithEmailPassword, signUpWithEmailPassword } from '../services/auth';
+import { AppUser, subscribeToAuthChanges, loginWithGoogle, logout, checkRedirectResult, initializeAndroidSession, loginWithEmailPassword, signUpWithEmailPassword, deleteCurrentUser, reauthenticateCurrentUser } from '../services/auth';
+import { deleteUserData } from '../services/cloudData';
 
 interface AuthContextType {
     user: AppUser | null;
@@ -9,6 +10,7 @@ interface AuthContextType {
     loginWithEmail: (email: string, password: string) => Promise<void>;
     signUpWithEmail: (email: string, password: string, nickname: string) => Promise<void>;
     logout: () => Promise<void>;
+    deleteAccount: (password?: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -104,8 +106,23 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
     };
 
+    const handleDeleteAccount = async (password?: string) => {
+        if (!user) {
+            throw new Error('삭제할 로그인 계정을 찾을 수 없습니다.');
+        }
+
+        try {
+            await reauthenticateCurrentUser(password);
+            await deleteUserData(user.uid);
+            await deleteCurrentUser();
+        } catch (error) {
+            console.error('Account deletion failed context:', error);
+            throw error;
+        }
+    };
+
     return (
-        <AuthContext.Provider value={{ user, loading, login: handleLogin, loginWithEmail: handleEmailLogin, signUpWithEmail: handleEmailSignUp, logout: handleLogout }}>
+        <AuthContext.Provider value={{ user, loading, login: handleLogin, loginWithEmail: handleEmailLogin, signUpWithEmail: handleEmailSignUp, logout: handleLogout, deleteAccount: handleDeleteAccount }}>
             {children}
         </AuthContext.Provider>
     );

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Achievement, AchievementState, Koi } from '../types';
 import { ACHIEVEMENTS, checkUnlockableAchievements } from '../utils/achievements';
-import { updateUserGameData } from '../services/cloudData';
+import { claimAchievement as claimAchievementOnServer } from '../services/ranking';
 
 const createEmptyAchievementState = (): AchievementState => ({
     unlockedIds: [],
@@ -92,21 +92,6 @@ export const useAchievements = (
         persistLocalState(nextState);
     }, [userId, initialData, persistLocalState]);
 
-    const saveToCloud = useCallback(async (newState: Partial<AchievementState>) => {
-        if (!userId) return;
-        try {
-            await updateUserGameData(userId, {
-                achievementPoints: newState.totalPoints ?? state.totalPoints,
-                achievements: {
-                    unlockedIds: newState.unlockedIds ?? state.unlockedIds,
-                    claimedIds: newState.claimedIds ?? state.claimedIds,
-                }
-            });
-        } catch (e) {
-            console.error("Failed to sync achievements to cloud:", e);
-        }
-    }, [userId, state]);
-
     const checkAchievements = useCallback((kois: Koi[]) => {
         if (!isLoaded) return [];
         const newUnlocks = checkUnlockableAchievements(kois, state.unlockedIds);
@@ -123,13 +108,10 @@ export const useAchievements = (
             setState(nextState);
             persistLocalState(nextState);
 
-            // Sync to cloud
-            void saveToCloud({ unlockedIds: nextUnlockedIds });
-
             return newUnlocks;
         }
         return [];
-    }, [state, isLoaded, persistLocalState, saveToCloud]);
+    }, [state, isLoaded, persistLocalState]);
 
     const claimReward = useCallback(async (achievementId: string, onRewardClaimed?: (reward: Achievement['reward']) => void) => {
         if (!userId || !isLoaded) return;
@@ -139,24 +121,42 @@ export const useAchievements = (
         const achievement = ACHIEVEMENTS.find(a => a.id === achievementId);
         if (!achievement) return;
 
-        if (onRewardClaimed) {
-            onRewardClaimed(achievement.reward);
+        try {
+            // The server checks the achievement against the latest cloud game
+            // state and calculates the reward. The client never submits a
+            // points total or reward amount.
+            const result = await claimAchievementOnServer(achievementId);
+            const nextClaimedIds = Array.from(new Set([
+                ...state.claimedIds,
+                ...result.claimedIds,
+                achievementId,
+            ]));
+            const nextUnlockedIds = Array.from(new Set([
+                ...state.unlockedIds,
+                ...result.unlockedIds,
+                achievementId,
+            ]));
+            const nextState: AchievementState = {
+                ...state,
+                unlockedIds: nextUnlockedIds,
+                claimedIds: nextClaimedIds,
+                totalPoints: result.achievementPoints,
+            };
+
+            setState(nextState);
+            persistLocalState(nextState);
+
+            onRewardClaimed?.({
+                achievementPoints: result.achievementReward,
+                items: result.cornReward > 0
+                    ? [{ type: 'corn', count: result.cornReward }]
+                    : undefined,
+            });
+        } catch (error) {
+            console.error('Achievement claim was rejected by the ranking server:', error);
+            throw error;
         }
-
-        const newTotalPoints = (state.totalPoints || 0) + achievement.reward.achievementPoints;
-        const nextClaimedIds = [...state.claimedIds, achievementId];
-        const nextState = {
-            ...state,
-            claimedIds: nextClaimedIds,
-            totalPoints: newTotalPoints
-        };
-
-        setState(nextState);
-        persistLocalState(nextState);
-
-        // Sync to cloud
-        void saveToCloud({ claimedIds: nextClaimedIds, totalPoints: newTotalPoints });
-    }, [state, userId, isLoaded, persistLocalState, saveToCloud]);
+    }, [state, userId, isLoaded, persistLocalState]);
 
     const getAchievementStatus = useCallback((id: string) => {
         const isUnlocked = state.unlockedIds.includes(id);

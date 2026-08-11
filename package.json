@@ -1,11 +1,13 @@
 {
   "name": "koiworld",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.2",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "audit:release": "npm audit --omit=dev",
     "preview": "vite preview",
     "cap:sync": "npm run build && cap sync",
     "cap:open": "cap open android",

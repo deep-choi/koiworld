@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="index,follow" />
+    <meta
+      name="description"
+      content="Koiworld 계정 및 관련 데이터 삭제 방법과 외부 삭제 요청 안내입니다."
+    />
+    <title>Koiworld 계정 삭제 요청</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --background: #08131f;
+        --surface: rgba(19, 42, 60, 0.78);
+        --surface-strong: rgba(25, 54, 76, 0.94);
+        --border: rgba(189, 224, 245, 0.18);
+        --text: #edf8ff;
+        --muted: #a9c2d1;
+        --accent: #f6c453;
+        --accent-strong: #ffe08a;
+        --danger: #ff9f9f;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        min-width: 320px;
+        min-height: 100vh;
+        color: var(--text);
+        background:
+          radial-gradient(circle at 15% 0%, rgba(42, 116, 153, 0.28), transparent 34rem),
+          radial-gradient(circle at 90% 100%, rgba(19, 100, 107, 0.24), transparent 32rem),
+          var(--background);
+        font-family: "Noto Sans KR", "Malgun Gothic", system-ui, sans-serif;
+        line-height: 1.65;
+      }
+
+      a { color: var(--accent-strong); }
+
+      .page {
+        width: min(100% - 32px, 760px);
+        margin: 0 auto;
+        padding: 56px 0 72px;
+      }
+
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        color: var(--accent-strong);
+        font-size: 0.92rem;
+        font-weight: 500;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .brand-mark {
+        display: grid;
+        width: 34px;
+        height: 34px;
+        place-items: center;
+        border: 1px solid rgba(246, 196, 83, 0.5);
+        border-radius: 50%;
+        background: rgba(246, 196, 83, 0.12);
+        font-size: 1.1rem;
+      }
+
+      h1 {
+        max-width: 680px;
+        margin: 26px 0 12px;
+        font-size: clamp(2rem, 7vw, 3.45rem);
+        line-height: 1.16;
+        letter-spacing: -0.05em;
+      }
+
+      .lead {
+        max-width: 620px;
+        margin: 0;
+        color: var(--muted);
+        font-size: 1.05rem;
+      }
+
+      .legal-meta {
+        margin: 16px 0 0;
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+
+      .legal-meta strong { color: var(--text); }
+
+      .card {
+        margin-top: 28px;
+        padding: clamp(22px, 5vw, 34px);
+        border: 1px solid var(--border);
+        border-radius: 24px;
+        background: var(--surface);
+        box-shadow: 0 24px 80px rgba(0, 0, 0, 0.24);
+        backdrop-filter: blur(18px);
+      }
+
+      .card h2 {
+        margin: 0 0 12px;
+        font-size: 1.32rem;
+        letter-spacing: -0.03em;
+      }
+
+      .card p { margin: 0 0 14px; }
+      .card p:last-child { margin-bottom: 0; }
+
+      .steps {
+        display: grid;
+        gap: 12px;
+        margin: 20px 0 0;
+        padding: 0;
+        list-style: none;
+        counter-reset: step;
+      }
+
+      .steps li {
+        display: grid;
+        grid-template-columns: 32px 1fr;
+        gap: 12px;
+        align-items: start;
+        color: var(--muted);
+      }
+
+      .steps li::before {
+        display: grid;
+        width: 32px;
+        height: 32px;
+        place-items: center;
+        border-radius: 50%;
+        color: #1b2630;
+        background: var(--accent);
+        content: counter(step);
+        counter-increment: step;
+        font-weight: 500;
+      }
+
+      .steps strong { color: var(--text); }
+
+      .notice {
+        margin-top: 18px;
+        padding: 16px 18px;
+        border: 1px solid rgba(246, 196, 83, 0.32);
+        border-radius: 16px;
+        color: #fbe8b0;
+        background: rgba(246, 196, 83, 0.08);
+      }
+
+      .notice strong { color: var(--accent-strong); }
+
+      .contact-placeholder {
+        margin-top: 18px;
+        padding: 16px 18px;
+        border: 1px solid rgba(255, 159, 159, 0.32);
+        border-radius: 16px;
+        color: #ffd1d1;
+        background: rgba(255, 100, 100, 0.08);
+      }
+
+      .contact-placeholder strong { color: var(--danger); }
+
+      .contact-box {
+        margin-top: 18px;
+        padding: 18px;
+        border: 1px solid rgba(246, 196, 83, 0.38);
+        border-radius: 16px;
+        background: rgba(246, 196, 83, 0.08);
+      }
+
+      .contact-box p { margin-bottom: 8px; }
+
+      .contact-link {
+        display: inline-block;
+        margin-top: 4px;
+        color: var(--accent-strong);
+        font-size: 1rem;
+        font-weight: 500;
+        word-break: break-word;
+      }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-top: 28px;
+      }
+
+      .button {
+        display: inline-flex;
+        min-height: 46px;
+        align-items: center;
+        justify-content: center;
+        padding: 0 18px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        color: var(--text);
+        background: var(--surface-strong);
+        font-weight: 500;
+        text-decoration: none;
+      }
+
+      .button.primary {
+        border-color: rgba(246, 196, 83, 0.65);
+        color: #1b2630;
+        background: var(--accent);
+      }
+
+      footer {
+        margin-top: 30px;
+        color: var(--muted);
+        font-size: 0.86rem;
+      }
+
+      @media (max-width: 520px) {
+        .page { width: min(100% - 22px, 760px); padding-top: 32px; }
+        .card { border-radius: 19px; }
+        .actions .button { width: 100%; }
+      }
+    </style>
+    <link rel="stylesheet" href="/legal.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="header-brand" href="/">
+        <span class="header-brand-mark" aria-hidden="true">◌</span>
+        <span>Koiworld</span>
+      </a>
+      <nav class="header-nav" aria-label="주요 메뉴">
+        <a href="/">서비스</a>
+        <a href="/privacy/">개인정보</a>
+        <a href="/account-deletion/" aria-current="page">계정 삭제</a>
+        <a href="/contact/">문의</a>
+      </nav>
+      <span class="header-spacer"></span>
+      <a class="header-cta" href="/">Koiworld 열기</a>
+    </header>
+    <aside class="site-sidebar" aria-label="Koiworld 문서 탐색">
+      <a class="sidebar-brand" href="/">
+        <span class="sidebar-brand-mark" aria-hidden="true">◌</span>
+        <span>Koiworld</span>
+      </a>
+      <p class="sidebar-caption">Legal</p>
+      <nav class="sidebar-nav" aria-label="법률 문서">
+        <a href="/privacy/">개인정보처리방침</a>
+        <a href="/account-deletion/" aria-current="page">계정 삭제</a>
+        <a href="/contact/">문의하기</a>
+      </nav>
+      <div class="sidebar-footer">
+        <div>제이엔메드</div>
+        <div>883-05-03294</div>
+        <a href="/contact/">문의하기</a>
+      </div>
+    </aside>
+    <main class="page">
+      <div class="breadcrumb"><a href="/">Koiworld</a><span>/</span>계정 삭제</div>
+      <div class="brand" aria-label="Koiworld">
+        <span class="brand-mark" aria-hidden="true">◌</span>
+        <span>Koiworld</span>
+      </div>
+
+      <h1>계정 삭제 요청</h1>
+      <p class="lead">
+        Koiworld 계정과 클라우드에 저장된 게임 데이터를 삭제하는 방법을 안내합니다.
+      </p>
+      <p class="legal-meta">
+        운영자: <strong>제이엔메드</strong> · 사업자등록번호: <strong>883-05-03294</strong>
+      </p>
+
+      <section class="card" aria-labelledby="in-app-title">
+        <h2 id="in-app-title">앱에서 바로 삭제하기</h2>
+        <p>로그인할 수 있다면 앱 안에서 즉시 삭제하는 방법이 가장 빠릅니다.</p>
+        <ol class="steps">
+          <li><span><strong>Koiworld를 실행</strong>하고 계정 메뉴를 엽니다.</span></li>
+          <li><span><strong>계정 삭제</strong>를 선택하고 삭제 내용을 확인합니다.</span></li>
+          <li><span>필요한 경우 <strong>최근 로그인 재인증</strong>을 완료합니다.</span></li>
+          <li><span>Firebase 계정, 클라우드 게임 저장 데이터, 랭킹 기록이 삭제됩니다.</span></li>
+        </ol>
+        <div class="actions">
+          <a class="button primary" href="/">Koiworld 열기</a>
+          <a class="button" href="/privacy/">개인정보처리방침</a>
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="external-title">
+        <h2 id="external-title">앱에 접근할 수 없는 경우</h2>
+        <p>
+          앱을 삭제했거나 로그인할 수 없는 경우에는 아래 운영자 이메일로 외부 계정 삭제를 요청할 수 있습니다.
+          본인 확인을 위해 계정 이메일, 로그인 제공자 또는 Firebase UID를 함께 보내주세요.
+          비밀번호나 인증 코드는 보내지 마세요.
+        </p>
+        <div class="contact-box">
+          <p><strong>계정 삭제 요청 이메일</strong></p>
+          <a
+            class="contact-link"
+            href="mailto:cryingonion77@gmail.com?subject=Koiworld%20%EA%B3%84%EC%A0%95%20%EC%82%AD%EC%A0%9C%20%EC%9A%94%EC%B2%AD&body=%EA%B3%84%EC%A0%95%20%EC%82%AD%EC%A0%9C%20%EC%9A%94%EC%B2%AD%EC%9E%85%EB%8B%88%EB%8B%A4.%0A%0A%EA%B3%84%EC%A0%95%20%EC%9D%B4%EB%A9%94%EC%9D%BC%20%EB%98%90%EB%8A%94%20Firebase%20UID%3A%0A%EB%A1%9C%EA%B7%B8%EC%9D%B8%20%EC%A0%9C%EA%B3%B5%EC%9E%90%28Google%2F%EC%9D%B4%EB%A9%94%EC%9D%BC%2FPlay%20Games%2F%EA%B2%8C%EC%8A%A4%ED%8A%B8%29%3A%0A%EC%B6%94%EA%B0%80%20%EB%A9%94%EB%AA%A8%3A"
+          >cryingonion77@gmail.com</a>
+          <p>메일 앱이 열리면 요청 내용을 확인한 뒤 직접 전송해 주세요.</p>
+        </div>
+        <div class="notice">
+          <strong>처리 절차:</strong> 요청 접수 → 계정 본인 확인 → Firebase Authentication 계정과 연결된 게임·랭킹 데이터 삭제 → 처리 결과를 요청 이메일로 안내합니다.
+          법령상 보존이 필요한 정보나 보안·부정 이용 방지를 위한 최소 기록은 해당 사유와 기간에 따라 보존될 수 있습니다.
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="data-title">
+        <h2 id="data-title">삭제되는 데이터</h2>
+        <p>계정 삭제가 완료되면 다음 데이터가 삭제 대상입니다.</p>
+        <ul>
+          <li>Firebase Authentication 계정</li>
+          <li>클라우드 게임 저장 데이터와 프로필</li>
+          <li>공개 랭킹 기록 및 관련 랭킹 데이터</li>
+        </ul>
+        <div class="notice">
+          <strong>참고:</strong> 기기에만 남아 있는 로컬 저장 데이터는 앱 내부 삭제 절차에서 함께 정리됩니다.
+          외부 요청을 처리한 뒤에는 앱을 삭제하거나 기기 설정에서 앱 데이터를 정리해 주세요.
+        </div>
+      </section>
+
+      <footer>
+        운영자: 제이엔메드 · 사업자등록번호: 883-05-03294 ·
+        <a href="mailto:cryingonion77@gmail.com">cryingonion77@gmail.com</a>
+      </footer>
+    </main>
+  </body>
+</html>

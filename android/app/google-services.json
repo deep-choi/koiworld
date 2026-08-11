@@ -14,6 +14,22 @@
       },
       "oauth_client": [
         {
+          "client_id": "1076557834310-906n53j2duoj4p0tbjb2bmkjr7cn6fap.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.zenkoigarden.game",
+            "certificate_hash": "018b0d5ada411bc3595e8da9a5a4144d25bdf12c"
+          }
+        },
+        {
+          "client_id": "1076557834310-teugl43l4u6a1igkfq8fm8ekotlj06j9.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.zenkoigarden.game",
+            "certificate_hash": "e66815a3838ecd00a21c1ba6975aa3bf0512710e"
+          }
+        },
+        {
           "client_id": "1076557834310-ui97tgnib6h3u1tb31uavj6dholtfoqq.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {

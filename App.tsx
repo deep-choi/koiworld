@@ -69,6 +69,19 @@ const loadGameState = (): SavedGameState | null => {
   return null;
 }
 
+const maxProgressValue = (...values: unknown[]): number => values.reduce<number>((highest, value) => {
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue) && numericValue >= 0
+    ? Math.max(highest, numericValue)
+    : highest;
+}, 0);
+
+const mergeAchievementIds = (...values: unknown[]): string[] => Array.from(new Set(
+  values.flatMap(value => Array.isArray(value)
+    ? value.filter((id): id is string => typeof id === 'string')
+    : []),
+));
+
 export const App: React.FC = () => {
   const [savedState] = useState(loadGameState);
 
@@ -126,7 +139,14 @@ export const App: React.FC = () => {
   const [isDuplicateTabPaused, setIsDuplicateTabPaused] = useState(false);
 
   // Achievement System
-  const [initialAchievementData, setInitialAchievementData] = useState<{ unlockedIds: string[]; claimedIds: string[]; } | null>(null);
+  const [initialAchievementData, setInitialAchievementData] = useState<{
+    unlockedIds: string[];
+    claimedIds: string[];
+    totalPoints?: number;
+  } | null>(() => savedState?.achievements ? {
+    ...savedState.achievements,
+    totalPoints: maxProgressValue(savedState.achievementPoints),
+  } : null);
   const {
     achievements,
     unlockedIds,
@@ -606,7 +626,8 @@ export const App: React.FC = () => {
       zenPoints: import.meta.env.DEV ? 10000 : 2000,
       foodCount: 20,
       cornCount: 0,
-      honorPoints: 0,
+      // 업적과 트로피는 새 게임과 별개인 계정 누적 진행도입니다.
+      honorPoints,
       achievementPoints: achievementScore,
       achievements: {
         unlockedIds,
@@ -647,8 +668,40 @@ export const App: React.FC = () => {
       return;
     }
 
+    const currentState = gameStateRef.current;
+    const mergedHonorPoints = maxProgressValue(
+      loadedState.honorPoints,
+      currentState?.honorPoints,
+      savedState?.honorPoints,
+    );
+    const mergedAchievementPoints = maxProgressValue(
+      loadedState.achievementPoints,
+      currentState?.achievementPoints,
+      savedState?.achievementPoints,
+    );
+    const mergedClaimedIds = mergeAchievementIds(
+      loadedState.achievements?.claimedIds,
+      currentState?.achievements?.claimedIds,
+      savedState?.achievements?.claimedIds,
+    );
+    const mergedUnlockedIds = mergeAchievementIds(
+      loadedState.achievements?.unlockedIds,
+      currentState?.achievements?.unlockedIds,
+      savedState?.achievements?.unlockedIds,
+      mergedClaimedIds,
+    );
+    const mergedState: SavedGameState = {
+      ...loadedState,
+      honorPoints: mergedHonorPoints,
+      achievementPoints: mergedAchievementPoints,
+      achievements: {
+        unlockedIds: mergedUnlockedIds,
+        claimedIds: mergedClaimedIds,
+      },
+    };
+
     if (options.markAsSynced) {
-      const payload = JSON.stringify(loadedState);
+      const payload = JSON.stringify(mergedState);
       try {
         localStorage.setItem(SAVE_GAME_KEY, payload);
         lastLocalSavePayloadRef.current = payload;
@@ -656,19 +709,21 @@ export const App: React.FC = () => {
         console.error("Failed to persist synced game state locally:", error);
       }
       lastCloudSavePayloadRef.current = payload;
-      gameStateRef.current = loadedState;
+      gameStateRef.current = mergedState;
     }
 
-    setPonds(loadedState.ponds);
-    setActivePondId(loadedState.activePondId);
-    setZenPoints(loadedState.zenPoints);
-    setFoodCount(loadedState.foodCount);
-    setCornCount(loadedState.cornCount || 0);
-    setHonorPoints(loadedState.honorPoints || 0);
-    setKoiNameCounter(loadedState.koiNameCounter);
-    if (loadedState.achievements) {
-      setInitialAchievementData(loadedState.achievements);
-    }
+    setPonds(mergedState.ponds);
+    setActivePondId(mergedState.activePondId);
+    setZenPoints(mergedState.zenPoints);
+    setFoodCount(mergedState.foodCount);
+    setCornCount(mergedState.cornCount || 0);
+    setHonorPoints(mergedHonorPoints);
+    setKoiNameCounter(mergedState.koiNameCounter);
+    setInitialAchievementData({
+      unlockedIds: mergedUnlockedIds,
+      claimedIds: mergedClaimedIds,
+      totalPoints: mergedAchievementPoints,
+    });
     if (!options.silent) {
       setNotification({ message: "게임을 불러왔습니다.", type: 'success' });
     }

@@ -27,6 +27,7 @@ export interface UserDataSnapshot {
     achievements?: {
         unlockedIds: string[];
         claimedIds: string[];
+        totalPoints?: number;
     };
 }
 
@@ -48,6 +49,12 @@ export const loadUserDataOnce = async (userId: string): Promise<UserDataSnapshot
         nickname: data.nickname || null,
         photoURL: data.photoURL || null,
         activeDeviceId: data.activeDeviceId || null,
-        achievements: state?.achievements || null,
+        achievements: state?.achievements ? {
+            ...state.achievements,
+            totalPoints: Math.max(
+                Number(state.achievementPoints ?? 0),
+                Number(data.achievementPoints ?? 0),
+            ),
+        } : null,
     };
 };

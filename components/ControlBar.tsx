@@ -60,7 +60,7 @@ interface ControlBarProps {
 
 // Updated getButtonClass: Removed scale, shadow-lg, and glow effects
 const getButtonClass = (isActive: boolean) =>
-  `p-3 sm:p-4 rounded-full border transition-all duration-200 flex items-center justify-center relative ${isActive
+  `p-3 sm:p-4 rounded-full border backdrop-blur-md transition-all duration-200 flex items-center justify-center relative ${isActive
     ? 'bg-orange-600 border-orange-400 text-white' // Active: distinct but flat
     : 'bg-white/10 border-white/20 text-white hover:bg-white/20' // Inactive: translucent HUD
   }`;

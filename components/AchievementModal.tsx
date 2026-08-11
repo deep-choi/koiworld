@@ -117,7 +117,7 @@ export const AchievementModal: React.FC<AchievementModalProps> = ({
                                     key={ach.id}
                                     className={`relative p-4 rounded-xl flex flex-col gap-2 transition-colors ${isUnlocked
                                         ? 'bg-white shadow-sm hover:bg-slate-50'
-                                        : 'bg-slate-100 opacity-60'
+                                        : 'bg-white/60'
                                         }`}
                                 >
                                     {/* Card Header: Icon & Title */}

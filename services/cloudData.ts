@@ -41,6 +41,25 @@ const createPlaceholderTimestamp = () => new Date().toISOString();
 const userDocRef = (userId: string) => doc(db, 'users', userId);
 const rankingDocRef = (userId: string) => doc(db, 'rankings', userId);
 const sanitizeForFirestore = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+const maxProgressValue = (...values: unknown[]): number => values.reduce<number>((highest, value) => {
+    const numericValue = Number(value);
+    return Number.isFinite(numericValue) && numericValue >= 0
+        ? Math.max(highest, numericValue)
+        : highest;
+}, 0);
+const normalizeAchievementIds = (value: unknown): string[] => Array.isArray(value)
+    ? Array.from(new Set(value.filter((id): id is string => typeof id === 'string')))
+    : [];
+const mergeSavedAchievements = (
+    ...snapshots: Array<SavedGameState['achievements'] | null | undefined>
+): NonNullable<SavedGameState['achievements']> => {
+    const unlockedIds = normalizeAchievementIds(snapshots.flatMap(snapshot => snapshot?.unlockedIds ?? []));
+    const claimedIds = normalizeAchievementIds(snapshots.flatMap(snapshot => snapshot?.claimedIds ?? []));
+    return {
+        unlockedIds: normalizeAchievementIds([...unlockedIds, ...claimedIds]),
+        claimedIds,
+    };
+};
 
 const assertCurrentUser = (userId: string) => {
     const currentUser = auth.currentUser;
@@ -123,8 +142,16 @@ export async function ensureUserDocument(
         // Keep a user-selected profile image across auth/session reinitialization.
         safePhotoURL = normalizePhotoURL(existingPhotoURL || photoURL);
 
-        const honorPoints = Number(rankingData?.honorPoints ?? data?.honorPoints ?? data?.gameState?.honorPoints ?? 0);
-        const achievementPoints = Number(rankingData?.achievementPoints ?? data?.achievementPoints ?? data?.gameState?.achievementPoints ?? 0);
+        const honorPoints = maxProgressValue(
+            rankingData?.honorPoints,
+            data?.honorPoints,
+            data?.gameState?.honorPoints,
+        );
+        const achievementPoints = maxProgressValue(
+            rankingData?.achievementPoints,
+            data?.achievementPoints,
+            data?.gameState?.achievementPoints,
+        );
 
         transaction.set(privateRef, {
             profile: {
@@ -152,12 +179,31 @@ export async function ensureUserDocument(
 export async function fetchUserSnapshot(userId: string): Promise<CloudUserSnapshot | null> {
     assertCurrentUser(userId);
 
-    const snapshot = await getDoc(userDocRef(userId));
+    const [snapshot, rankingSnapshot] = await Promise.all([
+        getDoc(userDocRef(userId)),
+        getDoc(rankingDocRef(userId)),
+    ]);
     if (!snapshot.exists()) return null;
 
     const data = snapshot.data();
+    const rankingData = rankingSnapshot.exists() ? rankingSnapshot.data() : {};
     const profile = (data.profile ?? {}) as { nickname?: string; photoURL?: string | null };
-    const gameState = (data.gameState ?? null) as SavedGameState | null;
+    const savedGameState = (data.gameState ?? null) as SavedGameState | null;
+    const honorPoints = maxProgressValue(
+        rankingData.honorPoints,
+        data.honorPoints,
+        savedGameState?.honorPoints,
+    );
+    const achievementPoints = maxProgressValue(
+        rankingData.achievementPoints,
+        data.achievementPoints,
+        savedGameState?.achievementPoints,
+    );
+    const gameState = savedGameState ? {
+        ...savedGameState,
+        honorPoints,
+        achievementPoints,
+    } : null;
 
     return {
         userId,
@@ -165,8 +211,8 @@ export async function fetchUserSnapshot(userId: string): Promise<CloudUserSnapsh
         photoURL: normalizePhotoURL(profile.photoURL),
         activeDeviceId: typeof data.activeDeviceId === 'string' ? data.activeDeviceId : null,
         gameState,
-        honorPoints: Number(data.honorPoints ?? gameState?.honorPoints ?? 0),
-        achievementPoints: Number(data.achievementPoints ?? gameState?.achievementPoints ?? 0),
+        honorPoints,
+        achievementPoints,
     };
 }
 
@@ -184,8 +230,16 @@ export async function updateUserProfile(userId: string, nickname: string, photoU
     const resolvedPhotoURL = photoURL === undefined ? (existingPhotoURL ?? currentUser.photoURL) : photoURL;
     const safePhotoURL = normalizePhotoURL(resolvedPhotoURL);
     const rankingData = rankingSnapshot.exists() ? rankingSnapshot.data() : {};
-    const honorPoints = Number(rankingData.honorPoints ?? profileData.honorPoints ?? profileData.gameState?.honorPoints ?? 0);
-    const achievementPoints = Number(rankingData.achievementPoints ?? profileData.achievementPoints ?? profileData.gameState?.achievementPoints ?? 0);
+    const honorPoints = maxProgressValue(
+        rankingData.honorPoints,
+        profileData.honorPoints,
+        profileData.gameState?.honorPoints,
+    );
+    const achievementPoints = maxProgressValue(
+        rankingData.achievementPoints,
+        profileData.achievementPoints,
+        profileData.gameState?.achievementPoints,
+    );
 
     await setDoc(userDocRef(userId), {
         profile: {
@@ -254,7 +308,17 @@ export function subscribeToUserGameState(
             onUpdate(null);
             return;
         }
-        onUpdate((snapshot.data().gameState ?? null) as SavedGameState | null);
+        const data = snapshot.data();
+        const gameState = (data.gameState ?? null) as SavedGameState | null;
+        if (!gameState) {
+            onUpdate(null);
+            return;
+        }
+        onUpdate({
+            ...gameState,
+            honorPoints: maxProgressValue(data.honorPoints, gameState.honorPoints),
+            achievementPoints: maxProgressValue(data.achievementPoints, gameState.achievementPoints),
+        });
     });
 }
 
@@ -270,11 +334,32 @@ export async function saveGameState(userId: string, gameState: SavedGameState): 
 
     await runTransaction(db, async (transaction) => {
         const snapshot = await transaction.get(privateRef);
+        const rankingSnapshot = await transaction.get(publicRef);
         const data = snapshot.exists() ? snapshot.data() : {};
+        const rankingData = rankingSnapshot.exists() ? rankingSnapshot.data() : {};
         const profile = (data.profile ?? {}) as { nickname?: string; photoURL?: string | null };
-        const nextGameState = sanitizedGameState;
-        const honorPoints = Number(nextGameState.honorPoints ?? 0);
-        const achievementPoints = Number(nextGameState.achievementPoints ?? 0);
+        const existingGameState = (data.gameState ?? null) as SavedGameState | null;
+        const honorPoints = maxProgressValue(
+            sanitizedGameState.honorPoints,
+            existingGameState?.honorPoints,
+            data.honorPoints,
+            rankingData.honorPoints,
+        );
+        const achievementPoints = maxProgressValue(
+            sanitizedGameState.achievementPoints,
+            existingGameState?.achievementPoints,
+            data.achievementPoints,
+            rankingData.achievementPoints,
+        );
+        const nextGameState: SavedGameState = {
+            ...sanitizedGameState,
+            honorPoints,
+            achievementPoints,
+            achievements: mergeSavedAchievements(
+                existingGameState?.achievements,
+                sanitizedGameState.achievements,
+            ),
+        };
 
         transaction.set(privateRef, {
             gameState: nextGameState,

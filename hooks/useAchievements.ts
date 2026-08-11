@@ -12,6 +12,7 @@ const createEmptyAchievementState = (): AchievementState => ({
 type AchievementSnapshot = {
     unlockedIds?: string[];
     claimedIds?: string[];
+    totalPoints?: number;
 };
 
 const knownAchievementIds = new Set(ACHIEVEMENTS.map(achievement => achievement.id));
@@ -28,25 +29,32 @@ const mergeAchievementSnapshots = (...snapshots: Array<AchievementSnapshot | nul
 
     // A claimed reward always implies that the achievement was unlocked.
     const mergedUnlockedIds = uniqueIds([...unlockedIds, ...claimedIds]);
-    const totalPoints = claimedIds.reduce((sum, id) => {
+    const pointsFromKnownClaims = claimedIds.reduce((sum, id) => {
         const achievement = ACHIEVEMENTS.find(item => item.id === id);
         return sum + (achievement?.reward.achievementPoints || 0);
+    }, 0);
+    const savedTotalPoints = snapshots.reduce((highest, snapshot) => {
+        const points = Number(snapshot?.totalPoints);
+        return Number.isFinite(points) && points >= 0 ? Math.max(highest, points) : highest;
     }, 0);
 
     return {
         unlockedIds: mergedUnlockedIds,
         claimedIds,
-        totalPoints,
+        // Keep historical points even when an old achievement definition is
+        // removed or renamed. Achievement progression must never go backwards.
+        totalPoints: Math.max(pointsFromKnownClaims, savedTotalPoints),
         lastChecked: Date.now(),
     };
 };
 
 export const useAchievements = (
     userId: string | undefined,
-    initialData?: { unlockedIds: string[]; claimedIds: string[]; } | null
+    initialData?: { unlockedIds: string[]; claimedIds: string[]; totalPoints?: number; } | null
 ) => {
     const [state, setState] = useState<AchievementState>(() => createEmptyAchievementState());
     const stateRef = useRef<AchievementState>(state);
+    const storageScopeRef = useRef(userId ?? 'guest');
     stateRef.current = state;
 
     const [isLoaded, setIsLoaded] = useState(false);
@@ -77,15 +85,20 @@ export const useAchievements = (
                 localData = {
                     unlockedIds: uniqueIds(parsed.unlockedIds),
                     claimedIds: uniqueIds(parsed.claimedIds),
+                    totalPoints: Number(parsed.totalPoints),
                 };
             } catch (e) {
                 console.error("Failed to load achievements", e);
             }
         }
 
-        // Keep the latest in-memory progress in the merge as well. A delayed
-        // cloud snapshot must never roll the achievement state backwards.
-        const nextState = mergeAchievementSnapshots(stateRef.current, localData, initialData);
+        // Keep in-memory progress only within the same account. A delayed
+        // cloud snapshot must not roll progress backwards or leak another
+        // account's achievements into the current account.
+        const storageScope = userId ?? 'guest';
+        const inMemoryState = storageScopeRef.current === storageScope ? stateRef.current : null;
+        storageScopeRef.current = storageScope;
+        const nextState = mergeAchievementSnapshots(inMemoryState, localData, initialData);
         stateRef.current = nextState;
         setState(nextState);
         setIsLoaded(true);

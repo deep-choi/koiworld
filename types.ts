@@ -106,12 +106,11 @@ export interface Achievement {
   title: string;
   description: string;
   icon: string; // Lucide icon name or emoji
-  tier: 'novice' | 'intermediate' | 'advanced' | 'master' | 'legend';
+  tier: 'novice' | 'intermediate' | 'advanced' | 'legend';
   displayColor?: string; // Hex color for the badge icon
   condition: (koi: any) => boolean; // Using any to avoid circular dependency issues if Koi is not fully defined here, but ideally Koi
   reward: {
     achievementPoints: number;
-    items?: { type: 'corn', count: number }[];
   };
   category: 'spots' | 'color' | 'mutation' | 'collection';
   isHidden?: boolean; // If true, details are hidden until unlocked

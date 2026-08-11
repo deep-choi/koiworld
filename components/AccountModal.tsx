@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Camera, Check, Edit2, Gamepad2, LogOut, Mail, Phone, Save, Trash2, User, UserRound, X } from 'lucide-react';
+import { Camera, Check, ChevronRight, Gamepad2, Mail, Phone, Save, Trash2, User, UserRound, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { audioManager } from '../utils/audio';
 import { broadcastForceClear, clearLocalGameSaves, resumeLocalGameSave, suppressLocalGameSave } from '../services/localSave';
@@ -31,9 +31,9 @@ const GoogleIcon: React.FC<{ size?: number }> = ({ size = 20 }) => (
 const LoginMethodIcon: React.FC<{ source?: string }> = ({ source }) => {
     if (source === 'google') return <GoogleIcon />;
     if (source === 'playgames') return <Gamepad2 size={20} className="text-green-400" />;
-    if (source === 'email') return <Mail size={20} className="text-yellow-300" />;
-    if (source === 'phone') return <Phone size={20} className="text-yellow-300" />;
-    return <UserRound size={20} className="text-yellow-300" />;
+    if (source === 'email') return <Mail size={20} className="text-orange-500" />;
+    if (source === 'phone') return <Phone size={20} className="text-orange-500" />;
+    return <UserRound size={20} className="text-orange-500" />;
 };
 
 const resizeProfileImage = (file: File): Promise<string> => new Promise((resolve, reject) => {
@@ -222,17 +222,17 @@ export const AccountModal: React.FC<AccountModalProps> = ({
 
     return (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={onClose}>
-            <div className="bg-gray-800 rounded-xl max-w-md w-full max-h-[calc(100svh-2rem)] border border-gray-700 shadow-2xl overflow-y-auto glass-panel" onClick={event => event.stopPropagation()}>
-                <div className="flex justify-between items-center p-3.5 bg-gray-900 border-b border-gray-700 glass-header">
-                    <h2 className="text-xl font-black text-white flex items-center gap-2">
-                        <User size={20} className="text-yellow-400" /> 계정 정보
+            <div className="light-modal bg-white rounded-2xl max-w-md w-full max-h-[calc(100svh-2rem)] border border-slate-200 shadow-2xl overflow-y-auto custom-scrollbar" onClick={event => event.stopPropagation()}>
+                <div className="flex justify-between items-center px-5 pt-5">
+                    <h2 className="text-xl font-medium text-slate-900">
+                        계정 정보
                     </h2>
-                    <button onClick={onClose} className="text-white/65 hover:text-white transition-colors" aria-label="계정 정보 닫기">
+                    <button onClick={onClose} className="w-8 h-8 rounded-full bg-slate-100 text-slate-400 hover:bg-slate-200 hover:text-slate-600 transition-colors flex items-center justify-center" aria-label="계정 정보 닫기">
                         <X size={24} />
                     </button>
                 </div>
 
-                <div className="p-5 space-y-5">
+                <div className="px-5 pb-5 pt-4 space-y-5">
                     <div className="flex flex-col items-center gap-2">
                         <button
                             type="button"
@@ -245,15 +245,15 @@ export const AccountModal: React.FC<AccountModalProps> = ({
                                 <img
                                     src={displayPhotoURL}
                                     alt="프로필 이미지"
-                                    className="w-[72px] h-[72px] rounded-full border-2 border-yellow-400/60 object-cover"
+                                    className="w-[88px] h-[88px] rounded-full border-2 border-slate-200 object-cover"
                                     referrerPolicy="no-referrer"
                                 />
                             ) : (
-                                <div className="w-[72px] h-[72px] rounded-full bg-gray-800 flex items-center justify-center text-white/60 border-2 border-gray-700 glass-input">
-                                    <User size={36} />
+                                <div className="w-[88px] h-[88px] rounded-full bg-[#4774e8] flex items-center justify-center text-white border-2 border-white shadow-sm">
+                                    <User size={40} strokeWidth={1.8} />
                                 </div>
                             )}
-                            <span className="absolute bottom-0 right-0 w-6 h-6 rounded-full bg-yellow-500 text-gray-950 border-[3px] border-gray-900 flex items-center justify-center group-hover:bg-yellow-300 transition-colors">
+                            <span className="absolute bottom-0 right-0 w-7 h-7 rounded-full bg-orange-500 text-white border-[3px] border-white shadow-sm flex items-center justify-center group-hover:bg-orange-400 transition-colors">
                                 <Camera size={13} />
                             </span>
                         </button>
@@ -265,43 +265,47 @@ export const AccountModal: React.FC<AccountModalProps> = ({
                             className="hidden"
                         />
                         <div className="text-center">
-                            <p className="text-base font-bold text-white">{user?.displayName || '게스트'}</p>
-                            <p className="text-xs text-white/75">{user?.email || '게스트 계정'}</p>
-                        </div>
-                    </div>
-
-                    <div className="rounded-lg border border-gray-700 p-3 bg-gray-900/30 glass-section">
-                        <div className="flex items-center gap-3">
-                            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gray-950/30">
-                                <LoginMethodIcon source={user?.authSource} />
-                            </div>
-                            <div>
-                                <p className="text-[10px] font-black uppercase tracking-widest text-white/75">로그인 방식</p>
-                                <p className={`mt-0.5 text-base font-black ${user?.isAnonymous ? 'text-yellow-300' : 'text-emerald-300'}`}>
-                                    {user?.authSourceLabel ?? '확인 중'}
-                                </p>
-                            </div>
+                            <p className="text-lg font-medium text-slate-900">{user?.displayName || '게스트'}</p>
+                            <p className="text-sm text-slate-400">{user?.email || '게스트 계정'}</p>
                         </div>
                     </div>
 
                     <div className="space-y-2">
-                        <label className="text-xs font-black text-white/75 uppercase tracking-widest flex items-center gap-2">
-                            <Edit2 size={12} /> 닉네임
-                        </label>
+                        <p className="text-sm font-medium text-slate-500">로그인 방식</p>
+                        <div className="flex items-center justify-between min-h-[54px] rounded-xl border border-slate-200 px-4 bg-white">
+                            <div className="flex items-center gap-3 text-base font-medium text-slate-900">
+                                <LoginMethodIcon source={user?.authSource} />
+                                <span>{user?.authSourceLabel ?? '확인 중'}</span>
+                            </div>
+                            <button
+                                onClick={handleLogout}
+                                disabled={isLoggingOut || isDeletingAccount}
+                                className="flex items-center gap-1 text-sm font-medium text-slate-700 hover:text-slate-950 transition-colors disabled:opacity-50"
+                                aria-label={isLoggingOut ? '로그아웃 진행 중' : '로그아웃하기'}
+                            >
+                                {isLoggingOut ? '로그아웃 중...' : '로그아웃'}
+                                <ChevronRight size={18} />
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="space-y-2">
+                        <label className="text-sm font-medium text-slate-500" htmlFor="account-nickname">닉네임</label>
                         <input
+                            id="account-nickname"
                             type="text"
                             value={nicknameInput}
                             onChange={event => setNicknameInput(event.target.value)}
-                            className="w-full bg-gray-800/50 border border-white/20 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-yellow-500/60 transition-all font-bold glass-input"
+                            className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-slate-900 focus:outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-100 transition-all font-medium"
                             placeholder="닉네임 입력"
                             maxLength={20}
                         />
-                        <p className="text-[10px] text-white/55">랭킹 시스템에 표시되는 이름입니다.</p>
+                        <p className="text-xs text-slate-400">랭킹 시스템에 표시되는 이름입니다.</p>
                     </div>
 
                     {requiresReauthPassword && (
-                        <div className="space-y-2 rounded-xl border border-red-400/20 bg-red-500/5 p-3">
-                            <label className="text-xs font-bold text-red-200" htmlFor="account-deletion-password">
+                        <div className="space-y-2 rounded-xl border border-red-100 bg-red-50 p-3">
+                            <label className="text-xs font-medium text-red-500" htmlFor="account-deletion-password">
                                 계정 삭제를 위해 이메일 비밀번호를 다시 입력해주세요.
                             </label>
                             <input
@@ -310,39 +314,30 @@ export const AccountModal: React.FC<AccountModalProps> = ({
                                 value={reauthPassword}
                                 onChange={event => setReauthPassword(event.target.value)}
                                 autoComplete="current-password"
-                                className="w-full bg-gray-900/60 border border-white/20 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-red-400/60 transition-all"
+                                className="w-full bg-white border border-red-200 rounded-xl px-4 py-2.5 text-slate-900 focus:outline-none focus:border-red-400 transition-all"
                                 placeholder="비밀번호"
                             />
                         </div>
                     )}
-                    {error && <p className="text-red-400 text-xs leading-relaxed">{error}</p>}
+                    {error && <p className="text-red-500 text-xs leading-relaxed">{error}</p>}
 
-                    <div className="pt-3 border-t border-white/15 space-y-2">
+                    <div className="pt-1 space-y-2">
                         <button
                             onClick={handleSaveProfile}
                             disabled={isSaving || isProcessingImage || success}
-                            className={`w-full py-2.5 rounded-xl transition-all flex items-center justify-center gap-2 font-bold ${success
+                            className={`w-full h-12 rounded-xl transition-all flex items-center justify-center gap-2 font-bold ${success
                                 ? 'bg-green-500 text-white'
-                                : 'bg-yellow-500 hover:bg-yellow-400 text-gray-950 border border-yellow-400'
+                                : 'bg-orange-500 hover:bg-orange-400 text-white border border-orange-500'
                                 } disabled:opacity-60`}
                             aria-label={success ? '프로필 저장 완료' : '프로필 저장하기'}
                         >
-                            {isSaving || isProcessingImage ? <div className="w-5 h-5 border-2 border-yellow-300 border-t-transparent animate-spin rounded-full" /> : success ? <Check size={18} /> : <Save size={18} />}
+                            {isSaving || isProcessingImage ? <div className="w-5 h-5 border-2 border-orange-300 border-t-transparent animate-spin rounded-full" /> : success ? <Check size={18} /> : <Save size={18} />}
                             {isProcessingImage ? '이미지 처리 중...' : isSaving ? '저장 중...' : success ? '저장 완료' : '저장'}
-                        </button>
-                        <button
-                            onClick={handleLogout}
-                            disabled={isLoggingOut || isDeletingAccount}
-                            className="w-full py-2.5 rounded-xl bg-transparent hover:bg-white/10 text-red-300 border border-transparent transition-all flex items-center justify-center gap-2 font-bold group"
-                            aria-label={isLoggingOut ? '로그아웃 진행 중' : '로그아웃하기'}
-                        >
-                            <LogOut size={20} className="group-hover:-translate-x-1 transition-transform" />
-                            {isLoggingOut ? '로그아웃 중...' : '로그아웃'}
                         </button>
                         <button
                             onClick={handleDeleteAccount}
                             disabled={isLoggingOut || isDeletingAccount}
-                            className="w-full py-2.5 rounded-xl bg-transparent hover:bg-red-500/10 text-red-400 border border-red-400/20 transition-all flex items-center justify-center gap-2 font-bold disabled:opacity-60"
+                            className="w-full h-12 rounded-xl bg-red-50 hover:bg-red-100 text-red-500 hover:text-red-600 transition-all flex items-center justify-center gap-2 font-medium disabled:opacity-60"
                             aria-label={isDeletingAccount ? '계정 삭제 진행 중' : '계정 삭제하기'}
                         >
                             <Trash2 size={18} />

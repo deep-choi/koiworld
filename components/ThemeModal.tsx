@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Image, Check } from 'lucide-react';
+import { X, Check } from 'lucide-react';
 import { PondTheme } from '../types';
 
 interface ThemeModalProps {
@@ -18,37 +18,44 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({ onClose, zenPoints, curr
 
     return (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={onClose}>
-            <div className="bg-gray-800 p-6 rounded-lg max-w-2xl w-full max-h-[85svh] overflow-y-auto border border-gray-700 shadow-xl custom-scrollbar glass-panel" onClick={e => e.stopPropagation()}>
-                <div className="flex justify-between items-center mb-4">
-                    <h2 className="text-xl font-bold text-yellow-300">배경 테마 변경</h2>
-                    <button onClick={onClose} className="text-gray-400 hover:text-white" aria-label="테마 선택 닫기"><X /></button>
+            <div className="light-modal bg-white p-5 rounded-2xl max-w-sm w-full max-h-[85svh] overflow-y-auto border border-slate-200 shadow-2xl light-scrollbar" onClick={e => e.stopPropagation()}>
+                <div className="mb-5 pb-4 border-b border-slate-100">
+                    <div className="flex justify-between items-center">
+                        <h2 className="text-xl font-medium text-slate-900">배경 테마 변경</h2>
+                        <button onClick={onClose} className="w-8 h-8 rounded-full bg-slate-100 text-slate-400 hover:bg-slate-200 hover:text-slate-600 transition-colors flex items-center justify-center" aria-label="테마 선택 닫기">
+                            <X size={20} />
+                        </button>
+                    </div>
                 </div>
 
-                <div className="mb-5 text-sm text-gray-300">
-                    <p className="text-gray-300">모든 테마를 <span className="text-green-400 font-bold">무료</span>로 이용할 수 있습니다!</p>
+                <div className="mb-4 text-sm text-slate-500">
+                    <p>모든 테마를 <span className="text-[#f97316] font-medium">무료</span>로 이용할 수 있습니다.</p>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-5">
+                <div className="space-y-4">
                     {themes.map((theme) => (
-                        <div
+                        <button
+                            type="button"
                             key={theme.type}
-                            className={`relative p-4 rounded-lg border transition-all cursor-pointer hover:scale-[1.02] ${currentTheme === theme.type ? 'border-green-500 bg-green-500/15' : 'border-white/20 bg-white/10 hover:border-white/40'}`}
+                            className={`w-full overflow-hidden text-left rounded-xl border-0 transition-colors ${currentTheme === theme.type
+                                ? 'bg-orange-50 shadow-sm'
+                                : 'bg-slate-50 hover:bg-slate-100'
+                                }`}
                             onClick={() => {
                                 if (currentTheme !== theme.type) {
                                     onSelectTheme(theme.type, theme.cost);
                                 }
                             }}
                         >
-                            <div className={`w-full h-24 rounded-md mb-3 ${theme.color} shadow-inner`}></div>
-                            <div className="flex justify-between items-center">
-                                <h3 className="font-bold text-white">{theme.name}</h3>
-                                {currentTheme === theme.type ? (
-                                    <span className="flex items-center text-green-400 font-bold text-sm"><Check size={16} className="mr-1" /> 사용 중</span>
-                                ) : (
-                                    <span className="font-bold text-sm text-green-400">무료</span>
-                                )}
-                            </div>
-                        </div>
+                            <span className={`block w-full h-40 ${theme.color} shadow-inner`} aria-hidden="true" />
+                            <span className="flex items-center justify-between gap-3 px-3 py-3">
+                                <span className="text-base font-medium text-slate-900 truncate">{theme.name}</span>
+                                <span className={`flex items-center shrink-0 text-sm font-medium ${currentTheme === theme.type ? 'text-[#f97316]' : 'text-slate-400'}`}>
+                                    {currentTheme === theme.type && <Check size={17} className="mr-1" />}
+                                    {currentTheme === theme.type ? '사용 중' : '무료'}
+                                </span>
+                            </span>
+                        </button>
                     ))}
                 </div>
             </div>

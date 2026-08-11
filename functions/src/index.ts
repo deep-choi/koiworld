@@ -10,6 +10,7 @@ const REGION = 'asia-northeast1';
 const TROPHY_PRICE = 100_000;
 const MAX_TROPHY_QUANTITY = 99;
 const MAX_EVENT_ID_LENGTH = 80;
+const MAX_PROFILE_DATA_URL_LENGTH = 120_000;
 
 setGlobalOptions({
     region: REGION,
@@ -74,12 +75,20 @@ const uniqueStrings = (value: unknown): string[] => {
     return Array.from(new Set(value.filter((item): item is string => typeof item === 'string')));
 };
 
+const normalizePhotoURL = (value: unknown): string | null => {
+    if (typeof value !== 'string') return null;
+    const photoURL = value.trim().replace(/^http:\/\//i, 'https://');
+    if (!photoURL) return null;
+
+    const isImageDataURL = /^data:image\/(?:jpeg|jpg|png|webp);base64,/i.test(photoURL);
+    const maxLength = isImageDataURL ? MAX_PROFILE_DATA_URL_LENGTH : 500;
+    return photoURL.length <= maxLength ? photoURL : null;
+};
+
 const normalizeProfile = (value: unknown): Profile => {
     const data = asRecord(value);
     const nickname = typeof data.nickname === 'string' ? data.nickname.trim().slice(0, 40) : '';
-    const photoURL = typeof data.photoURL === 'string' && data.photoURL.trim()
-        ? data.photoURL.trim().replace(/^http:\/\//i, 'https://').slice(0, 500)
-        : null;
+    const photoURL = normalizePhotoURL(data.photoURL);
 
     if (!nickname) {
         throw new HttpsError('invalid-argument', '닉네임이 필요합니다.');
@@ -100,13 +109,31 @@ const requireEventId = (value: unknown): string => {
     return value;
 };
 
-const readRankingState = (data: DocumentData | undefined, uid: string, legacyUserData?: DocumentData): RankingState => {
+const readRankingState = (
+    data: DocumentData | undefined,
+    uid: string,
+    legacyUserData?: DocumentData,
+    historicalAchievementIds: unknown[] = [],
+): RankingState => {
     const legacyGameState = asGameState(legacyUserData?.gameState);
+    const legacyAchievements = asRecord(legacyGameState.achievements);
+    const claimedAchievementIds = normalizeAchievementIds([
+        ...uniqueStrings(data?.claimedAchievementIds),
+        ...uniqueStrings(legacyAchievements.claimedIds),
+        ...historicalAchievementIds,
+    ]);
+    const hasClaimHistory = Array.isArray(data?.claimedAchievementIds)
+        || Array.isArray(legacyAchievements.claimedIds);
+
     return {
         uid,
         honorPoints: finiteInteger(data?.honorPoints ?? legacyUserData?.honorPoints ?? legacyGameState.honorPoints),
-        achievementPoints: finiteInteger(data?.achievementPoints ?? legacyUserData?.achievementPoints ?? legacyGameState.achievementPoints),
-        claimedAchievementIds: uniqueStrings(data?.claimedAchievementIds),
+        // Keep the ranking total derived from server-owned claim history. This
+        // repairs totals after an achievement definition is removed or changed.
+        achievementPoints: hasClaimHistory
+            ? calculateAchievementPoints(claimedAchievementIds)
+            : finiteInteger(data?.achievementPoints ?? legacyUserData?.achievementPoints ?? legacyGameState.achievementPoints),
+        claimedAchievementIds,
     };
 };
 
@@ -115,9 +142,7 @@ const readProfileFromUser = (userData: DocumentData | undefined): Profile => {
     const nickname = typeof profile.nickname === 'string' && profile.nickname.trim()
         ? profile.nickname.trim().slice(0, 40)
         : 'User';
-    const photoURL = typeof profile.photoURL === 'string' && profile.photoURL.trim()
-        ? profile.photoURL.trim().replace(/^http:\/\//i, 'https://').slice(0, 500)
-        : null;
+    const photoURL = normalizePhotoURL(profile.photoURL);
     return { nickname, photoURL };
 };
 
@@ -145,35 +170,69 @@ const gameStateWithRanking = (
     achievementPoints: state.achievementPoints,
     achievements: {
         ...asRecord(gameState.achievements),
-        unlockedIds: Array.from(new Set([
+        unlockedIds: normalizeAchievementIds([
             ...uniqueStrings(asRecord(gameState.achievements).unlockedIds),
             ...state.claimedAchievementIds,
-        ])),
+        ]),
         claimedIds: state.claimedAchievementIds,
     },
 });
 
-const achievementReward = (achievementId: string): { points: number; corn: number } | null => {
-    const spotCountRewards: Record<number, { points: number; corn: number }> = {
-        4: { points: 100, corn: 10 },
-        8: { points: 200, corn: 25 },
-        12: { points: 300, corn: 50 },
-        16: { points: 400, corn: 90 },
-        20: { points: 500, corn: 150 },
+const achievementReward = (achievementId: string): { points: number } | null => {
+    const spotCountRewards: Record<number, { points: number }> = {
+        4: { points: 100 },
+        8: { points: 200 },
+        12: { points: 300 },
+        20: { points: 500 },
     };
-    const spotCountMatch = /^spot_count_(4|8|12|16|20)$/.exec(achievementId);
+    const spotCountMatch = /^spot_count_(4|8|12|20)$/.exec(achievementId);
     if (spotCountMatch) return spotCountRewards[Number(spotCountMatch[1])];
-    if (/^spot_color_(주황|노랑|하양|검정)$/.test(achievementId)) return { points: 100, corn: 5 };
-    if (achievementId === 'special_five_color') return { points: 200, corn: 30 };
-    if (/^color_(빨강|주황|노랑|크림|검정)_basic$/.test(achievementId)) return { points: 200, corn: 15 };
-    if (/^color_(빨강|주황|노랑|크림|검정)_(sat_high|sat_low|light_high|light_low)$/.test(achievementId)) {
-        return { points: 300, corn: 45 };
+    if (/^spot_color_(주황|노랑|하양|검정)$/.test(achievementId)) return { points: 100 };
+    if (achievementId === 'special_five_color') return { points: 200 };
+    if (/^color_(빨강|주황|노랑|크림|검정)_basic$/.test(achievementId)) return { points: 200 };
+    if (/^(saturation_100|saturation_0|lightness_100|lightness_0)$/.test(achievementId)) {
+        return { points: 300 };
     }
-    if (/^master_(빨강|주황|노랑|크림|검정)_(void|brilliant|abyssal_flame|pure)$/.test(achievementId)) {
-        return { points: 400, corn: 90 };
-    }
-    if (/^legend_spot_(주황|노랑|하양|검정)$/.test(achievementId)) return { points: 500, corn: 150 };
+    if (/^legend_spot_(주황|노랑|하양|검정)$/.test(achievementId)) return { points: 500 };
     return null;
+};
+
+const migrateAchievementId = (achievementId: string): string | null => {
+    if (achievementReward(achievementId)) return achievementId;
+
+    // The old client created one achievement per color for these conditions.
+    // They are now global achievements, so preserve one claim for each global
+    // condition when rebuilding the server-owned ranking state.
+    const legacyColorVariant = /^color_(빨강|주황|노랑|크림|검정)_(sat_high|sat_low|light_high|light_low)$/.exec(achievementId);
+    if (legacyColorVariant) {
+        const [, , variant] = legacyColorVariant;
+        if (variant === 'sat_high') return 'saturation_100';
+        if (variant === 'sat_low') return 'saturation_0';
+        if (variant === 'light_high') return 'lightness_100';
+        if (variant === 'light_low') return 'lightness_0';
+    }
+
+    // Removed spot-count and master achievements have no current equivalent.
+    return null;
+};
+
+const normalizeAchievementIds = (value: unknown): string[] =>
+    Array.from(new Set(uniqueStrings(value)
+        .map(migrateAchievementId)
+        .filter((achievementId): achievementId is string => achievementId !== null)));
+
+const calculateAchievementPoints = (achievementIds: string[]): number =>
+    achievementIds.reduce((total, achievementId) => total + (achievementReward(achievementId)?.points ?? 0), 0);
+
+const loadHistoricalAchievementIds = async (uid: string): Promise<string[]> => {
+    const snapshot = await db.collection('rankingEvents').where('uid', '==', uid).get();
+    return snapshot.docs.flatMap(eventSnapshot => {
+        const event = eventSnapshot.data();
+        if (event.type !== 'claimAchievement') return [];
+
+        const result = asRecord(event.result);
+        return [event.achievementId, result.achievementId];
+    });
 };
 
 const basePhenotype = (genes: unknown): string => {
@@ -200,7 +259,7 @@ const achievementConditionMet = (achievementId: string, gameState: GameState): b
     const kois = allKois(gameState);
     const hasKoi = (condition: (koi: Record<string, unknown>) => boolean) => kois.some(condition);
 
-    const spotCountMatch = /^spot_count_(4|8|12|16|20)$/.exec(achievementId);
+    const spotCountMatch = /^spot_count_(4|8|12|20)$/.exec(achievementId);
     if (spotCountMatch) {
         const count = Number(spotCountMatch[1]);
         return hasKoi(koi => {
@@ -230,44 +289,24 @@ const achievementConditionMet = (achievementId: string, gameState: GameState): b
         });
     }
 
-    const colorMatch = /^color_(빨강|주황|노랑|크림|검정)_(basic|sat_high|sat_low|light_high|light_low)$/.exec(achievementId);
+    const colorMatch = /^color_(빨강|주황|노랑|크림|검정)_basic$/.exec(achievementId);
     if (colorMatch) {
-        const [, color, variant] = colorMatch;
+        const color = colorMatch[1];
         return hasKoi(koi => {
             const genetics = asRecord(koi.genetics);
-            if (basePhenotype(genetics.baseColorGenes) !== color) return false;
-            if (variant === 'basic') return true;
-            const value = variant.startsWith('sat') ? genetics.saturation : genetics.lightness;
-            if (typeof value !== 'number') return false;
-            return variant.endsWith('high') ? value >= 100 : value <= 0;
+            return basePhenotype(genetics.baseColorGenes) === color;
         });
     }
 
-    const masterMatch = /^master_(빨강|주황|노랑|크림|검정)_(void|brilliant|abyssal_flame|pure)$/.exec(achievementId);
-    if (masterMatch) {
-        const [, color, variant] = masterMatch;
+    const extremeMatch = /^(saturation_100|saturation_0|lightness_100|lightness_0)$/.exec(achievementId);
+    if (extremeMatch) {
+        const isSaturation = extremeMatch[1].startsWith('saturation');
+        const isMaximum = extremeMatch[1].endsWith('_100');
         return hasKoi(koi => {
             const genetics = asRecord(koi.genetics);
-            const cs = asRecord(asRecord(genetics.spotPhenotypeGenes).CS);
-            const allele1 = asRecord(cs.allele1).value;
-            const allele2 = asRecord(cs.allele2).value;
-            const lightness = genetics.lightness;
-            const saturation = genetics.saturation;
-            if (typeof allele1 !== 'number' || typeof allele2 !== 'number'
-                || typeof lightness !== 'number' || typeof saturation !== 'number') return false;
-            const extremeSpots = variant === 'void' || variant === 'pure'
-                ? allele1 <= 0 && allele2 <= 0
-                : allele1 >= 100 && allele2 >= 100;
-            const extremeLight = variant === 'void' || variant === 'abyssal_flame'
-                ? lightness <= 0
-                : lightness >= 100;
-            const extremeSaturation = variant === 'void' || variant === 'pure'
-                ? saturation <= 0
-                : saturation >= 100;
-            return basePhenotype(genetics.baseColorGenes) === color
-                && extremeSpots
-                && extremeLight
-                && extremeSaturation;
+            const value = isSaturation ? genetics.saturation : genetics.lightness;
+            if (typeof value !== 'number') return false;
+            return isMaximum ? value >= 100 : value <= 0;
         });
     }
 
@@ -304,12 +343,18 @@ export const initializeRankingProfile = onCall(async request => {
     const profile = normalizeProfile(request.data);
     const userReference = usersRef(uid);
     const stateReference = rankingStateRef(uid);
+    const historicalAchievementIds = await loadHistoricalAchievementIds(uid);
 
     return db.runTransaction(async transaction => {
         const userSnapshot = await transaction.get(userReference);
         const stateSnapshot = await transaction.get(stateReference);
         const userData = userSnapshot.exists ? userSnapshot.data() ?? {} : {};
-        const state = readRankingState(stateSnapshot.exists ? stateSnapshot.data() : undefined, uid, userData);
+        const state = readRankingState(
+            stateSnapshot.exists ? stateSnapshot.data() : undefined,
+            uid,
+            userData,
+            historicalAchievementIds,
+        );
         const gameState = asGameState(userData.gameState);
 
         transaction.set(userReference, {
@@ -399,6 +444,7 @@ export const claimAchievement = onCall(async request => {
     const userReference = usersRef(uid);
     const stateReference = rankingStateRef(uid);
     const eventReference = eventRef(uid, id);
+    const historicalAchievementIds = await loadHistoricalAchievementIds(uid);
 
     return db.runTransaction(async transaction => {
         const userSnapshot = await transaction.get(userReference);
@@ -408,12 +454,16 @@ export const claimAchievement = onCall(async request => {
         if (eventSnapshot.exists) return eventSnapshot.data()?.result as AchievementClaimResult;
 
         const userData = userSnapshot.data() ?? {};
-        const state = readRankingState(stateSnapshot.exists ? stateSnapshot.data() : undefined, uid, userData);
+        const state = readRankingState(
+            stateSnapshot.exists ? stateSnapshot.data() : undefined,
+            uid,
+            userData,
+            historicalAchievementIds,
+        );
         if (state.claimedAchievementIds.includes(achievementId)) {
             return {
                 achievementId,
                 achievementReward: 0,
-                cornReward: 0,
                 honorPoints: state.honorPoints,
                 achievementPoints: state.achievementPoints,
                 claimedIds: state.claimedAchievementIds,
@@ -431,11 +481,9 @@ export const claimAchievement = onCall(async request => {
             achievementPoints: state.achievementPoints + reward.points,
             claimedAchievementIds: [...state.claimedAchievementIds, achievementId],
         };
-        const currentCorn = finiteInteger(gameState.cornCount);
         const result: AchievementClaimResult = {
             achievementId,
             achievementReward: reward.points,
-            cornReward: reward.corn,
             honorPoints: nextState.honorPoints,
             achievementPoints: nextState.achievementPoints,
             claimedIds: nextState.claimedAchievementIds,
@@ -444,7 +492,6 @@ export const claimAchievement = onCall(async request => {
 
         transaction.set(userReference, {
             gameState: gameStateWithRanking(gameState, nextState, {
-                cornCount: currentCorn + reward.corn,
             }),
             honorPoints: nextState.honorPoints,
             achievementPoints: nextState.achievementPoints,
@@ -483,7 +530,6 @@ export const deleteAccountData = onCall(async request => {
 type AchievementClaimResult = RankingResult & {
     achievementId: string;
     achievementReward: number;
-    cornReward: number;
     claimedIds: string[];
     unlockedIds: string[];
 };

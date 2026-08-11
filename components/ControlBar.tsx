@@ -61,13 +61,13 @@ interface ControlBarProps {
 // Updated getButtonClass: Removed scale, shadow-lg, and glow effects
 const getButtonClass = (isActive: boolean) =>
   `p-3 sm:p-4 rounded-full border transition-all duration-200 flex items-center justify-center relative ${isActive
-    ? 'bg-yellow-600 border-yellow-400 text-white' // Active: distinct but flat
+    ? 'bg-orange-600 border-orange-400 text-white' // Active: distinct but flat
     : 'bg-white/10 border-white/20 text-white hover:bg-white/20' // Inactive: translucent HUD
   }`;
 
 const getPopupButtonClass = (isActive = false) =>
   `p-3 sm:p-4 rounded-full transition-all duration-200 flex items-center justify-center relative ${isActive
-    ? 'bg-yellow-500/70 text-white'
+    ? 'bg-orange-500/70 text-white'
     : 'text-white hover:bg-white/20'
   }`;
 
@@ -169,7 +169,7 @@ export const ControlBar: React.FC<ControlBarProps> = ({
               aria-pressed={isFeedModeActive && selectedFoodType === 'normal'}
             >
               <FeedIcon size={24} className="sm:w-[26px] sm:h-[26px]" />
-              <span className="absolute -top-1 -right-1 bg-gray-900 text-yellow-300 border border-white/40 text-[10px] sm:text-[11px] font-bold rounded-full w-5 h-5 flex items-center justify-center shadow-sm">{foodCount}</span>
+              <span className="absolute -top-1 -right-1 bg-gray-900 text-orange-300 border border-white/40 text-[10px] sm:text-[11px] font-bold rounded-full w-5 h-5 flex items-center justify-center shadow-sm">{foodCount}</span>
             </button>
             <button
               onClick={() => handleItemClick('corn')}
@@ -178,7 +178,7 @@ export const ControlBar: React.FC<ControlBarProps> = ({
               aria-pressed={isFeedModeActive && selectedFoodType === 'corn'}
             >
               <CornIcon size={24} className="sm:w-[26px] sm:h-[26px]" />
-              <span className="absolute -top-1 -right-1 bg-gray-900 text-yellow-300 border border-white/40 text-[10px] sm:text-[11px] font-bold rounded-full w-5 h-5 flex items-center justify-center shadow-sm">{cornCount}</span>
+              <span className="absolute -top-1 -right-1 bg-gray-900 text-orange-300 border border-white/40 text-[10px] sm:text-[11px] font-bold rounded-full w-5 h-5 flex items-center justify-center shadow-sm">{cornCount}</span>
             </button>
           </div>
         )}
@@ -190,7 +190,7 @@ export const ControlBar: React.FC<ControlBarProps> = ({
           aria-haspopup="menu"
         >
           {selectedFoodType === 'corn' ? <CornIcon size={24} /> : <FeedIcon size={24} />}
-          <span className="absolute -top-1 -right-1 bg-gray-900 text-yellow-300 border border-white/40 text-[10px] sm:text-[11px] font-bold rounded-full w-5 h-5 flex items-center justify-center shadow-sm">
+          <span className="absolute -top-1 -right-1 bg-gray-900 text-orange-300 border border-white/40 text-[10px] sm:text-[11px] font-bold rounded-full w-5 h-5 flex items-center justify-center shadow-sm">
             {selectedItemCount}
           </span>
         </button>

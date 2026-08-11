@@ -1,7 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Achievement, AchievementState, Koi } from '../types';
 import { ACHIEVEMENTS, checkUnlockableAchievements } from '../utils/achievements';
-import { claimAchievement as claimAchievementOnServer } from '../services/ranking';
 
 const createEmptyAchievementState = (): AchievementState => ({
     unlockedIds: [],
@@ -15,9 +14,12 @@ type AchievementSnapshot = {
     claimedIds?: string[];
 };
 
+const knownAchievementIds = new Set(ACHIEVEMENTS.map(achievement => achievement.id));
+
 const uniqueIds = (ids: unknown): string[] => {
     if (!Array.isArray(ids)) return [];
-    return Array.from(new Set(ids.filter((id): id is string => typeof id === 'string')));
+    return Array.from(new Set(ids.filter((id): id is string => typeof id === 'string')))
+        .filter(id => knownAchievementIds.has(id));
 };
 
 const mergeAchievementSnapshots = (...snapshots: Array<AchievementSnapshot | null | undefined>): AchievementState => {
@@ -44,14 +46,15 @@ export const useAchievements = (
     initialData?: { unlockedIds: string[]; claimedIds: string[]; } | null
 ) => {
     const [state, setState] = useState<AchievementState>(() => createEmptyAchievementState());
+    const stateRef = useRef<AchievementState>(state);
+    stateRef.current = state;
 
     const [isLoaded, setIsLoaded] = useState(false);
 
     const persistLocalState = useCallback((nextState: Pick<AchievementState, 'unlockedIds' | 'claimedIds' | 'totalPoints'>) => {
-        if (!userId) return;
-
         try {
-            localStorage.setItem(`koi_garden_achievements_${userId}`, JSON.stringify({
+            const storageId = userId ?? 'guest';
+            localStorage.setItem(`koi_garden_achievements_${storageId}`, JSON.stringify({
                 unlockedIds: nextState.unlockedIds,
                 claimedIds: nextState.claimedIds,
                 totalPoints: nextState.totalPoints,
@@ -64,13 +67,7 @@ export const useAchievements = (
     // Load and merge all available sources. Achievement progress is monotonic:
     // an older cloud snapshot must never erase a locally saved achievement.
     useEffect(() => {
-        if (!userId) {
-            setState(createEmptyAchievementState());
-            setIsLoaded(false);
-            return;
-        }
-
-        const key = `koi_garden_achievements_${userId}`;
+        const key = `koi_garden_achievements_${userId ?? 'guest'}`;
 
         let localData: AchievementSnapshot | null = null;
         const saved = localStorage.getItem(key);
@@ -86,7 +83,10 @@ export const useAchievements = (
             }
         }
 
-        const nextState = mergeAchievementSnapshots(localData, initialData);
+        // Keep the latest in-memory progress in the merge as well. A delayed
+        // cloud snapshot must never roll the achievement state backwards.
+        const nextState = mergeAchievementSnapshots(stateRef.current, localData, initialData);
+        stateRef.current = nextState;
         setState(nextState);
         setIsLoaded(true);
         persistLocalState(nextState);
@@ -114,49 +114,27 @@ export const useAchievements = (
     }, [state, isLoaded, persistLocalState]);
 
     const claimReward = useCallback(async (achievementId: string, onRewardClaimed?: (reward: Achievement['reward']) => void) => {
-        if (!userId || !isLoaded) return;
-        if (state.claimedIds.includes(achievementId)) return;
-        if (!state.unlockedIds.includes(achievementId)) return;
+        if (!isLoaded) return null;
+        if (state.claimedIds.includes(achievementId)) return null;
+        if (!state.unlockedIds.includes(achievementId)) return null;
 
         const achievement = ACHIEVEMENTS.find(a => a.id === achievementId);
-        if (!achievement) return;
+        if (!achievement) return null;
 
-        try {
-            // The server checks the achievement against the latest cloud game
-            // state and calculates the reward. The client never submits a
-            // points total or reward amount.
-            const result = await claimAchievementOnServer(achievementId);
-            const nextClaimedIds = Array.from(new Set([
-                ...state.claimedIds,
-                ...result.claimedIds,
-                achievementId,
-            ]));
-            const nextUnlockedIds = Array.from(new Set([
-                ...state.unlockedIds,
-                ...result.unlockedIds,
-                achievementId,
-            ]));
-            const nextState: AchievementState = {
-                ...state,
-                unlockedIds: nextUnlockedIds,
-                claimedIds: nextClaimedIds,
-                totalPoints: result.achievementPoints,
-            };
+        const nextClaimedIds = uniqueIds([...state.claimedIds, achievementId]);
+        const nextUnlockedIds = uniqueIds([...state.unlockedIds, achievementId]);
+        const nextState: AchievementState = {
+            ...state,
+            unlockedIds: nextUnlockedIds,
+            claimedIds: nextClaimedIds,
+            totalPoints: state.totalPoints + achievement.reward.achievementPoints,
+        };
 
-            setState(nextState);
-            persistLocalState(nextState);
-
-            onRewardClaimed?.({
-                achievementPoints: result.achievementReward,
-                items: result.cornReward > 0
-                    ? [{ type: 'corn', count: result.cornReward }]
-                    : undefined,
-            });
-        } catch (error) {
-            console.error('Achievement claim was rejected by the ranking server:', error);
-            throw error;
-        }
-    }, [state, userId, isLoaded, persistLocalState]);
+        setState(nextState);
+        persistLocalState(nextState);
+        onRewardClaimed?.(achievement.reward);
+        return achievement.reward;
+    }, [state, isLoaded, persistLocalState]);
 
     const getAchievementStatus = useCallback((id: string) => {
         const isUnlocked = state.unlockedIds.includes(id);

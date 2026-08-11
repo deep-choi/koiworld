@@ -13,7 +13,7 @@ export const KoiCSSPreview: React.FC<KoiCSSPreviewProps> = ({ koi, className = "
     const spotPhenotype = calculateSpotPhenotype(koi.genetics.spotPhenotypeGenes, koi);
 
     return (
-        <div className={`relative flex items-center justify-center overflow-hidden bg-gray-900 rounded-full ${className}`}>
+        <div className={`relative flex items-center justify-center overflow-hidden rounded-full ${className}`}>
             {/* Body */}
             <div
                 className="w-full h-full rounded-full relative"

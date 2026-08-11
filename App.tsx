@@ -3,7 +3,6 @@ import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import { Pond } from './components/Pond';
 import { ControlBar } from './components/ControlBar';
 import { ShopModal } from './components/ShopModal';
-import { KoiDetailModal } from './components/KoiDetailModal';
 import { PondInfoModal } from './components/PondInfoModal';
 import { SaveLoadModal } from './components/SaveLoadModal';
 import { AccountModal } from './components/AccountModal';
@@ -33,7 +32,6 @@ import { RankingModal } from './components/RankingModal';
 import { useAchievements } from './hooks/useAchievements';
 import { AchievementModal } from './components/AchievementModal';
 import { isValidSavedGameState } from './utils/savedGameState';
-import { purchaseHonorTrophies } from './services/ranking';
 
 interface Animation {
   id: number;
@@ -111,7 +109,6 @@ export const App: React.FC = () => {
   const [isPondInfoModalOpen, setIsPondInfoModalOpen] = useState(false);
   const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
   const [isSaveLoadModalOpen, setIsSaveLoadModalOpen] = useState(false);
-  const [activeKoi, setActiveKoi] = useState<Koi | null>(null);
   const [isInfoModalOpen, setIsInfoModalOpen] = useState(false);
   const [isCleanConfirmOpen, setIsCleanConfirmOpen] = useState(false);
   const [isRankingModalOpen, setIsRankingModalOpen] = useState(false);
@@ -138,6 +135,7 @@ export const App: React.FC = () => {
     claimReward,
     hasUnclaimedRewards,
     totalPoints: achievementScore,
+    isLoaded: achievementsLoaded,
   } = useAchievements(user?.uid, initialAchievementData);
   const [isAchievementModalOpen, setIsAchievementModalOpen] = useState(false);
   const lastAchievementCheckKeyRef = useRef('');
@@ -145,7 +143,7 @@ export const App: React.FC = () => {
 
   // Show achievement unlock notification
   useEffect(() => {
-    if (!user?.uid || koiList.length === 0) return;
+    if (!user?.uid || !achievementsLoaded || koiList.length === 0) return;
 
     // 업적 조건과 무관한 상태(예: 스태미나/수질 변화)로 재검사를 반복하지 않도록 키를 계산합니다.
     const achievementCheckKey = koiList
@@ -186,35 +184,50 @@ export const App: React.FC = () => {
       });
       audioManager.playSFX('click'); // Reuse existing SFX or add new one
     }
-  }, [koiList, user?.uid, checkAchievements]);
+  }, [koiList, user?.uid, achievementsLoaded, checkAchievements]);
 
-  const handleClaimReward = async (id: string, reward: any) => {
+  const handleClaimReward = async (id: string) => {
     try {
-      // Make the latest koi state visible to the server before it verifies the
-      // achievement. Reward points and items are still calculated server-side.
-      if (user && gameStateRef.current) {
-        await saveGameToCloud(user.uid, gameStateRef.current);
-      }
-
-      await claimReward(id, (rewardContent) => {
-      // Add items if present
-      if (rewardContent.items) {
-        rewardContent.items.forEach((item: any) => {
-          if (item.type === 'corn') setCornCount(prev => prev + item.count);
-        });
-      }
-      const itemsText = rewardContent.items
-        ? rewardContent.items.map((i: any) => `옥수수 ${i.count}개`).join(', ')
-        : '';
+      const reward = await claimReward(id, (rewardContent) => {
       setNotification({
-        message: `보상 획득! 업적 포인트 ${rewardContent.achievementPoints}점${itemsText ? `, ${itemsText}` : ''}`,
+        message: `보상 획득! 업적 포인트 ${rewardContent.achievementPoints}점`,
         type: 'success'
       });
       audioManager.playSFX('coin');
       });
+
+      if (!reward) return;
+
+      const immediateState: SavedGameState = {
+        ...(gameStateRef.current ?? {
+          ponds,
+          activePondId,
+          zenPoints,
+          foodCount,
+          cornCount,
+          honorPoints,
+          achievementPoints: achievementScore,
+          achievements: { unlockedIds, claimedIds },
+          koiNameCounter,
+        }),
+        achievementPoints: achievementScore + reward.achievementPoints,
+        achievements: {
+          unlockedIds: Array.from(new Set([...unlockedIds, id])),
+          claimedIds: Array.from(new Set([...claimedIds, id])),
+        },
+      };
+      gameStateRef.current = immediateState;
+
+      if (!isDuplicateTabPaused && !isLocalGameSaveSuppressed()) {
+        persistLocalGameState(immediateState);
+      }
+
+      if (user && isCloudSyncReady && !isDuplicateTabPaused && !isLocalGameSaveSuppressed()) {
+        await enqueueCloudSave(user.uid, immediateState);
+      }
     } catch (error) {
-      console.error('Achievement reward claim failed:', error);
-      setNotification({ message: '업적 보상을 서버에서 확인하지 못했습니다. 잠시 후 다시 시도해주세요.', type: 'error' });
+      console.error('Achievement reward save failed:', error);
+      setNotification({ message: '업적 보상 저장에 실패했습니다. 잠시 후 다시 시도해주세요.', type: 'error' });
     }
   };
   const feedingIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -242,6 +255,7 @@ export const App: React.FC = () => {
   const lastCloudSavePayloadRef = useRef<string | null>(null);
   const cloudSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const pendingCloudPayloadRef = useRef<string | null>(null);
+  const rankingSyncKeyRef = useRef('');
   const tabLockRef = useRef<TabLockController | null>(null);
 
   useEffect(() => {
@@ -444,6 +458,38 @@ export const App: React.FC = () => {
     cloudSaveQueueRef.current = nextSave;
     return nextSave;
   }, []);
+
+  useEffect(() => {
+    rankingSyncKeyRef.current = '';
+  }, [user?.uid]);
+
+  // Achievement and trophy scores are client-owned. Once the authenticated
+  // state is hydrated, publish the local values immediately so the public
+  // ranking does not wait for the periodic save interval.
+  useEffect(() => {
+    if (!user || !isCloudSyncReady || !achievementsLoaded || !gameStateRef.current) return;
+
+    const syncKey = JSON.stringify({
+      achievementScore,
+      honorPoints,
+      unlockedIds,
+      claimedIds,
+    });
+    if (rankingSyncKeyRef.current === syncKey) return;
+    rankingSyncKeyRef.current = syncKey;
+
+    const currentState: SavedGameState = {
+      ...gameStateRef.current,
+      honorPoints,
+      achievementPoints: achievementScore,
+      achievements: { unlockedIds, claimedIds },
+    };
+    gameStateRef.current = currentState;
+    void enqueueCloudSave(user.uid, currentState).catch((error) => {
+      console.error('Ranking score sync failed:', error);
+      if (rankingSyncKeyRef.current === syncKey) rankingSyncKeyRef.current = '';
+    });
+  }, [user, isCloudSyncReady, achievementsLoaded, achievementScore, honorPoints, unlockedIds, claimedIds, enqueueCloudSave]);
 
   // Session & Cloud Sync Logic (통합 최적화: 모든 사용자 데이터를 병렬로 1회 로드)
   useEffect(() => {
@@ -837,36 +883,6 @@ export const App: React.FC = () => {
     let nextZenPoints = zenPoints - totalCost;
     let nextHonorPoints = (honorPoints || 0) + quantity;
 
-    if (user) {
-      try {
-        const latestState = gameStateRef.current ?? {
-          ponds,
-          activePondId,
-          zenPoints,
-          foodCount,
-          cornCount,
-          honorPoints,
-          achievementPoints: achievementScore,
-          achievements: { unlockedIds, claimedIds },
-          koiNameCounter,
-        };
-
-        // Sync the mutable game snapshot first so the server can check the
-        // current balance. The score mutation itself happens only in the
-        // callable transaction.
-        if (isCloudSyncReady && !isDuplicateTabPaused && !isLocalGameSaveSuppressed()) {
-          await enqueueCloudSave(user.uid, latestState);
-        }
-        const result = await purchaseHonorTrophies(quantity);
-        nextZenPoints = result.zenPoints ?? nextZenPoints;
-        nextHonorPoints = result.honorPoints;
-      } catch (error) {
-        console.error('Trophy purchase was rejected by the ranking server:', error);
-        setNotification({ message: '랭킹 서버에서 구매를 확인하지 못했습니다. 잠시 후 다시 시도해주세요.', type: 'error' });
-        return;
-      }
-    }
-
     setZenPoints(nextZenPoints);
     setHonorPoints(nextHonorPoints);
     audioManager.playSFX('purchase');
@@ -919,7 +935,6 @@ export const App: React.FC = () => {
     koiNameCounter,
     enqueueCloudSave,
     persistLocalGameState,
-    purchaseHonorTrophies,
   ]);
 
   const handlePondPointerDown = useCallback((event: React.PointerEvent<HTMLElement> | React.MouseEvent<HTMLElement>, koi?: Koi) => {
@@ -1105,8 +1120,8 @@ export const App: React.FC = () => {
           aria-labelledby="duplicate-tab-title"
           aria-describedby="duplicate-tab-description"
         >
-          <div className="w-full max-w-sm rounded-xl border border-yellow-500/40 bg-gray-900 p-5 shadow-2xl text-center">
-            <h2 id="duplicate-tab-title" className="text-lg font-black text-yellow-300 mb-3">
+          <div className="w-full max-w-sm rounded-xl border border-orange-500/40 bg-gray-900 p-5 shadow-2xl text-center">
+            <h2 id="duplicate-tab-title" className="text-lg font-black text-orange-300 mb-3">
               다른 탭에서 게임이 실행 중입니다
             </h2>
             <p id="duplicate-tab-description" className="text-sm leading-6 text-gray-300">
@@ -1115,7 +1130,7 @@ export const App: React.FC = () => {
             </p>
             <button
               onClick={handleContinueInThisTab}
-              className="mt-5 w-full rounded-lg bg-yellow-600 px-4 py-3 font-bold text-white transition-colors hover:bg-yellow-500"
+              className="mt-5 w-full rounded-lg bg-orange-600 px-4 py-3 font-bold text-white transition-colors hover:bg-orange-500"
               aria-label="이 탭에서 게임 계속하기"
             >
               이 탭에서 계속하기
@@ -1128,7 +1143,7 @@ export const App: React.FC = () => {
       {
         notification && (
           <div
-            className={`absolute top-10 left-1/2 -translate-x-1/2 z-50 px-6 py-3 rounded-lg shadow-xl font-bold transition-all duration-300 whitespace-nowrap ${notification.type === 'error'
+            className={`absolute top-10 left-1/2 -translate-x-1/2 z-50 w-[calc(100%-1rem)] max-w-[36rem] px-3 py-3 rounded-lg shadow-xl font-bold leading-relaxed text-center break-words transition-all duration-300 whitespace-normal ${notification.type === 'error'
               ? 'bg-white text-red-600 border-2 border-red-600'
               : 'bg-white text-black border border-gray-300'
               }`}
@@ -1140,7 +1155,7 @@ export const App: React.FC = () => {
 
       <div className="absolute top-[calc(1rem+env(safe-area-inset-top))] left-4 z-20 flex flex-col gap-2">
         <div className="bg-white/10 backdrop-blur-sm p-3 rounded-lg border border-white/10 min-w-[140px]">
-          <p className="text-lg font-bold text-yellow-300">{zenPoints.toLocaleString()} ZP</p>
+          <p className="text-lg font-bold text-orange-300">{zenPoints.toLocaleString()} ZP</p>
         </div>
 
         {/* Water Quality Indicator - Interactive */}
@@ -1153,7 +1168,7 @@ export const App: React.FC = () => {
           </div>
           <button
             onClick={handleCleanPond}
-            className="ml-auto text-xs bg-yellow-600 hover:bg-yellow-500 text-white font-bold px-2 py-1 rounded transition-colors"
+            className="ml-auto text-xs bg-orange-600 hover:bg-orange-500 text-white font-bold px-2 py-1 rounded transition-colors"
             aria-label="연못 청소하기"
           >
             + 청소
@@ -1164,7 +1179,7 @@ export const App: React.FC = () => {
       <div className="absolute top-[calc(1rem+env(safe-area-inset-top))] right-4 z-20 flex items-center gap-2">
         <button
           onClick={() => setIsSaveLoadModalOpen(true)}
-          className="bg-white/10 backdrop-blur-sm p-3 rounded-full border border-white/20 text-white hover:text-yellow-400 transition-colors hover:bg-white/20 hover:border-white/30"
+          className="bg-white/10 backdrop-blur-sm p-3 rounded-full border border-white/20 text-white hover:text-orange-400 transition-colors hover:bg-white/20 hover:border-white/30"
           aria-label="설정 메뉴"
           title="설정 메뉴 (저장/불러오기/새 게임)"
         >
@@ -1177,7 +1192,7 @@ export const App: React.FC = () => {
             if (!user) setIsAuthModalOpen(true);
             else setIsAccountModalOpen(true);
           }}
-          className="bg-white/10 backdrop-blur-sm p-0 rounded-full border border-white/20 text-white hover:text-yellow-400 transition-colors hover:bg-white/20 hover:border-white/30 w-[46px] h-[46px] overflow-hidden flex items-center justify-center group shadow-xl ml-1"
+          className="bg-white/10 backdrop-blur-sm p-0 rounded-full border border-white/20 text-white hover:text-orange-400 transition-colors hover:bg-white/20 hover:border-white/30 w-[46px] h-[46px] overflow-hidden flex items-center justify-center group shadow-xl ml-1"
           title={user ? `${user.displayName || userNickname || '게스트'} 님` : '클릭하여 로그인'}
           aria-label={user ? '계정 정보 열기' : '로그인 창 열기'}
         >
@@ -1188,7 +1203,7 @@ export const App: React.FC = () => {
               className="w-full h-full object-cover"
             />
           ) : (
-            <div className="w-full h-full flex items-center justify-center text-white/80 group-hover:text-yellow-400 bg-white/10">
+            <div className="w-full h-full flex items-center justify-center text-white/80 group-hover:text-orange-400 bg-white/10">
               <User size={24} strokeWidth={1.5} />
             </div>
           )}
@@ -1339,27 +1354,12 @@ export const App: React.FC = () => {
         onLogoutCleanup={handleLogoutCleanup}
       />
       {
-        activeKoi && <KoiDetailModal
-          koi={activeKoi}
-          totalKoiCount={koiList.length}
-          onClose={() => setActiveKoi(null)}
-          onSell={(koi) => {
-            handleSell(koi);
-            setActiveKoi(null);
-          }}
-        />
-      }
-      {
         isPondInfoModalOpen && <PondInfoModal
           onClose={() => setIsPondInfoModalOpen(false)}
           ponds={ponds}
           activePondId={activePondId}
           onPondChange={setActivePondId}
           koiList={koiList}
-          onKoiSelect={(koi) => {
-            setActiveKoi(koi);
-            setIsPondInfoModalOpen(false);
-          }}
           onSell={handleSellSelected}
           onBreed={handleBreedKois}
           onMove={(kois, targetPondId) => {
@@ -1374,7 +1374,7 @@ export const App: React.FC = () => {
           <div className="absolute inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={() => setIsInfoModalOpen(false)}>
             <div className="bg-gray-800 p-6 rounded-lg max-w-2xl w-full max-h-[85vh] overflow-y-auto border border-gray-700 shadow-xl custom-scrollbar glass-panel" onClick={e => e.stopPropagation()}>
               <div className="flex justify-between items-center mb-4">
-                <h2 className="text-2xl font-bold text-yellow-300">Koiworld</h2>
+                <h2 className="text-2xl font-bold text-orange-300">Koiworld</h2>
                 <button onClick={() => setIsInfoModalOpen(false)} className="text-gray-400 hover:text-white" aria-label="게임 정보 닫기"><X /></button>
               </div>
               <p className="text-gray-300 mb-4">당신만의 평온한 코이 연못에 오신 것을 환영합니다. 아름다운 코이를 키우고, 교배하여 새로운 품종을 발견하세요.</p>
@@ -1387,17 +1387,17 @@ export const App: React.FC = () => {
 
                 <div className="mt-4 pt-4 border-t border-gray-700">
                   <h3 className="text-white font-bold mb-2 flex items-center gap-2">
-                    <Dna size={18} className="text-yellow-400" /> 열성 유전자 가이드
+                    <Dna size={18} className="text-orange-400" /> 열성 유전자 가이드
                   </h3>
                   <div className="text-sm space-y-3 bg-gray-900/50 p-3 rounded border border-gray-700 text-gray-300 glass-section">
                     <p>
-                      <span className="text-yellow-300 font-bold block mb-1">🔍 숨겨진 색상 (Recessive Genes)</span>
+                      <span className="text-orange-300 font-bold block mb-1">🔍 숨겨진 색상 (Recessive Genes)</span>
                       코이는 겉으로 보이는 색 외에도 <strong className="text-white">수많은 숨겨진 색상 유전자</strong>를 가질 수 있습니다.
                       상세 정보창에서 코이가 보유한 모든 유전자 목록을 확인할 수 있습니다.
                     </p>
 
                     <p>
-                      <span className="text-yellow-400 font-bold block mb-1">🎨 색상 발현 규칙</span>
+                      <span className="text-orange-400 font-bold block mb-1">🎨 색상 발현 규칙</span>
                       특정 색상이 눈에 보이려면, 그 색상의 유전자를 <strong className="text-white">최소 2개 이상</strong> 가지고 있어야 합니다.
                       <br />
                       <span className="text-xs text-gray-500 mt-1 block">예: [빨강, 빨강] → 빨강 발현 / [빨강, 검정] → 크림색(기본)</span>
@@ -1447,7 +1447,7 @@ export const App: React.FC = () => {
       {/* Spot Genetics Debug Panel - shows first selected koi's genes */}
       {import.meta.env.DEV && (
         <SpotGeneticsDebugPanel
-          koi={activeKoi || selectedKoisForBreeding[0] || null}
+          koi={selectedKoisForBreeding[0] || null}
           zenPoints={zenPoints}
           onSetZenPoints={(points) => setZenPoints(points)}
           onSpawnKoi={(genetics, growthStage) => {

@@ -81,29 +81,29 @@ const ShopItem: React.FC<{
     const affordable = canAfford(quantity);
 
     return (
-        <div className="bg-gray-900/50 p-3 rounded-lg border border-gray-700 flex flex-col glass-section">
+        <div className="bg-slate-50 p-3 rounded-lg flex flex-col">
             <div className="flex items-center gap-3">
-                <div className="text-yellow-300">{icon}</div>
+                <div className="w-10 h-10 shrink-0 flex items-center justify-center">{icon}</div>
                 <div className="flex-grow">
-                    <h3 className="text-base font-semibold text-white">{title}</h3>
-                    <p className="text-xs text-gray-400 mt-1">{description}</p>
+                    <h3 className="text-base font-medium text-slate-900">{title}</h3>
+                    <p className="text-sm text-slate-600 mt-1 leading-relaxed">{description}</p>
                 </div>
             </div>
 
             {hasQuantity && (
-                <div className="flex items-center justify-between mt-3 bg-gray-800 rounded-lg p-1 glass-input">
+                <div className="flex items-center justify-between mt-3 bg-white border border-slate-300 rounded-lg p-1">
                     <button
                         onClick={() => handleQuantityChange(-1)}
-                        className="p-1 text-gray-400 hover:text-white disabled:opacity-50"
+                        className="p-1 text-slate-500 hover:text-slate-900 disabled:opacity-50"
                         disabled={quantity <= 1}
                         aria-label={`${title} 수량 줄이기`}
                     >
                         <Minus size={16} />
                     </button>
-                    <span className="text-white font-bold" aria-live="polite">{quantity}</span>
+                    <span className="text-slate-900 font-medium" aria-live="polite">{quantity}</span>
                     <button
                         onClick={() => handleQuantityChange(1)}
-                        className="p-1 text-gray-400 hover:text-white disabled:opacity-50"
+                        className="p-1 text-slate-500 hover:text-slate-900 disabled:opacity-50"
                         disabled={quantity >= 99}
                         aria-label={`${title} 수량 늘리기`}
                     >
@@ -112,13 +112,13 @@ const ShopItem: React.FC<{
                 </div>
             )}
 
-            <div className="text-base font-bold text-yellow-400 mt-2 text-right">
+            <div className="text-base font-semibold text-orange-600 mt-2 text-right">
                 {currentPrice.toLocaleString()} ZP
             </div>
             <button
                 onClick={() => onBuy(quantity)}
                 disabled={!affordable || disabled}
-                className="mt-2 w-full bg-yellow-600 text-white font-bold py-2 rounded-lg flex items-center justify-center transition-colors disabled:bg-gray-600 disabled:cursor-not-allowed enabled:hover:bg-yellow-500"
+                className="mt-2 w-full h-10 bg-orange-500 text-white font-medium rounded-lg flex items-center justify-center transition-colors disabled:bg-slate-200 disabled:text-slate-500 disabled:cursor-not-allowed enabled:hover:bg-orange-600"
                 aria-label={disabled && disabledReason ? `${title}: ${disabledReason}` : `${title} ${quantity}개 구매하기`}
             >
                 {disabled && disabledReason ? disabledReason : "구매하기"}
@@ -131,33 +131,33 @@ const ShopItem: React.FC<{
 export const ShopModal: React.FC<ShopModalProps> = ({ onClose, zenPoints, onBuyFood, onBuyFoodLarge, onBuyCorn, onBuyCornLarge, onBuyTrophy, onBuyPond, pondCount }) => {
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-40 p-4">
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-40 p-4">
             <div
-                className="bg-gray-800 border border-gray-700 rounded-lg shadow-xl p-4 w-full max-w-sm animate-fade-in-up max-h-[85svh] overflow-y-auto custom-scrollbar glass-panel"
+                className="light-modal bg-white border border-slate-200 rounded-2xl shadow-2xl p-5 w-full max-w-sm animate-fade-in-up max-h-[85svh] overflow-y-auto light-scrollbar"
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="shop-modal-title"
             >
                 <div className="flex justify-between items-center mb-4">
-                    <h2 id="shop-modal-title" className="text-xl font-bold text-yellow-400 flex items-center">
-                        <ShoppingCart className="mr-3" />
+                    <h2 id="shop-modal-title" className="text-xl font-medium text-slate-900 flex items-center gap-2">
+                        <ShoppingCart size={20} className="text-orange-600" />
                         상점
                     </h2>
-                    <button onClick={onClose} className="text-gray-400 hover:text-white" aria-label="상점 닫기">
-                        <X size={24} />
+                    <button onClick={onClose} className="w-8 h-8 rounded-full bg-slate-100 text-slate-400 hover:bg-slate-200 hover:text-slate-600 transition-colors flex items-center justify-center" aria-label="상점 닫기">
+                        <X size={18} />
                     </button>
                 </div>
 
-                <div className="mb-4 px-1 pb-3">
+                <div className="mb-2 px-1">
                     <div className="flex justify-between items-center">
-                        <span className="text-xs text-gray-400 font-bold uppercase">Zen Points</span>
-                        <span className="text-lg font-black text-yellow-400">{zenPoints.toLocaleString()} ZP</span>
+                        <span className="text-sm text-slate-600 font-medium">보유 ZP</span>
+                        <span className="text-lg font-semibold text-orange-600">{zenPoints.toLocaleString()} ZP</span>
                     </div>
                 </div>
 
                 <div className="space-y-3">
                     <ShopItem
-                        icon={<FeedIcon size={40} className="text-yellow-100" />}
+                        icon={<FeedIcon size={32} className="text-orange-500" />}
                         title="기본 사료 (50개)"
                         description="가장 기본적인 물고기 사료입니다."
                         price={FOOD_PACK_PRICE}
@@ -166,7 +166,7 @@ export const ShopModal: React.FC<ShopModalProps> = ({ onClose, zenPoints, onBuyF
                         hasQuantity={true}
                     />
                     <ShopItem
-                        icon={<FeedIcon size={40} className="text-yellow-100" />}
+                        icon={<FeedIcon size={32} className="text-orange-500" />}
                         title="기본 사료 대용량 (250개)"
                         description="대용량으로 더 오랫동안 먹이를 줄 수 있습니다."
                         price={FOOD_LARGE_PACK_PRICE}
@@ -175,7 +175,7 @@ export const ShopModal: React.FC<ShopModalProps> = ({ onClose, zenPoints, onBuyF
                         hasQuantity={true}
                     />
                     <ShopItem
-                        icon={<CornIcon size={40} className="text-yellow-300" />}
+                        icon={<CornIcon size={32} className="text-orange-600" />}
                         title="프리미엄 옥수수 (50개)"
                         description="일반 먹이보다 3배 효과! 코이가 빠르게 성장합니다."
                         price={CORN_PACK_PRICE}
@@ -184,7 +184,7 @@ export const ShopModal: React.FC<ShopModalProps> = ({ onClose, zenPoints, onBuyF
                         hasQuantity={true}
                     />
                     <ShopItem
-                        icon={<CornIcon size={40} className="text-yellow-300" />}
+                        icon={<CornIcon size={32} className="text-orange-600" />}
                         title="프리미엄 옥수수 대용량 (250개)"
                         description="옥수수 대량 팩입니다. 대규모 양식에 적합합니다."
                         price={CORN_LARGE_PACK_PRICE}
@@ -193,7 +193,7 @@ export const ShopModal: React.FC<ShopModalProps> = ({ onClose, zenPoints, onBuyF
                         hasQuantity={true}
                     />
                     <ShopItem
-                        icon={<div className="text-purple-400 font-bold border-2 border-purple-400 rounded p-1 w-10 h-10 flex items-center justify-center">+</div>}
+                        icon={<Plus size={32} strokeWidth={2} className="text-purple-500" />}
                         title="연못 확장권"
                         description="새로운 연못을 추가합니다. (최대 4개)"
                         price={20000}
@@ -204,7 +204,7 @@ export const ShopModal: React.FC<ShopModalProps> = ({ onClose, zenPoints, onBuyF
                         disabledReason={pondCount >= 4 ? "최대 보유량 도달" : undefined}
                     />
                     <ShopItem
-                        icon={<Trophy size={40} className="text-yellow-400" />}
+                        icon={<Trophy size={32} strokeWidth={2} className="text-orange-600" />}
                         title="명예 트로피"
                         description="당신의 명예를 증명하는 트로피입니다. 랭킹에 반영됩니다!"
                         price={TROPHY_PRICE}

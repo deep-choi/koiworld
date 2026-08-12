@@ -7,6 +7,11 @@ const config: CapacitorConfig = {
   appName: 'Koiworld',
   webDir: 'dist',
   plugins: {
+    SplashScreen: {
+      launchAutoHide: false,
+      launchFadeOutDuration: 150,
+      showSpinner: false,
+    },
     FirebaseAuthentication: {
       skipNativeAuth: true,
       providers: ['google.com', 'playgames.google.com'],

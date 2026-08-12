@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useRef, useState, ReactNode } from 'react';
 import { Capacitor } from '@capacitor/core';
+import { SplashScreen } from '@capacitor/splash-screen';
 import { AppUser, subscribeToAuthChanges, loginWithGoogle, loginWithPlayGames, loginAsGuest, logout, checkRedirectResult, initializeAndroidSession, loginWithEmailPassword, signUpWithEmailPassword, deleteCurrentUser, reauthenticateCurrentUser } from '../services/auth';
 import { deleteUserData } from '../services/cloudData';
 
@@ -25,45 +26,61 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     useEffect(() => {
         let isMounted = true;
 
+        const hideNativeSplash = async () => {
+            if (Capacitor.getPlatform() !== 'android') return;
+
+            try {
+                await SplashScreen.hide({ fadeOutDuration: 150 });
+            } catch (error) {
+                // The web build and older native installs may not have a
+                // controllable splash plugin yet. Auth startup must still
+                // complete in that case.
+                console.warn('[Auth] Native splash hide failed.', error);
+            }
+        };
+
         const bootstrapAuth = async () => {
             let restoredUser: AppUser | null = null;
 
-            // Firebase's redirect result is a Web SDK flow. Do not let an
-            // unsupported redirect check on Android prevent the native Play
-            // Games session from being initialized below.
-            if (!Capacitor.isNativePlatform()) {
-                try {
-                    restoredUser = await checkRedirectResult();
-                    if (isMounted && restoredUser) {
-                        setUser(restoredUser);
+            try {
+                // Firebase's redirect result is a Web SDK flow. Do not let an
+                // unsupported redirect check on Android prevent the native Play
+                // Games session from being initialized below.
+                if (!Capacitor.isNativePlatform()) {
+                    try {
+                        restoredUser = await checkRedirectResult();
+                        if (isMounted && restoredUser) {
+                            setUser(restoredUser);
+                        }
+                    } catch (error) {
+                        console.error("Web auth redirect restore failed:", error);
                     }
-                } catch (error) {
-                    console.error("Web auth redirect restore failed:", error);
                 }
-            }
 
-            const shouldAttemptAndroidPlayGames =
-                Capacitor.getPlatform() === 'android' &&
-                (!restoredUser || restoredUser.isAnonymous);
+                const shouldAttemptAndroidPlayGames =
+                    Capacitor.getPlatform() === 'android' &&
+                    (!restoredUser || restoredUser.isAnonymous);
 
-            if (shouldAttemptAndroidPlayGames) {
-                try {
-                    const nativeUser = await initializeAndroidSession();
-                    if (isMounted && nativeUser) {
-                        setUser(nativeUser);
+                if (shouldAttemptAndroidPlayGames) {
+                    try {
+                        const nativeUser = await initializeAndroidSession();
+                        if (isMounted && nativeUser) {
+                            setUser(nativeUser);
+                        }
+                    } catch (error) {
+                        // initializeAndroidSession already falls back to an
+                        // anonymous Firebase session. Keep this guard so a native
+                        // plugin error cannot leave the AuthProvider loading
+                        // forever or skip the rest of app startup.
+                        console.error("Android Play Games bootstrap failed:", error);
                     }
-                } catch (error) {
-                    // initializeAndroidSession already falls back to an
-                    // anonymous Firebase session. Keep this guard so a native
-                    // plugin error cannot leave the AuthProvider loading
-                    // forever or skip the rest of app startup.
-                    console.error("Android Play Games bootstrap failed:", error);
                 }
-            }
-
-            if (isMounted) {
-                isBootstrappingNativeSession.current = false;
-                setLoading(false);
+            } finally {
+                if (isMounted) {
+                    isBootstrappingNativeSession.current = false;
+                    setLoading(false);
+                    await hideNativeSplash();
+                }
             }
         };
 

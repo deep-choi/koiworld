@@ -47,6 +47,17 @@ const GUEST_MODE_STORAGE_KEY = 'koiworld.guestMode';
 const EXPLICIT_GUEST_MODE_STORAGE_KEY = 'koiworld.explicitGuestMode';
 const PLAY_GAMES_PROVIDER_ID = 'playgames.google.com';
 const NATIVE_AUTH_EXCHANGE_URL = 'https://asia-northeast1-koi-garden-abcf5.cloudfunctions.net/exchangeNativeFirebaseToken';
+const PLAY_GAMES_BOOTSTRAP_TIMEOUT_MS = 10_000;
+
+// Incrementing this value invalidates an in-flight automatic Play Games
+// attempt. This matters when the timeout falls back to guest mode and the
+// native plugin resolves later: that late result must not switch the JS
+// Firebase session back to Play Games.
+let automaticPlayGamesAttemptVersion = 0;
+
+const invalidateAutomaticPlayGamesAttempt = () => {
+    automaticPlayGamesAttemptVersion += 1;
+};
 
 const readAuthSource = (): AuthSource | null => {
     if (typeof window === 'undefined') return null;
@@ -73,15 +84,10 @@ const isGuestModeRequested = () => {
     const guestMode = window.localStorage.getItem(GUEST_MODE_STORAGE_KEY) === '1';
     const explicitlySelected = window.localStorage.getItem(EXPLICIT_GUEST_MODE_STORAGE_KEY) === '1';
 
-    // Older builds also set guestMode when automatic Play Games sign-in
-    // failed. Do not let that fallback permanently disable the next startup
-    // attempt; only an explicit guest choice or logout should do so.
-    if (guestMode && !explicitlySelected) {
-        window.localStorage.removeItem(GUEST_MODE_STORAGE_KEY);
-        return false;
-    }
-
-    return guestMode && explicitlySelected;
+    // A guest marker represents the last selected namespace. Automatic
+    // fallback also writes this marker, so a later app launch restores the
+    // guest session instead of repeatedly showing a Play Games prompt.
+    return guestMode || explicitlySelected;
 };
 
 const rememberGuestMode = () => {
@@ -192,6 +198,7 @@ export const checkRedirectResult = async (): Promise<AppUser | null> => {
 
 export const loginWithGoogle = async (): Promise<void> => {
     try {
+        invalidateAutomaticPlayGamesAttempt();
         if (Capacitor.isNativePlatform()) {
             const result = await FirebaseAuthentication.signInWithGoogle({
                 skipNativeAuth: true,
@@ -250,6 +257,7 @@ export const loginWithPlayGames = async (): Promise<AppUser> => {
     }
 
     try {
+        invalidateAutomaticPlayGamesAttempt();
         await FirebaseAuthentication.signOut();
     } catch (error) {
         // The native session may already be signed out. Continue with the
@@ -279,6 +287,7 @@ export const loginWithPlayGames = async (): Promise<AppUser> => {
 };
 
 export const loginAsGuest = async (): Promise<AppUser | null> => {
+    invalidateAutomaticPlayGamesAttempt();
     const result = await signInAnonymously(auth);
     rememberAuthSource('anonymous');
     rememberGuestMode();
@@ -313,45 +322,19 @@ const signInWebWithNativePlayGames = async (): Promise<FirebaseUser> => {
     return signedInResult.user;
 };
 
-/**
- * Restores the native Play Games identity and mirrors that verified Firebase
- * session into the JS SDK. Guest data intentionally remains on its own UID;
- * switching to Play Games must not merge the guest namespace into the account.
- */
-export const initializeAndroidSession = async (): Promise<AppUser | null> => {
-    if (Capacitor.getPlatform() !== 'android') {
-        return toAppUser(auth.currentUser);
-    }
+const attemptAutomaticPlayGamesLogin = async (): Promise<AppUser | null> => {
+    const attemptVersion = ++automaticPlayGamesAttemptVersion;
 
-    try {
-        // Wait until Firebase restores the locally persisted anonymous user
-        // before linking the Play Games credential. Without this, the native
-        // flow can finish first and create a new UID instead of preserving the
-        // player's existing guest data.
-        await auth.authStateReady();
-
-        if (isGuestModeRequested()) {
-            const guestUser = auth.currentUser?.isAnonymous
-                ? auth.currentUser
-                : (await signInAnonymously(auth)).user;
-            rememberAuthSource('anonymous');
-            logFirebaseAuthState('게스트 모드 유지', guestUser);
-            return toAppUser(guestUser);
-        }
-
-        // A deliberately selected Google/email session must remain that
-        // account on restart. Play Games is automatic only when there is no
-        // existing authenticated account to restore.
-        if (auth.currentUser && !auth.currentUser.isAnonymous) {
-            logFirebaseAuthState('기존 인증 계정 복원', auth.currentUser);
-            return toAppUser(auth.currentUser);
-        }
-
+    const nativeLogin = (async () => {
         const playGamesResult = await FirebaseAuthentication.signInWithPlayGames({
             // Play Games must be authenticated by the native Firebase SDK so
             // Firebase can keep the `playgames.google.com` provider identity.
             skipNativeAuth: false,
         });
+
+        if (attemptVersion !== automaticPlayGamesAttemptVersion) {
+            throw new Error('자동 Play Games 로그인 시도가 더 이상 유효하지 않습니다.');
+        }
 
         console.info(`[Auth] Play Games native credential result ${JSON.stringify({
             nativeUserReturned: Boolean(playGamesResult.user),
@@ -369,10 +352,87 @@ export const initializeAndroidSession = async (): Promise<AppUser | null> => {
             throw new Error(`네이티브 인증 Provider가 Play Games가 아닙니다: ${nativeProviderIds.join(', ') || '없음'}`);
         }
 
+        if (attemptVersion !== automaticPlayGamesAttemptVersion) {
+            throw new Error('자동 Play Games 로그인 시도가 더 이상 유효하지 않습니다.');
+        }
+
         rememberAuthSource('playgames');
         const signedInUser = await signInWebWithNativePlayGames();
+
+        if (attemptVersion !== automaticPlayGamesAttemptVersion) {
+            throw new Error('자동 Play Games 로그인 시도가 더 이상 유효하지 않습니다.');
+        }
+
         logFirebaseAuthState('Play Games Firebase 로그인 완료', signedInUser);
         return toAppUser(signedInUser);
+    })();
+
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<'timeout'>(resolve => {
+        timeoutId = setTimeout(() => resolve('timeout'), PLAY_GAMES_BOOTSTRAP_TIMEOUT_MS);
+    });
+
+    try {
+        const result = await Promise.race([
+            nativeLogin,
+            timeout,
+        ]);
+
+        if (result === 'timeout') {
+            invalidateAutomaticPlayGamesAttempt();
+            // Best effort only: the native call may still be waiting on the
+            // Play Games UI. Do not delay the promised 10-second guest entry.
+            void FirebaseAuthentication.signOut().catch(error => {
+                console.warn('[Auth] Timed-out Play Games native sign-out failed.', error);
+            });
+            void nativeLogin.catch(() => undefined);
+            console.warn('[Auth] Play Games automatic sign-in timed out; using guest mode.');
+            return null;
+        }
+
+        return result;
+    } finally {
+        if (timeoutId !== undefined) clearTimeout(timeoutId);
+    }
+};
+
+/**
+ * Restores the native Play Games identity and mirrors that verified Firebase
+ * session into the JS SDK. Guest data intentionally remains on its own UID;
+ * switching to Play Games must not merge the guest namespace into the account.
+ */
+export const initializeAndroidSession = async (): Promise<AppUser | null> => {
+    if (Capacitor.getPlatform() !== 'android') {
+        return toAppUser(auth.currentUser);
+    }
+
+    try {
+        // Wait until Firebase restores the locally persisted anonymous user
+        // before linking the Play Games credential. Without this, the native
+        // flow can finish first and create a new UID instead of preserving the
+        // player's existing guest data.
+        await auth.authStateReady();
+
+        if (isGuestModeRequested() || auth.currentUser?.isAnonymous) {
+            const guestUser = auth.currentUser?.isAnonymous
+                ? auth.currentUser
+                : (await signInAnonymously(auth)).user;
+            rememberAuthSource('anonymous');
+            rememberGuestMode();
+            logFirebaseAuthState('게스트 모드 유지', guestUser);
+            return toAppUser(guestUser);
+        }
+
+        // A deliberately selected Google/email session must remain that
+        // account on restart. Play Games is automatic only when there is no
+        // existing authenticated account to restore.
+        if (auth.currentUser && !auth.currentUser.isAnonymous) {
+            logFirebaseAuthState('기존 인증 계정 복원', auth.currentUser);
+            return toAppUser(auth.currentUser);
+        }
+
+        const playGamesUser = await attemptAutomaticPlayGamesLogin();
+        if (playGamesUser) return playGamesUser;
     } catch (error) {
         // Play Games may be unavailable on a device or not yet configured for
         // the tester. Firebase anonymous auth still lets the user play.
@@ -390,16 +450,22 @@ export const initializeAndroidSession = async (): Promise<AppUser | null> => {
     if (!auth.currentUser) {
         const result = await signInAnonymously(auth);
         rememberAuthSource('anonymous');
+        rememberGuestMode();
         logFirebaseAuthState('익명 로그인 fallback 완료', result.user);
         return toAppUser(result.user);
     }
 
+    if (auth.currentUser.isAnonymous) {
+        rememberAuthSource('anonymous');
+        rememberGuestMode();
+    }
     logFirebaseAuthState('기존 Firebase 사용자 유지', auth.currentUser);
     return toAppUser(auth.currentUser);
 };
 
 export const loginWithEmailPassword = async (email: string, password: string): Promise<AppUser | null> => {
     try {
+        invalidateAutomaticPlayGamesAttempt();
         const result = await signInWithEmailAndPassword(auth, email.trim(), password);
         rememberAuthSource('email');
         clearGuestMode();
@@ -416,6 +482,7 @@ export const signUpWithEmailPassword = async (
     nickname: string,
 ): Promise<AppUser | null> => {
     try {
+        invalidateAutomaticPlayGamesAttempt();
         const result = await createUserWithEmailAndPassword(auth, email.trim(), password);
         rememberAuthSource('email');
         clearGuestMode();
@@ -434,6 +501,7 @@ export const signUpWithEmailPassword = async (
 
 export const logout = async (): Promise<void> => {
     try {
+        invalidateAutomaticPlayGamesAttempt();
         if (Capacitor.isNativePlatform()) {
             await FirebaseAuthentication.signOut();
         }

@@ -3,7 +3,7 @@ import { KoiGenetics, GeneType, Spot, Koi, GrowthStage, SpotShape, DominanceType
 const ALL_SPOT_COLORS = [GeneType.RED, GeneType.ORANGE, GeneType.YELLOW, GeneType.WHITE, GeneType.BLACK];
 
 const RECESSIVE_COLORS = [
-    GeneType.ORANGE, GeneType.YELLOW, GeneType.CREAM, GeneType.BLACK, GeneType.RED
+    GeneType.ORANGE, GeneType.YELLOW, GeneType.BLACK, GeneType.RED
 ];
 
 const SPECIAL_COLORS: GeneType[] = [
@@ -187,7 +187,7 @@ const SPOT_COLOR_MUTATION_CHANCE = 0.04;
 const SIZE_MUTATION_AMOUNT = 5; // Variation in spot size during breeding (Not related to koi size)
 const LIGHTNESS_MUTATION_CHANCE = 0.2;
 const LIGHTNESS_MUTATION_AMOUNT = 5;
-const BASE_COLOR_MUTATION_CHANCE = 0.005;
+const BASE_COLOR_MUTATION_CHANCE = 0.01;
 const SPECIAL_MUTATION_CHANCE = 0;
 
 const getSpotSizeRange = (shape: SpotShape): { min: number, max: number } => {

@@ -1,12 +1,13 @@
 import React, { createContext, useContext, useEffect, useRef, useState, ReactNode } from 'react';
 import { Capacitor } from '@capacitor/core';
-import { AppUser, subscribeToAuthChanges, loginWithGoogle, logout, checkRedirectResult, initializeAndroidSession, loginWithEmailPassword, signUpWithEmailPassword, deleteCurrentUser, reauthenticateCurrentUser } from '../services/auth';
+import { AppUser, subscribeToAuthChanges, loginWithGoogle, loginAsGuest, logout, checkRedirectResult, initializeAndroidSession, loginWithEmailPassword, signUpWithEmailPassword, deleteCurrentUser, reauthenticateCurrentUser } from '../services/auth';
 import { deleteUserData } from '../services/cloudData';
 
 interface AuthContextType {
     user: AppUser | null;
     loading: boolean;
     login: () => Promise<void>;
+    continueAsGuest: () => Promise<void>;
     loginWithEmail: (email: string, password: string) => Promise<void>;
     signUpWithEmail: (email: string, password: string, nickname: string) => Promise<void>;
     logout: () => Promise<void>;
@@ -24,29 +25,44 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         let isMounted = true;
 
         const bootstrapAuth = async () => {
-            try {
-                const restoredUser = await checkRedirectResult();
-                if (isMounted && restoredUser) {
-                    setUser(restoredUser);
+            let restoredUser: AppUser | null = null;
+
+            // Firebase's redirect result is a Web SDK flow. Do not let an
+            // unsupported redirect check on Android prevent the native Play
+            // Games session from being initialized below.
+            if (!Capacitor.isNativePlatform()) {
+                try {
+                    restoredUser = await checkRedirectResult();
+                    if (isMounted && restoredUser) {
+                        setUser(restoredUser);
+                    }
+                } catch (error) {
+                    console.error("Web auth redirect restore failed:", error);
                 }
+            }
 
-                const shouldAttemptAndroidPlayGames =
-                    Capacitor.getPlatform() === 'android' &&
-                    (!restoredUser || restoredUser.isAnonymous);
+            const shouldAttemptAndroidPlayGames =
+                Capacitor.getPlatform() === 'android' &&
+                (!restoredUser || restoredUser.isAnonymous);
 
-                if (shouldAttemptAndroidPlayGames) {
+            if (shouldAttemptAndroidPlayGames) {
+                try {
                     const nativeUser = await initializeAndroidSession();
                     if (isMounted && nativeUser) {
                         setUser(nativeUser);
                     }
+                } catch (error) {
+                    // initializeAndroidSession already falls back to an
+                    // anonymous Firebase session. Keep this guard so a native
+                    // plugin error cannot leave the AuthProvider loading
+                    // forever or skip the rest of app startup.
+                    console.error("Android Play Games bootstrap failed:", error);
                 }
-            } catch (error) {
-                console.error("Auth bootstrap error:", error);
-            } finally {
-                if (isMounted) {
-                    isBootstrappingNativeSession.current = false;
-                    setLoading(false);
-                }
+            }
+
+            if (isMounted) {
+                isBootstrappingNativeSession.current = false;
+                setLoading(false);
             }
         };
 
@@ -87,6 +103,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
     };
 
+    const handleGuestLogin = async () => {
+        try {
+            await loginAsGuest();
+        } catch (error) {
+            console.error('Guest login failed context:', error);
+            throw error;
+        }
+    };
+
     const handleEmailSignUp = async (email: string, password: string, nickname: string) => {
         try {
             const createdUser = await signUpWithEmailPassword(email, password, nickname);
@@ -122,7 +147,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
 
     return (
-        <AuthContext.Provider value={{ user, loading, login: handleLogin, loginWithEmail: handleEmailLogin, signUpWithEmail: handleEmailSignUp, logout: handleLogout, deleteAccount: handleDeleteAccount }}>
+        <AuthContext.Provider value={{ user, loading, login: handleLogin, continueAsGuest: handleGuestLogin, loginWithEmail: handleEmailLogin, signUpWithEmail: handleEmailSignUp, logout: handleLogout, deleteAccount: handleDeleteAccount }}>
             {children}
         </AuthContext.Provider>
     );

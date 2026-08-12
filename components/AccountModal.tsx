@@ -171,9 +171,9 @@ export const AccountModal: React.FC<AccountModalProps> = ({
             setIsLoggingOut(true);
             audioManager.playSFX('click');
             await logout();
-            broadcastForceClear();
             onClose();
             onLogoutCleanup();
+            resumeLocalGameSave();
         } catch (logoutError) {
             resumeLocalGameSave();
             alert('로그아웃에 실패했습니다.');

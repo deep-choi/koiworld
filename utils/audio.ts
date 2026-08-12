@@ -6,6 +6,7 @@ let bgmSource: AudioBufferSourceNode | null = null;
 let isMuted = false;
 let currentBgmVolume = 0.3;
 let currentSfxVolume = 0.5;
+let successSfxBufferPromise: Promise<AudioBuffer | null> | null = null;
 
 const initAudio = () => {
     if (!audioCtx) {
@@ -23,6 +24,32 @@ const initAudio = () => {
         audioCtx.resume();
     }
     return audioCtx;
+};
+
+const playAudioFile = (path: string) => {
+    const ctx = initAudio();
+    if (!ctx || !sfxGainNode) return;
+
+    if (!successSfxBufferPromise) {
+        successSfxBufferPromise = fetch(path)
+            .then(response => {
+                if (!response.ok) throw new Error(`Audio request failed: ${response.status}`);
+                return response.arrayBuffer();
+            })
+            .then(arrayBuffer => ctx.decodeAudioData(arrayBuffer))
+            .catch(error => {
+                console.error(`Failed to load SFX: ${path}`, error);
+                return null;
+            });
+    }
+
+    void successSfxBufferPromise.then(buffer => {
+        if (!buffer || !sfxGainNode) return;
+        const source = ctx.createBufferSource();
+        source.buffer = buffer;
+        source.connect(sfxGainNode);
+        source.start();
+    });
 };
 
 export const audioManager = {
@@ -93,9 +120,14 @@ export const audioManager = {
         }
     },
 
-    playSFX: (type: 'plop' | 'coin' | 'breed' | 'click' | 'purchase' | 'eat') => {
+    playSFX: (type: 'plop' | 'coin' | 'breed' | 'click' | 'purchase' | 'eat' | 'success') => {
         const ctx = initAudio();
         if (!ctx || !sfxGainNode) return;
+
+        if (type === 'success') {
+            playAudioFile('/success.mp3');
+            return;
+        }
 
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();

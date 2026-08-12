@@ -1,7 +1,9 @@
 import { initializeApp } from 'firebase-admin/app';
+import { getAuth } from 'firebase-admin/auth';
 import { FieldValue, getFirestore, type DocumentData, type Transaction } from 'firebase-admin/firestore';
 import { setGlobalOptions } from 'firebase-functions/v2';
-import { HttpsError, onCall } from 'firebase-functions/v2/https';
+import { HttpsError, onCall, onRequest } from 'firebase-functions/v2/https';
+import type { Request, Response } from 'express';
 
 initializeApp();
 
@@ -11,6 +13,7 @@ const TROPHY_PRICE = 100_000;
 const MAX_TROPHY_QUANTITY = 99;
 const MAX_EVENT_ID_LENGTH = 80;
 const MAX_PROFILE_DATA_URL_LENGTH = 120_000;
+const NATIVE_AUTH_SOURCE = 'playgames';
 
 setGlobalOptions({
     region: REGION,
@@ -18,6 +21,14 @@ setGlobalOptions({
     memory: '256MiB',
     timeoutSeconds: 30,
 });
+
+const setNativeAuthExchangeCors = (request: Request, response: Response): void => {
+    const origin = request.header('origin');
+    response.set('Access-Control-Allow-Origin', origin || '*');
+    response.set('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+    response.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    response.set('Vary', 'Origin');
+};
 
 type Profile = {
     nickname: string;
@@ -101,6 +112,51 @@ const requireAuth = (uid: string | undefined): string => {
     if (!uid) throw new HttpsError('unauthenticated', '로그인이 필요합니다.');
     return uid;
 };
+
+/**
+ * Bridges a native Firebase Play Games session into the Firebase JS SDK.
+ *
+ * The native SDK can validate the Play Games server auth code and create the
+ * correct `playgames.google.com` Firebase user. The JS SDK cannot consume
+ * that native credential directly, so the verified native ID token is
+ * exchanged for a custom token for the same UID.
+ */
+export const exchangeNativeFirebaseToken = onRequest(async (request, response) => {
+    setNativeAuthExchangeCors(request, response);
+
+    if (request.method === 'OPTIONS') {
+        response.status(204).send('');
+        return;
+    }
+
+    if (request.method !== 'POST') {
+        response.status(405).json({ error: 'Method not allowed.' });
+        return;
+    }
+
+    const authorization = request.header('authorization') ?? '';
+    const tokenMatch = authorization.match(/^Bearer\s+(.+)$/i);
+    if (!tokenMatch) {
+        response.status(401).json({ error: 'A Firebase ID token is required.' });
+        return;
+    }
+
+    try {
+        const decodedToken = await getAuth().verifyIdToken(tokenMatch[1]);
+        if (decodedToken.firebase?.sign_in_provider !== 'playgames.google.com') {
+            response.status(403).json({ error: 'Only a Play Games Firebase session can use this endpoint.' });
+            return;
+        }
+
+        const token = await getAuth().createCustomToken(decodedToken.uid, {
+            authSource: NATIVE_AUTH_SOURCE,
+        });
+        response.status(200).json({ token, uid: decodedToken.uid });
+    } catch (error) {
+        console.error('Native Firebase token exchange failed:', error);
+        response.status(401).json({ error: 'The Firebase ID token is invalid or expired.' });
+    }
+});
 
 const requireEventId = (value: unknown): string => {
     if (typeof value !== 'string' || value.length < 8 || value.length > MAX_EVENT_ID_LENGTH) {

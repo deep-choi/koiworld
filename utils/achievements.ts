@@ -132,13 +132,18 @@ const getTierColor = (tier: string, baseColor: string): string => {
 
 COLORS.forEach(color => {
     VARIATIONS.forEach(variant => {
+        // The game starts with a cream koi, so this achievement is the first
+        // tutorial milestone rather than an intermediate challenge. Keep the
+        // achievement ID unchanged so existing progress remains valid.
+        const tier = color.type === GeneType.CREAM ? 'novice' : variant.tier;
+
         ACHIEVEMENTS.push({
             id: `color_${color.type}_${variant.id}`,
             title: `${color.name} 코이`,
             description: `${color.name} 색상의 코이를 획득하세요.`,
             icon: 'medal',
-            tier: variant.tier,
-            displayColor: getTierColor(variant.tier, color.color),
+            tier,
+            displayColor: getTierColor(tier, color.color),
             category: 'color',
             reward: {
                 achievementPoints: variant.reward.achievementPoints,

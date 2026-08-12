@@ -24,6 +24,35 @@
     animation: authPop 0.24s ease-out;
 }
 
+.auth-modal-header {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.auth-close-button {
+    position: absolute;
+    top: -7px;
+    right: -10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    border: 0;
+    border-radius: 999px;
+    background: #f1f5f9;
+    color: #94a3b8;
+    cursor: pointer;
+    transition: background-color 0.18s ease, color 0.18s ease;
+}
+
+.auth-close-button:hover {
+    background: #e2e8f0;
+    color: #475569;
+}
+
 .auth-modal-content::-webkit-scrollbar {
     width: 0;
 }

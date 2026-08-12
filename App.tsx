@@ -25,7 +25,7 @@ import { AuthModal } from './components/AuthModal';
 import { startSession } from './services/session';
 import { saveGameToCloud, loadUserDataOnce, listenToGameData } from './services/sync';
 import { SessionConflictModal } from './components/SessionConflictModal';
-import { FORCE_CLEAR_KEY, SAVE_GAME_KEY, clearLocalGameSaves, isLocalGameSaveSuppressed, resumeLocalGameSave, suppressLocalGameSave } from './services/localSave';
+import { FORCE_CLEAR_KEY, SAVE_GAME_KEY, clearLocalGameSaves, getScopedSaveGameKey, isLocalGameSaveSuppressed, resumeLocalGameSave, suppressLocalGameSave } from './services/localSave';
 import { startTabLock, type TabLockController } from './services/tabLock';
 import { ensureUserProfileNickname, updateUserProfileSettings } from './services/profile';
 import { RankingModal } from './components/RankingModal';
@@ -52,15 +52,24 @@ const FOOD_LARGE_PACK_AMOUNT = 250;
 const CORN_LARGE_PACK_PRICE = 5000;
 const CORN_LARGE_PACK_AMOUNT = 250;
 
-const loadGameState = (): SavedGameState | null => {
+const loadGameState = (uid?: string | null): SavedGameState | null => {
+  const scopedKey = getScopedSaveGameKey(uid);
   try {
-    const savedData = localStorage.getItem(SAVE_GAME_KEY);
+    let savedData = localStorage.getItem(scopedKey);
+
+    // Migrate the old unscoped save into the guest namespace only. It must
+    // never be used as the initial state for an authenticated UID.
+    if (!savedData && !uid) {
+      savedData = localStorage.getItem(SAVE_GAME_KEY);
+      if (savedData) localStorage.setItem(scopedKey, savedData);
+    }
+
     if (savedData) {
       const parsed = JSON.parse(savedData);
       if (isValidSavedGameState(parsed)) {
         return parsed;
       }
-      localStorage.removeItem(SAVE_GAME_KEY);
+      localStorage.removeItem(scopedKey);
       console.warn("Invalid saved game state removed.");
     }
   } catch (error) {
@@ -69,21 +78,8 @@ const loadGameState = (): SavedGameState | null => {
   return null;
 }
 
-const maxProgressValue = (...values: unknown[]): number => values.reduce<number>((highest, value) => {
-  const numericValue = Number(value);
-  return Number.isFinite(numericValue) && numericValue >= 0
-    ? Math.max(highest, numericValue)
-    : highest;
-}, 0);
-
-const mergeAchievementIds = (...values: unknown[]): string[] => Array.from(new Set(
-  values.flatMap(value => Array.isArray(value)
-    ? value.filter((id): id is string => typeof id === 'string')
-    : []),
-));
-
 export const App: React.FC = () => {
-  const [savedState] = useState(loadGameState);
+  const [savedState] = useState(() => loadGameState(null));
 
   const {
     ponds,
@@ -130,6 +126,7 @@ export const App: React.FC = () => {
   // --- New Feature States ---
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const { user, loading: authLoading, logout: logoutFromContext } = useAuth();
+  const localSaveScope = user && !user.isAnonymous ? user.uid : null;
 
   // Session & Sync State
   const [isConflictOpen, setIsConflictOpen] = useState(false);
@@ -143,10 +140,12 @@ export const App: React.FC = () => {
     unlockedIds: string[];
     claimedIds: string[];
     totalPoints?: number;
-  } | null>(() => savedState?.achievements ? {
-    ...savedState.achievements,
-    totalPoints: maxProgressValue(savedState.achievementPoints),
-  } : null);
+    scope: string;
+  } | null>(null);
+  const achievementScope = localSaveScope ?? 'guest';
+  const scopedInitialAchievementData = initialAchievementData?.scope === achievementScope
+    ? initialAchievementData
+    : null;
   const {
     achievements,
     unlockedIds,
@@ -156,14 +155,16 @@ export const App: React.FC = () => {
     hasUnclaimedRewards,
     totalPoints: achievementScore,
     isLoaded: achievementsLoaded,
-  } = useAchievements(user?.uid, initialAchievementData);
+  } = useAchievements(localSaveScope ?? undefined, scopedInitialAchievementData);
   const [isAchievementModalOpen, setIsAchievementModalOpen] = useState(false);
   const lastAchievementCheckKeyRef = useRef('');
   const achievementGeneticsSignatureCacheRef = useRef(new WeakMap<Koi['genetics'], string>());
 
   // Show achievement unlock notification
   useEffect(() => {
-    if (!user?.uid || !achievementsLoaded || koiList.length === 0) return;
+    // Never evaluate the previous account's koi while the new local/cloud
+    // namespace is still being hydrated.
+    if (localHydratedScopeRef.current !== achievementScope || !achievementsLoaded || koiList.length === 0) return;
 
     // 업적 조건과 무관한 상태(예: 스태미나/수질 변화)로 재검사를 반복하지 않도록 키를 계산합니다.
     const achievementCheckKey = koiList
@@ -202,9 +203,9 @@ export const App: React.FC = () => {
         message: `🏆 업적 달성: ${newUnlocks[0].title}`,
         type: 'success'
       });
-      audioManager.playSFX('click'); // Reuse existing SFX or add new one
+      audioManager.playSFX('success');
     }
-  }, [koiList, user?.uid, achievementsLoaded, checkAchievements]);
+  }, [koiList, achievementScope, achievementsLoaded, checkAchievements]);
 
   const handleClaimReward = async (id: string) => {
     try {
@@ -239,10 +240,10 @@ export const App: React.FC = () => {
       gameStateRef.current = immediateState;
 
       if (!isDuplicateTabPaused && !isLocalGameSaveSuppressed()) {
-        persistLocalGameState(immediateState);
+        persistLocalGameState(immediateState, localSaveScope);
       }
 
-      if (user && isCloudSyncReady && !isDuplicateTabPaused && !isLocalGameSaveSuppressed()) {
+      if (user && !user.isAnonymous && isCloudSyncReady && cloudHydratedUserIdRef.current === user.uid && !isDuplicateTabPaused && !isLocalGameSaveSuppressed()) {
         await enqueueCloudSave(user.uid, immediateState);
       }
     } catch (error) {
@@ -273,6 +274,8 @@ export const App: React.FC = () => {
   const latestFoodCountsRef = useRef({ food: foodCount, corn: cornCount, type: selectedFoodType });
   const lastLocalSavePayloadRef = useRef<string | null>(null);
   const lastCloudSavePayloadRef = useRef<string | null>(null);
+  const cloudHydratedUserIdRef = useRef<string | null>(null);
+  const localHydratedScopeRef = useRef<string | null>('guest');
   const cloudSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const pendingCloudPayloadRef = useRef<string | null>(null);
   const rankingSyncKeyRef = useRef('');
@@ -283,7 +286,7 @@ export const App: React.FC = () => {
   }, [foodCount, cornCount, selectedFoodType]);
 
   useEffect(() => {
-    const scopeId = user?.uid ?? 'guest';
+    const scopeId = achievementScope;
     const lock = startTabLock(scopeId, {
       onActive: () => {
         resumeLocalGameSave();
@@ -309,7 +312,7 @@ export const App: React.FC = () => {
         tabLockRef.current = null;
       }
     };
-  }, [user?.uid]);
+  }, [achievementScope]);
 
   // Clear notification after 3 seconds
   useEffect(() => {
@@ -431,10 +434,10 @@ export const App: React.FC = () => {
     };
   }, [ponds, activePondId, zenPoints, foodCount, cornCount, honorPoints, achievementScore, unlockedIds, claimedIds, koiNameCounter]);
 
-  const persistLocalGameState = useCallback((state: SavedGameState) => {
+  const persistLocalGameState = useCallback((state: SavedGameState, uid?: string | null) => {
     const payload = JSON.stringify(state);
     try {
-      localStorage.setItem(SAVE_GAME_KEY, payload);
+      localStorage.setItem(getScopedSaveGameKey(uid), payload);
       lastLocalSavePayloadRef.current = payload;
     } catch (error) {
       console.error("Local save failed:", error);
@@ -481,13 +484,13 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     rankingSyncKeyRef.current = '';
-  }, [user?.uid]);
+  }, [achievementScope]);
 
   // Achievement and trophy scores are client-owned. Once the authenticated
   // state is hydrated, publish the local values immediately so the public
   // ranking does not wait for the periodic save interval.
   useEffect(() => {
-    if (!user || !isCloudSyncReady || !achievementsLoaded || !gameStateRef.current) return;
+    if (!user || user.isAnonymous || !isCloudSyncReady || cloudHydratedUserIdRef.current !== user.uid || !achievementsLoaded || !gameStateRef.current) return;
 
     const syncKey = JSON.stringify({
       achievementScore,
@@ -517,12 +520,51 @@ export const App: React.FC = () => {
 
     const initSession = async () => {
       let cloudReady = false;
-      if (!user) {
+      cloudHydratedUserIdRef.current = null;
+      localHydratedScopeRef.current = null;
+      if (!user || user.isAnonymous) {
         setIsCloudSyncReady(false);
+        if (user?.isAnonymous) {
+          suppressLocalGameSave();
+          const guestState = loadGameState(null);
+          if (guestState) {
+            handleLoadGame(guestState, { silent: true, replace: true });
+          } else {
+            setPonds(createInitialPonds());
+            setActivePondId('pond-1');
+            setZenPoints(import.meta.env.DEV ? 10000 : 2000);
+            setFoodCount(20);
+            setCornCount(0);
+            setHonorPoints(0);
+            setKoiNameCounter(3);
+            setInitialAchievementData(null);
+          }
+        }
+        localHydratedScopeRef.current = 'guest';
+        resumeLocalGameSave();
         return;
       }
+
+      // Freeze local writes while switching namespaces. Otherwise the first
+      // guest render could be written into the newly selected account key
+      // before its own local/cloud state has been hydrated.
+      suppressLocalGameSave();
       setIsCloudSyncReady(false);
       try {
+        const scopedLocalState = loadGameState(localSaveScope);
+        if (scopedLocalState) {
+          handleLoadGame(scopedLocalState, { silent: true, replace: true });
+        } else {
+          setPonds(createInitialPonds());
+          setActivePondId('pond-1');
+          setZenPoints(import.meta.env.DEV ? 10000 : 2000);
+          setFoodCount(20);
+          setCornCount(0);
+          setHonorPoints(0);
+          setKoiNameCounter(3);
+          setInitialAchievementData(null);
+        }
+
         const verifiedNickname = await ensureUserProfileNickname(user.uid, user.displayName, user.email, user.photoURL);
         const [, userData] = await Promise.all([
           startSession(user.uid),
@@ -532,9 +574,9 @@ export const App: React.FC = () => {
 
         // 통합 데이터에서 한번에 설정
         if (userData) {
-          if (userData.gameData) handleLoadGame(userData.gameData, { markAsSynced: true });
+          if (userData.gameData) handleLoadGame(userData.gameData, { markAsSynced: true, replace: true });
           if (userData.achievements) {
-            setInitialAchievementData(userData.achievements);
+            setInitialAchievementData({ ...userData.achievements, scope: user.uid });
           }
         }
 
@@ -543,10 +585,15 @@ export const App: React.FC = () => {
         setUserPhotoURL(userData?.photoURL ?? user.photoURL ?? null);
 
         cloudReady = true;
+        cloudHydratedUserIdRef.current = user.uid;
+        localHydratedScopeRef.current = localSaveScope;
       } catch (error) {
         if (!cancelled) console.error("Session init failed:", error);
       } finally {
-        if (!cancelled) setIsCloudSyncReady(cloudReady);
+        if (!cancelled) {
+          setIsCloudSyncReady(cloudReady);
+          resumeLocalGameSave();
+        }
       }
     };
 
@@ -554,7 +601,7 @@ export const App: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [user]);
+  }, [user, localSaveScope]);
 
   // Periodic Save (Cloud + Local)
   useEffect(() => {
@@ -562,16 +609,17 @@ export const App: React.FC = () => {
       const currentState = gameStateRef.current;
       if (!currentState) return;
       if (isDuplicateTabPaused || isLocalGameSaveSuppressed()) return;
+      if (localHydratedScopeRef.current !== (localSaveScope ?? 'guest')) return;
 
       const payload = JSON.stringify(currentState);
 
       // Local save only when payload changes.
       if (payload !== lastLocalSavePayloadRef.current) {
-        persistLocalGameState(currentState);
+        persistLocalGameState(currentState, localSaveScope);
       }
 
       // Cloud save only when payload changes.
-      if (!user || !isCloudSyncReady) return;
+      if (!user || user.isAnonymous || !isCloudSyncReady || cloudHydratedUserIdRef.current !== user.uid) return;
       if (payload === lastCloudSavePayloadRef.current) return;
       try {
         await enqueueCloudSave(user.uid, currentState);
@@ -583,11 +631,17 @@ export const App: React.FC = () => {
     }, 15000);
 
     return () => clearInterval(saveInterval);
-  }, [user, isCloudSyncReady, isDuplicateTabPaused, enqueueCloudSave, persistLocalGameState]);
+  }, [user, localSaveScope, isCloudSyncReady, isDuplicateTabPaused, enqueueCloudSave, persistLocalGameState]);
 
   const handleSaveProfile = useCallback(async (nickname: string, photoURL: string | null) => {
     if (!user) return;
     const trimmed = nickname.trim();
+    if (user.isAnonymous) {
+      setUserNickname(trimmed);
+      setUserPhotoURL(photoURL);
+      setNotification({ message: '게스트 프로필이 저장되었습니다.', type: 'success' });
+      return;
+    }
     await updateUserProfileSettings(user.uid, trimmed, photoURL);
     setUserNickname(trimmed);
     setUserPhotoURL(photoURL);
@@ -636,7 +690,7 @@ export const App: React.FC = () => {
       koiNameCounter: 3,
     };
 
-    if (user) {
+    if (user && !user.isAnonymous) {
       // 로그인 상태: 클라우드에 즉시 초기화 상태 저장
       try {
         await saveGameToCloud(user.uid, initialState);
@@ -648,7 +702,7 @@ export const App: React.FC = () => {
       }
     }
 
-    localStorage.setItem(SAVE_GAME_KEY, JSON.stringify(initialState));
+    localStorage.setItem(getScopedSaveGameKey(localSaveScope), JSON.stringify(initialState));
     localStorage.removeItem('zenPoints'); // legacy cleanup
 
     // 리로드하여 전체 상태를 깨끗하게 반영
@@ -657,53 +711,42 @@ export const App: React.FC = () => {
   };
 
   const handleLogoutCleanup = () => {
-    setZenPoints(2000);
+    const guestState = loadGameState(null);
+    if (guestState) {
+      handleLoadGame(guestState, { silent: true, replace: true });
+      return;
+    }
+
+    setPonds(createInitialPonds());
+    setActivePondId('pond-1');
+    setZenPoints(import.meta.env.DEV ? 10000 : 2000);
+    setFoodCount(20);
+    setCornCount(0);
+    setHonorPoints(0);
+    setKoiNameCounter(3);
     setInitialAchievementData(null);
-    resetPonds();
   };
 
-  const handleLoadGame = (loadedState: SavedGameState, options: { silent?: boolean; markAsSynced?: boolean } = {}) => {
+  const handleLoadGame = (loadedState: SavedGameState, options: { silent?: boolean; markAsSynced?: boolean; replace?: boolean } = {}) => {
     if (!isValidSavedGameState(loadedState)) {
       console.warn("Ignored invalid game state:", loadedState);
       return;
     }
 
-    const currentState = gameStateRef.current;
-    const mergedHonorPoints = maxProgressValue(
-      loadedState.honorPoints,
-      currentState?.honorPoints,
-      savedState?.honorPoints,
-    );
-    const mergedAchievementPoints = maxProgressValue(
-      loadedState.achievementPoints,
-      currentState?.achievementPoints,
-      savedState?.achievementPoints,
-    );
-    const mergedClaimedIds = mergeAchievementIds(
-      loadedState.achievements?.claimedIds,
-      currentState?.achievements?.claimedIds,
-      savedState?.achievements?.claimedIds,
-    );
-    const mergedUnlockedIds = mergeAchievementIds(
-      loadedState.achievements?.unlockedIds,
-      currentState?.achievements?.unlockedIds,
-      savedState?.achievements?.unlockedIds,
-      mergedClaimedIds,
-    );
     const mergedState: SavedGameState = {
       ...loadedState,
-      honorPoints: mergedHonorPoints,
-      achievementPoints: mergedAchievementPoints,
+      honorPoints: Number(loadedState.honorPoints ?? 0),
+      achievementPoints: Number(loadedState.achievementPoints ?? 0),
       achievements: {
-        unlockedIds: mergedUnlockedIds,
-        claimedIds: mergedClaimedIds,
+        unlockedIds: loadedState.achievements?.unlockedIds ?? [],
+        claimedIds: loadedState.achievements?.claimedIds ?? [],
       },
     };
 
     if (options.markAsSynced) {
       const payload = JSON.stringify(mergedState);
       try {
-        localStorage.setItem(SAVE_GAME_KEY, payload);
+        localStorage.setItem(getScopedSaveGameKey(localSaveScope), payload);
         lastLocalSavePayloadRef.current = payload;
       } catch (error) {
         console.error("Failed to persist synced game state locally:", error);
@@ -717,12 +760,13 @@ export const App: React.FC = () => {
     setZenPoints(mergedState.zenPoints);
     setFoodCount(mergedState.foodCount);
     setCornCount(mergedState.cornCount || 0);
-    setHonorPoints(mergedHonorPoints);
+    setHonorPoints(mergedState.honorPoints);
     setKoiNameCounter(mergedState.koiNameCounter);
     setInitialAchievementData({
-      unlockedIds: mergedUnlockedIds,
-      claimedIds: mergedClaimedIds,
-      totalPoints: mergedAchievementPoints,
+      unlockedIds: mergedState.achievements.unlockedIds,
+      claimedIds: mergedState.achievements.claimedIds,
+      totalPoints: mergedState.achievementPoints,
+      scope: achievementScope,
     });
     if (!options.silent) {
       setNotification({ message: "게임을 불러왔습니다.", type: 'success' });
@@ -730,7 +774,7 @@ export const App: React.FC = () => {
   };
 
   useEffect(() => {
-    if (!user || !isCloudSyncReady || isDuplicateTabPaused) return;
+    if (!user || user.isAnonymous || !isCloudSyncReady || cloudHydratedUserIdRef.current !== user.uid || isDuplicateTabPaused) return;
 
     return listenToGameData(user.uid, (cloudState) => {
       const cloudPayload = JSON.stringify(cloudState);
@@ -744,9 +788,9 @@ export const App: React.FC = () => {
         return;
       }
 
-      handleLoadGame(cloudState, { silent: true, markAsSynced: true });
+      handleLoadGame(cloudState, { silent: true, markAsSynced: true, replace: true });
     });
-  }, [user?.uid, isCloudSyncReady, isDuplicateTabPaused]);
+  }, [user?.uid, isCloudSyncReady, isDuplicateTabPaused, localSaveScope]);
 
   const handleUpdateKoi = (koiId: string, updates: { genetics?: Partial<KoiGenetics>; growthStage?: GrowthStage }) => {
     setPonds((prev: Ponds) => {
@@ -833,15 +877,15 @@ export const App: React.FC = () => {
     const parent2 = parents[1];
 
     // Check Stamina
-    if ((parent1.stamina ?? 0) < 30 || (parent2.stamina ?? 0) < 30) {
-      setNotification({ message: '부모 코이의 체력이 부족합니다! (최소 30 필요)', type: 'error' });
+    if ((parent1.stamina ?? 0) < 40 || (parent2.stamina ?? 0) < 40) {
+      setNotification({ message: '부모 코이의 체력이 부족합니다! (최소 40 필요)', type: 'error' });
       return;
     }
 
     const offspringCount = Math.min(Math.floor(Math.random() * 4) + 2, remainingCapacity); // 2 to 5
 
     setZenPoints(p => p - BREEDING_COST);
-    activePond && consumeStamina([parent1.id, parent2.id], 30); // Consume 30 stamina
+    activePond && consumeStamina([parent1.id, parent2.id], 40); // Consume 40 stamina from each parent
     reduceWaterQuality(4);
     audioManager.playSFX('breed');
 
@@ -961,11 +1005,11 @@ export const App: React.FC = () => {
     gameStateRef.current = immediateState;
 
     if (!isDuplicateTabPaused && !isLocalGameSaveSuppressed()) {
-      persistLocalGameState(immediateState);
+      persistLocalGameState(immediateState, localSaveScope);
     }
 
     // Serialize this save behind any periodic save already in progress.
-    if (user && isCloudSyncReady && !isDuplicateTabPaused && !isLocalGameSaveSuppressed()) {
+    if (user && !user.isAnonymous && isCloudSyncReady && cloudHydratedUserIdRef.current === user.uid && !isDuplicateTabPaused && !isLocalGameSaveSuppressed()) {
       try {
         await enqueueCloudSave(user.uid, immediateState);
       } catch (error) {
@@ -990,6 +1034,7 @@ export const App: React.FC = () => {
     koiNameCounter,
     enqueueCloudSave,
     persistLocalGameState,
+    localSaveScope,
   ]);
 
   const handlePondPointerDown = useCallback((event: React.PointerEvent<HTMLElement> | React.MouseEvent<HTMLElement>, koi?: Koi) => {
@@ -1118,7 +1163,7 @@ export const App: React.FC = () => {
   const canBreed = useMemo(() => {
     if (breedingSelection.length !== 2 || zenPoints < BREEDING_COST) return false;
     const hasNonAdult = selectedKoisForBreeding.some(k => k.growthStage !== GrowthStage.ADULT);
-    const hasLowStamina = selectedKoisForBreeding.some(k => (k.stamina ?? 0) < 30);
+    const hasLowStamina = selectedKoisForBreeding.some(k => (k.stamina ?? 0) < 40);
     return !hasNonAdult && !hasLowStamina;
   }, [breedingSelection, selectedKoisForBreeding, zenPoints]);
 
@@ -1244,12 +1289,15 @@ export const App: React.FC = () => {
         {/* Profile Section - Unified Circular Icon Only */}
         <button
           onClick={() => {
-            if (!user) setIsAuthModalOpen(true);
+            // Anonymous Firebase auth is only the implementation detail for
+            // the local guest namespace. Guests should see the auth choices,
+            // not an account modal with a misleading "로그아웃" action.
+            if (!user || user.isAnonymous) setIsAuthModalOpen(true);
             else setIsAccountModalOpen(true);
           }}
-          className="bg-white/10 backdrop-blur-sm p-0 rounded-full border border-white/20 text-white hover:text-orange-400 transition-colors hover:bg-white/20 hover:border-white/30 w-[46px] h-[46px] overflow-hidden flex items-center justify-center group shadow-xl ml-1"
-          title={user ? `${user.displayName || userNickname || '게스트'} 님` : '클릭하여 로그인'}
-          aria-label={user ? '계정 정보 열기' : '로그인 창 열기'}
+          className="bg-white/10 backdrop-blur-sm p-0 rounded-full border border-white/20 text-white hover:text-orange-400 transition-colors hover:bg-white/20 hover:border-white/30 w-[46px] h-[46px] overflow-hidden flex items-center justify-center group"
+          title={user && !user.isAnonymous ? `${user.displayName || userNickname || '사용자'} 님` : '로그인 또는 회원가입'}
+          aria-label={user && !user.isAnonymous ? '계정 정보 열기' : '로그인 창 열기'}
         >
           {user && (userPhotoURL ?? user.photoURL) ? (
             <img
@@ -1258,7 +1306,7 @@ export const App: React.FC = () => {
               className="w-full h-full object-cover"
             />
           ) : (
-            <div className="w-full h-full flex items-center justify-center text-white/80 group-hover:text-orange-400 bg-white/10">
+            <div className="w-full h-full flex items-center justify-center text-white/80 group-hover:text-orange-400">
               <User size={24} strokeWidth={1.5} />
             </div>
           )}
@@ -1311,8 +1359,8 @@ export const App: React.FC = () => {
                 <div className="text-red-400 text-xs text-center font-bold bg-black/50 p-1 rounded">
                   {selectedKoisForBreeding.some(k => k.growthStage !== GrowthStage.ADULT)
                     ? "성체 코이만 교배 가능합니다."
-                    : selectedKoisForBreeding.some(k => (k.stamina ?? 0) < 30)
-                      ? "체력이 부족합니다. (최소 30)"
+                    : selectedKoisForBreeding.some(k => (k.stamina ?? 0) < 40)
+                      ? "체력이 부족합니다. (최소 40)"
                       : "젠 포인트가 부족합니다."}
                 </div>
               )}
@@ -1475,13 +1523,12 @@ export const App: React.FC = () => {
       <AuthModal
         isOpen={isAuthModalOpen}
         onClose={() => setIsAuthModalOpen(false)}
-        onGuestPlay={() => setIsAuthModalOpen(false)}
       />
 
       <SessionConflictModal
         isOpen={isConflictOpen}
         onResolve={() => {
-          if (user) {
+          if (user && !user.isAnonymous) {
             startSession(user.uid).then(() => {
               setIsConflictOpen(false);
               setNotification({ message: '세션이 복구되었습니다.', type: 'success' });
@@ -1540,8 +1587,8 @@ export const App: React.FC = () => {
         onClose={() => setIsRankingModalOpen(false)}
         userNickname={resolvedUserNickname}
         myHonorPoints={honorPoints}
-        isLoggedIn={!!user}
-        currUserId={user?.uid}
+        isLoggedIn={!!user && !user.isAnonymous}
+        currUserId={localSaveScope ?? undefined}
         myAchievementPoints={achievementScore}
       />
 

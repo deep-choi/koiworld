@@ -33,17 +33,13 @@ const mergeAchievementSnapshots = (...snapshots: Array<AchievementSnapshot | nul
         const achievement = ACHIEVEMENTS.find(item => item.id === id);
         return sum + (achievement?.reward.achievementPoints || 0);
     }, 0);
-    const savedTotalPoints = snapshots.reduce((highest, snapshot) => {
-        const points = Number(snapshot?.totalPoints);
-        return Number.isFinite(points) && points >= 0 ? Math.max(highest, points) : highest;
-    }, 0);
-
     return {
         unlockedIds: mergedUnlockedIds,
         claimedIds,
-        // Keep historical points even when an old achievement definition is
-        // removed or renamed. Achievement progression must never go backwards.
-        totalPoints: Math.max(pointsFromKnownClaims, savedTotalPoints),
+        // Recalculate from the claims that still exist in the current
+        // achievement catalog. Removed legacy achievements must not keep
+        // resurrecting stale points from an old local/cloud snapshot.
+        totalPoints: pointsFromKnownClaims,
         lastChecked: Date.now(),
     };
 };

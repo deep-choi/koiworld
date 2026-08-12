@@ -1,5 +1,5 @@
-import React, { FormEvent, useState } from 'react';
-import { Eye, EyeOff, LockKeyhole, Mail, ShieldCheck, UserRound } from 'lucide-react';
+import React, { FormEvent, useEffect, useState } from 'react';
+import { Eye, EyeOff, LockKeyhole, Mail, UserRound, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import './AuthModal.css';
 import { isInAppBrowser } from '../utils/userAgent';
@@ -8,10 +8,9 @@ import { resumeLocalGameSave, suppressLocalGameSave } from '../services/localSav
 interface AuthModalProps {
     isOpen: boolean;
     onClose: () => void;
-    onGuestPlay: () => void;
 }
 
-export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onGuestPlay }) => {
+export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     const { login, loginWithEmail, signUpWithEmail, user, loading } = useAuth();
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
@@ -20,6 +19,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onGuestPl
     const [nickname, setNickname] = useState('');
     const [formError, setFormError] = useState('');
     const [showPassword, setShowPassword] = useState(false);
+
+    useEffect(() => {
+        if (!isOpen) return;
+
+        // A successful guest session used to leave this flag set while the
+        // component stayed mounted. Re-opening the auth modal then disabled
+        // every control, even though no request was running anymore.
+        setIsSubmitting(false);
+    }, [isOpen]);
 
     if (!isOpen) return null;
     if (loading) {
@@ -35,7 +43,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onGuestPl
     }
 
     // 이미 로그인 된 상태라면 모달 닫기 (이펙트로 처리하는 게 더 깔끔할 수 있음)
-    if (user) {
+    // An anonymous Firebase user represents the local/guest mode. It must be
+    // possible to open this modal from that mode to sign in or simply close it
+    // and continue playing locally.
+    if (user && !user.isAnonymous) {
         onClose();
         return null;
     }
@@ -148,8 +159,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onGuestPl
 
     return (
         <div className="auth-modal-overlay">
-            <div className="auth-modal-content">
-                <h1 className="auth-title">Koiworld</h1>
+            <div className="auth-modal-content" onClick={event => event.stopPropagation()}>
+                <div className="auth-modal-header">
+                    <h1 className="auth-title">Koiworld</h1>
+                    <button
+                        className="auth-close-button"
+                        type="button"
+                        onClick={onClose}
+                        aria-label="로그인 창 닫기"
+                    >
+                        <X size={22} strokeWidth={2} />
+                    </button>
+                </div>
                 <div className="auth-modal-body">
                     <p className="auth-description">
                         아름다운 잉어들과 함께하는 힐링의 시간<br />
@@ -247,17 +268,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onGuestPl
                         Google로 로그인
                     </button>
 
-                    <button className="auth-btn guest" type="button" onClick={onGuestPlay} disabled={isSubmitting}>
-                        게스트로 시작
-                    </button>
-
-                    <div className="auth-warning">
-                        <ShieldCheck size={24} strokeWidth={2.2} />
-                        <span>
-                        게스트 모드는 데이터가 계정에 저장되지 않아<br />
-                        앱 삭제 시 복구가 불가능할 수 있습니다.
-                        </span>
-                    </div>
                 </div>
             </div>
         </div>

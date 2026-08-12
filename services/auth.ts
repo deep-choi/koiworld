@@ -4,15 +4,14 @@ import {
     EmailAuthProvider,
     deleteUser,
     getRedirectResult,
-    linkWithCredential,
     onAuthStateChanged,
-    OAuthProvider,
     GoogleAuthProvider as FirebaseGoogleAuthProvider,
     reauthenticateWithCredential,
     reauthenticateWithPopup,
     signInAnonymously,
     signInWithEmailAndPassword,
     signInWithCredential,
+    signInWithCustomToken,
     signInWithPopup,
     signInWithRedirect,
     signOut as signOutFromFirebase,
@@ -44,6 +43,9 @@ const AUTH_PROVIDER_LABELS: Record<string, string> = {
     phone: '전화번호',
 };
 const AUTH_SOURCE_STORAGE_KEY = 'koiworld.authSource';
+const GUEST_MODE_STORAGE_KEY = 'koiworld.guestMode';
+const PLAY_GAMES_PROVIDER_ID = 'playgames.google.com';
+const NATIVE_AUTH_EXCHANGE_URL = 'https://asia-northeast1-koi-garden-abcf5.cloudfunctions.net/exchangeNativeFirebaseToken';
 
 const readAuthSource = (): AuthSource | null => {
     if (typeof window === 'undefined') return null;
@@ -65,11 +67,32 @@ const clearAuthSource = () => {
     }
 };
 
+const isGuestModeRequested = () => {
+    if (typeof window === 'undefined') return false;
+    return window.localStorage.getItem(GUEST_MODE_STORAGE_KEY) === '1';
+};
+
+const rememberGuestMode = () => {
+    if (typeof window !== 'undefined') {
+        window.localStorage.setItem(GUEST_MODE_STORAGE_KEY, '1');
+    }
+};
+
+const clearGuestMode = () => {
+    if (typeof window !== 'undefined') {
+        window.localStorage.removeItem(GUEST_MODE_STORAGE_KEY);
+    }
+};
+
 const getProviderInfo = (user: FirebaseUser) => {
     const providerIds = Array.from(new Set(user.providerData.map(provider => provider.providerId)));
 
-    if (user.isAnonymous || providerIds.length === 0) {
+    if (user.isAnonymous) {
         return { providerIds, providerLabel: '게스트 (익명)' };
+    }
+
+    if (providerIds.length === 0) {
+        return { providerIds, providerLabel: 'Firebase 인증 계정' };
     }
 
     return {
@@ -81,14 +104,17 @@ const getProviderInfo = (user: FirebaseUser) => {
 };
 
 const getAuthSource = (user: FirebaseUser, providerIds: string[]): AuthSource => {
-    if (user.isAnonymous || providerIds.length === 0) return 'anonymous';
+    if (user.isAnonymous) return 'anonymous';
 
-    const rememberedSource = readAuthSource();
-    if (rememberedSource === 'playgames' && providerIds.includes('google.com')) return 'playgames';
-    if (rememberedSource === 'google' && providerIds.includes('google.com')) return 'google';
+    // Prefer the provider attached to the Firebase user. The local marker is
+    // only needed for a web session created from a verified native Play Games
+    // user via a custom token, because custom-token sessions do not expose the
+    // original native provider in Firebase JS providerData.
+    if (providerIds.includes(PLAY_GAMES_PROVIDER_ID)) return 'playgames';
     if (providerIds.includes('password')) return 'email';
     if (providerIds.includes('phone')) return 'phone';
     if (providerIds.includes('google.com')) return 'google';
+    if ((providerIds.length === 0 || providerIds.includes('custom')) && readAuthSource() === 'playgames') return 'playgames';
     return 'unknown';
 };
 
@@ -136,8 +162,6 @@ const toAppUser = (user: FirebaseUser | null): AppUser | null => {
     };
 };
 
-const PLAY_GAMES_PROVIDER_ID = 'playgames.google.com';
-
 const sanitizeErrorMessage = (message: string) => message
     .replace(/([?&](?:id_token|access_token|server_auth_code)=)[^&\s)]+/gi, '$1[redacted]')
     .replace(/(\b(?:idToken|accessToken|serverAuthCode)\s*[:=]\s*["']?)[^,\s}"']+/gi, '$1[redacted]');
@@ -171,11 +195,13 @@ export const loginWithGoogle = async (): Promise<void> => {
             );
             await signInWithCredential(auth, credential);
             rememberAuthSource('google');
+            clearGuestMode();
             return;
         }
 
         await signInWithPopup(auth, googleProvider);
         rememberAuthSource('google');
+        clearGuestMode();
     } catch (error) {
         console.error("Google Login Error:", error);
         const code = typeof error === 'object' && error && 'code' in error
@@ -188,6 +214,7 @@ export const loginWithGoogle = async (): Promise<void> => {
             code === 'auth/operation-not-supported-in-this-environment' ||
             code === 'auth/web-storage-unsupported'
         ) {
+            clearGuestMode();
             await signInWithRedirect(auth, googleProvider);
             return;
         }
@@ -196,10 +223,45 @@ export const loginWithGoogle = async (): Promise<void> => {
     }
 };
 
+export const loginAsGuest = async (): Promise<AppUser | null> => {
+    const result = await signInAnonymously(auth);
+    rememberAuthSource('anonymous');
+    rememberGuestMode();
+    return toAppUser(result.user);
+};
+
+const signInWebWithNativePlayGames = async (): Promise<FirebaseUser> => {
+    const nativeTokenResult = await FirebaseAuthentication.getIdToken({ forceRefresh: true });
+    const nativeIdToken = nativeTokenResult.token;
+    if (!nativeIdToken) {
+        throw new Error('네이티브 Play Games Firebase ID Token을 받지 못했습니다.');
+    }
+
+    const response = await fetch(NATIVE_AUTH_EXCHANGE_URL, {
+        method: 'POST',
+        headers: {
+            Authorization: `Bearer ${nativeIdToken}`,
+            'Content-Type': 'application/json',
+        },
+        body: '{}',
+    });
+    const payload = await response.json().catch(() => null) as { token?: string; uid?: string; error?: string } | null;
+    if (!response.ok || !payload?.token) {
+        throw new Error(payload?.error || `네이티브 Play Games 계정 연결에 실패했습니다. (${response.status})`);
+    }
+
+    const signedInResult = await signInWithCustomToken(auth, payload.token);
+    if (!signedInResult.user || (payload.uid && signedInResult.user.uid !== payload.uid)) {
+        throw new Error('Play Games Firebase UID 확인에 실패했습니다.');
+    }
+    clearGuestMode();
+    return signedInResult.user;
+};
+
 /**
- * Signs into Firebase with the Play Games credential returned by the native
- * Capacitor plugin. If the current Firebase user is anonymous, link first so
- * the player's existing game data remains attached to the same UID.
+ * Restores the native Play Games identity and mirrors that verified Firebase
+ * session into the JS SDK. Guest data intentionally remains on its own UID;
+ * switching to Play Games must not merge the guest namespace into the account.
  */
 export const initializeAndroidSession = async (): Promise<AppUser | null> => {
     if (Capacitor.getPlatform() !== 'android') {
@@ -213,8 +275,27 @@ export const initializeAndroidSession = async (): Promise<AppUser | null> => {
         // player's existing guest data.
         await auth.authStateReady();
 
+        if (isGuestModeRequested()) {
+            const guestUser = auth.currentUser?.isAnonymous
+                ? auth.currentUser
+                : (await signInAnonymously(auth)).user;
+            rememberAuthSource('anonymous');
+            logFirebaseAuthState('게스트 모드 유지', guestUser);
+            return toAppUser(guestUser);
+        }
+
+        // A deliberately selected Google/email session must remain that
+        // account on restart. Play Games is automatic only when there is no
+        // existing authenticated account to restore.
+        if (auth.currentUser && !auth.currentUser.isAnonymous) {
+            logFirebaseAuthState('기존 인증 계정 복원', auth.currentUser);
+            return toAppUser(auth.currentUser);
+        }
+
         const playGamesResult = await FirebaseAuthentication.signInWithPlayGames({
-            skipNativeAuth: true,
+            // Play Games must be authenticated by the native Firebase SDK so
+            // Firebase can keep the `playgames.google.com` provider identity.
+            skipNativeAuth: false,
         });
 
         console.info(`[Auth] Play Games native credential result ${JSON.stringify({
@@ -225,47 +306,18 @@ export const initializeAndroidSession = async (): Promise<AppUser | null> => {
             hasAccessToken: Boolean(playGamesResult.credential?.accessToken),
         })}`);
 
-        const idToken = playGamesResult.credential?.idToken;
-        const accessToken = playGamesResult.credential?.accessToken;
-
-        if (!idToken && !accessToken) {
-            throw new Error(
-                playGamesResult.credential?.serverAuthCode
-                    ? 'Play Games가 serverAuthCode만 반환했습니다. JS Firebase 인증 연결 방식 확인이 필요합니다.'
-                    : 'Play Games Firebase 자격 증명을 받지 못했습니다.',
-            );
+        const nativeProviderIds = Array.from(new Set([
+            ...(playGamesResult.user?.providerData?.map(provider => provider.providerId) ?? []),
+            ...(playGamesResult.credential?.providerId ? [playGamesResult.credential.providerId] : []),
+        ]));
+        if (!nativeProviderIds.includes(PLAY_GAMES_PROVIDER_ID)) {
+            throw new Error(`네이티브 인증 Provider가 Play Games가 아닙니다: ${nativeProviderIds.join(', ') || '없음'}`);
         }
 
-        // The native Play Games flow returns a Google ID token for the web
-        // client. Firebase JS can validate that token through GoogleAuthProvider,
-        // while OAuthProvider('playgames.google.com') builds an unsupported
-        // localhost redirect credential in the web SDK.
-        const firebaseCredential = idToken
-            ? FirebaseGoogleAuthProvider.credential(idToken, accessToken ?? undefined)
-            : new OAuthProvider(PLAY_GAMES_PROVIDER_ID).credential({ accessToken });
-        const currentUser = auth.currentUser;
-
-        if (currentUser?.isAnonymous) {
-            try {
-                const linkedResult = await linkWithCredential(currentUser, firebaseCredential);
-                rememberAuthSource('playgames');
-                logFirebaseAuthState('Play Games 계정 연결 완료', linkedResult.user);
-                return toAppUser(linkedResult.user);
-            } catch (error) {
-                const code = typeof error === 'object' && error && 'code' in error
-                    ? String((error as { code?: string }).code)
-                    : '';
-
-                if (code !== 'auth/credential-already-in-use') {
-                    throw error;
-                }
-            }
-        }
-
-        const signedInResult = await signInWithCredential(auth, firebaseCredential);
         rememberAuthSource('playgames');
-        logFirebaseAuthState('Play Games Firebase 로그인 완료', signedInResult.user);
-        return toAppUser(signedInResult.user);
+        const signedInUser = await signInWebWithNativePlayGames();
+        logFirebaseAuthState('Play Games Firebase 로그인 완료', signedInUser);
+        return toAppUser(signedInUser);
     } catch (error) {
         // Play Games may be unavailable on a device or not yet configured for
         // the tester. Firebase anonymous auth still lets the user play.
@@ -295,6 +347,7 @@ export const loginWithEmailPassword = async (email: string, password: string): P
     try {
         const result = await signInWithEmailAndPassword(auth, email.trim(), password);
         rememberAuthSource('email');
+        clearGuestMode();
         return toAppUser(result.user);
     } catch (error) {
         console.error("Email Login Error:", error);
@@ -310,6 +363,7 @@ export const signUpWithEmailPassword = async (
     try {
         const result = await createUserWithEmailAndPassword(auth, email.trim(), password);
         rememberAuthSource('email');
+        clearGuestMode();
         const displayName = nickname.trim();
 
         if (displayName) {
@@ -325,8 +379,18 @@ export const signUpWithEmailPassword = async (
 
 export const logout = async (): Promise<void> => {
     try {
+        if (Capacitor.isNativePlatform()) {
+            await FirebaseAuthentication.signOut();
+        }
         await signOutFromFirebase(auth);
-        clearAuthSource();
+
+        // Logging out means leaving the account, not leaving the game. Start a
+        // fresh anonymous session so the app immediately returns to the local
+        // namespace and does not reopen the auth modal with no active user.
+        const guestResult = await signInAnonymously(auth);
+        rememberAuthSource('anonymous');
+        rememberGuestMode();
+        logFirebaseAuthState('로그아웃 후 로컬 모드 전환', guestResult.user);
     } catch (error) {
         console.error("Logout Error:", error);
         throw error;
@@ -375,19 +439,29 @@ export const reauthenticateCurrentUser = async (password?: string): Promise<void
 
     if (Capacitor.getPlatform() === 'android') {
         const authSource = readAuthSource();
-        const result = authSource === 'playgames'
-            ? await FirebaseAuthentication.signInWithPlayGames({ skipNativeAuth: true })
-            : await FirebaseAuthentication.signInWithGoogle({ skipNativeAuth: true });
+        if (authSource === 'playgames') {
+            const nativeResult = await FirebaseAuthentication.signInWithPlayGames({ skipNativeAuth: false });
+            const nativeProviderIds = Array.from(new Set([
+                ...(nativeResult.user?.providerData?.map(provider => provider.providerId) ?? []),
+                ...(nativeResult.credential?.providerId ? [nativeResult.credential.providerId] : []),
+            ]));
+            if (!nativeProviderIds.includes(PLAY_GAMES_PROVIDER_ID)) {
+                throw createAuthError('auth/reauthentication-failed', 'Play Games Provider 재인증에 실패했습니다.');
+            }
+            const refreshedUser = await signInWebWithNativePlayGames();
+            if (refreshedUser.uid !== currentUser.uid) {
+                throw createAuthError('auth/user-mismatch', '재인증 계정이 현재 계정과 다릅니다.');
+            }
+            return;
+        }
+
+        const result = await FirebaseAuthentication.signInWithGoogle({ skipNativeAuth: true });
         const idToken = result.credential?.idToken;
         const accessToken = result.credential?.accessToken;
         if (!idToken && !accessToken) {
             throw createAuthError('auth/reauthentication-failed', '재인증 자격 증명을 받지 못했습니다.');
         }
-        const credential = idToken
-            ? FirebaseGoogleAuthProvider.credential(idToken, accessToken ?? undefined)
-            : authSource === 'playgames'
-                ? new OAuthProvider(PLAY_GAMES_PROVIDER_ID).credential({ accessToken })
-                : FirebaseGoogleAuthProvider.credential(undefined, accessToken);
+        const credential = FirebaseGoogleAuthProvider.credential(idToken, accessToken ?? undefined);
         await reauthenticateWithCredential(currentUser, credential);
         return;
     }

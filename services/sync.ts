@@ -51,10 +51,7 @@ export const loadUserDataOnce = async (userId: string): Promise<UserDataSnapshot
         activeDeviceId: data.activeDeviceId || null,
         achievements: state?.achievements ? {
             ...state.achievements,
-            totalPoints: Math.max(
-                Number(state.achievementPoints ?? 0),
-                Number(data.achievementPoints ?? 0),
-            ),
+            totalPoints: Number(state.achievementPoints ?? 0),
         } : null,
     };
 };

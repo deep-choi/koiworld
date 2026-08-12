@@ -7,6 +7,7 @@ let isMuted = false;
 let currentBgmVolume = 0.3;
 let currentSfxVolume = 0.5;
 let successSfxBufferPromise: Promise<AudioBuffer | null> | null = null;
+const successSfxGain = 0.4;
 
 const initAudio = () => {
     if (!audioCtx) {
@@ -46,8 +47,11 @@ const playAudioFile = (path: string) => {
     void successSfxBufferPromise.then(buffer => {
         if (!buffer || !sfxGainNode) return;
         const source = ctx.createBufferSource();
+        const gain = ctx.createGain();
         source.buffer = buffer;
-        source.connect(sfxGainNode);
+        gain.gain.value = successSfxGain;
+        source.connect(gain);
+        gain.connect(sfxGainNode);
         source.start();
     });
 };

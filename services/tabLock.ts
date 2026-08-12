@@ -77,6 +77,7 @@ export const startTabLock = (scopeId: string, handlers: TabLockHandlers): TabLoc
     let stopped = false;
     let status: TabLockStatus | null = null;
     let heartbeatId: number | null = null;
+    let blockedRetryId: number | null = null;
 
     const postMessage = (type: TabLockMessage['type'], updatedAt = Date.now()) => {
         channel?.postMessage({ type, scopeId, tabId, updatedAt });
@@ -100,13 +101,34 @@ export const startTabLock = (scopeId: string, handlers: TabLockHandlers): TabLoc
         }
     };
 
+    const stopBlockedRetry = () => {
+        if (blockedRetryId) {
+            window.clearTimeout(blockedRetryId);
+            blockedRetryId = null;
+        }
+    };
+
+    const scheduleBlockedRetry = () => {
+        stopBlockedRetry();
+        // Android WebView may not dispatch beforeunload when the app is
+        // closed. Re-check after the lock TTL so a stale lock cannot block
+        // the next launch forever.
+        blockedRetryId = window.setTimeout(() => {
+            blockedRetryId = null;
+            evaluate();
+        }, LOCK_TTL_MS + 250);
+    };
+
     const becomeBlocked = () => {
         stopHeartbeat();
         setStatus('blocked');
+        scheduleBlockedRetry();
     };
 
     const claim = () => {
         if (stopped) return;
+
+        stopBlockedRetry();
 
         const record = writeLock(lockKey, tabId);
         if (!record) {
@@ -184,8 +206,13 @@ export const startTabLock = (scopeId: string, handlers: TabLockHandlers): TabLoc
         }
     };
 
+    const handlePageHide = () => {
+        handleBeforeUnload();
+    };
+
     window.addEventListener('storage', handleStorage);
     window.addEventListener('beforeunload', handleBeforeUnload);
+    window.addEventListener('pagehide', handlePageHide);
     channel?.addEventListener('message', handleMessage);
 
     evaluate();
@@ -196,8 +223,10 @@ export const startTabLock = (scopeId: string, handlers: TabLockHandlers): TabLoc
             if (stopped) return;
             stopped = true;
             stopHeartbeat();
+            stopBlockedRetry();
             window.removeEventListener('storage', handleStorage);
             window.removeEventListener('beforeunload', handleBeforeUnload);
+            window.removeEventListener('pagehide', handlePageHide);
             channel?.removeEventListener('message', handleMessage);
             if (status === 'active') {
                 removeLock(lockKey, tabId);

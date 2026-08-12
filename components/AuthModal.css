@@ -313,7 +313,8 @@
     border-color: #fdba74;
 }
 
-.auth-btn.google {
+.auth-btn.google,
+.auth-btn.playgames {
     margin-bottom: 12px;
 }
 

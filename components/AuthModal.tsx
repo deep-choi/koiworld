@@ -1,5 +1,6 @@
 import React, { FormEvent, useEffect, useState } from 'react';
-import { Eye, EyeOff, LockKeyhole, Mail, UserRound, X } from 'lucide-react';
+import { Eye, EyeOff, Gamepad2, LockKeyhole, Mail, UserRound, X } from 'lucide-react';
+import { Capacitor } from '@capacitor/core';
 import { useAuth } from '../contexts/AuthContext';
 import './AuthModal.css';
 import { isInAppBrowser } from '../utils/userAgent';
@@ -11,7 +12,7 @@ interface AuthModalProps {
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
-    const { login, loginWithEmail, signUpWithEmail, user, loading } = useAuth();
+    const { login, loginWithPlayGames, loginWithEmail, signUpWithEmail, user, loading } = useAuth();
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
     const [email, setEmail] = useState('');
@@ -78,6 +79,21 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
             }
 
             alert("로그인 실패: 다시 시도해주세요.");
+        }
+    };
+
+    const handlePlayGamesLogin = async () => {
+        if (isSubmitting) return;
+
+        try {
+            setIsSubmitting(true);
+            suppressLocalGameSave();
+            await loginWithPlayGames();
+        } catch (error) {
+            console.error('Play Games login failed:', error);
+            resumeLocalGameSave();
+            setIsSubmitting(false);
+            alert(error instanceof Error ? error.message : 'Play Games 로그인에 실패했습니다.');
         }
     };
 
@@ -267,6 +283,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                     <button className="auth-btn google" type="button" onClick={handleGoogleLogin} disabled={isSubmitting}>
                         Google로 로그인
                     </button>
+
+                    {Capacitor.getPlatform() === 'android' && (
+                        <button className="auth-btn playgames" type="button" onClick={handlePlayGamesLogin} disabled={isSubmitting}>
+                            <Gamepad2 size={19} strokeWidth={2} />
+                            Play Games로 로그인
+                        </button>
+                    )}
 
                 </div>
             </div>

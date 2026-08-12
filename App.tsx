@@ -12,7 +12,7 @@ import { AccountModal } from './components/AccountModal';
 import { breedKoi, calculateKoiValue, createFixedSpotPhenotypeGenes } from './utils/genetics';
 import { useKoiPond, createInitialPonds } from './hooks/useKoiPond';
 import { Koi, GeneType, KoiGenetics, GrowthStage, Ponds, Decoration, DecorationType, PondTheme, SavedGameState } from './types';
-import { Wheat, DollarSign, ShoppingCart, Dna, Settings, User, X } from 'lucide-react';
+import { Wheat, DollarSign, ShoppingCart, Dna, Settings, User, X, LoaderCircle } from 'lucide-react';
 import { audioManager } from './utils/audio';
 import { ThemeModal } from './components/ThemeModal';
 import { CleanConfirmModal } from './components/CleanConfirmModal';
@@ -45,7 +45,7 @@ const FOOD_PACK_PRICE = 200;
 const FOOD_PACK_AMOUNT = 50;
 const CORN_PACK_PRICE = 1000;
 const CORN_PACK_AMOUNT = 50;
-const CORN_FEED_AMOUNT = 3;
+const CORN_FEED_AMOUNT = 2;
 const CLEANING_COST = 500;
 const FOOD_LARGE_PACK_PRICE = 1000;
 const FOOD_LARGE_PACK_AMOUNT = 250;
@@ -1289,17 +1289,21 @@ export const App: React.FC = () => {
         {/* Profile Section - Unified Circular Icon Only */}
         <button
           onClick={() => {
+            if (authLoading) return;
             // Anonymous Firebase auth is only the implementation detail for
             // the local guest namespace. Guests should see the auth choices,
             // not an account modal with a misleading "로그아웃" action.
             if (!user || user.isAnonymous) setIsAuthModalOpen(true);
             else setIsAccountModalOpen(true);
           }}
-          className="bg-white/10 backdrop-blur-sm p-0 rounded-full border border-white/20 text-white hover:text-orange-400 transition-colors hover:bg-white/20 hover:border-white/30 w-[46px] h-[46px] overflow-hidden flex items-center justify-center group"
-          title={user && !user.isAnonymous ? `${user.displayName || userNickname || '사용자'} 님` : '로그인 또는 회원가입'}
-          aria-label={user && !user.isAnonymous ? '계정 정보 열기' : '로그인 창 열기'}
+          disabled={authLoading}
+          className="bg-white/10 backdrop-blur-sm p-0 rounded-full border border-white/20 text-white hover:text-orange-400 transition-colors hover:bg-white/20 hover:border-white/30 w-[46px] h-[46px] overflow-hidden flex items-center justify-center group disabled:cursor-wait disabled:hover:text-white disabled:hover:bg-white/10"
+          title={authLoading ? '로그인 상태 확인 중' : user && !user.isAnonymous ? `${user.displayName || userNickname || '사용자'} 님` : '로그인 또는 회원가입'}
+          aria-label={authLoading ? '로그인 상태 확인 중' : user && !user.isAnonymous ? '계정 정보 열기' : '로그인 창 열기'}
         >
-          {user && (userPhotoURL ?? user.photoURL) ? (
+          {authLoading ? (
+            <LoaderCircle size={24} strokeWidth={1.7} className="animate-spin text-white/85" aria-hidden="true" />
+          ) : user && (userPhotoURL ?? user.photoURL) ? (
             <img
               src={(userPhotoURL ?? user.photoURL)!.replace(/^http:\/\//i, 'https://')}
               alt="Profile"
@@ -1600,6 +1604,7 @@ export const App: React.FC = () => {
         claimedIds={claimedIds}
         onClaim={handleClaimReward}
       />
+
     </div >
   );
 };

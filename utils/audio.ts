@@ -7,7 +7,7 @@ let isMuted = false;
 let currentBgmVolume = 0.3;
 let currentSfxVolume = 0.5;
 let successSfxBufferPromise: Promise<AudioBuffer | null> | null = null;
-const successSfxGain = 0.4;
+const successSfxGain = 0.2;
 
 const initAudio = () => {
     if (!audioCtx) {

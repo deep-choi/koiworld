@@ -1,12 +1,13 @@
 import React, { createContext, useContext, useEffect, useRef, useState, ReactNode } from 'react';
 import { Capacitor } from '@capacitor/core';
-import { AppUser, subscribeToAuthChanges, loginWithGoogle, loginAsGuest, logout, checkRedirectResult, initializeAndroidSession, loginWithEmailPassword, signUpWithEmailPassword, deleteCurrentUser, reauthenticateCurrentUser } from '../services/auth';
+import { AppUser, subscribeToAuthChanges, loginWithGoogle, loginWithPlayGames, loginAsGuest, logout, checkRedirectResult, initializeAndroidSession, loginWithEmailPassword, signUpWithEmailPassword, deleteCurrentUser, reauthenticateCurrentUser } from '../services/auth';
 import { deleteUserData } from '../services/cloudData';
 
 interface AuthContextType {
     user: AppUser | null;
     loading: boolean;
     login: () => Promise<void>;
+    loginWithPlayGames: () => Promise<void>;
     continueAsGuest: () => Promise<void>;
     loginWithEmail: (email: string, password: string) => Promise<void>;
     signUpWithEmail: (email: string, password: string, nickname: string) => Promise<void>;
@@ -93,6 +94,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
     };
 
+    const handlePlayGamesLogin = async () => {
+        try {
+            const signedInUser = await loginWithPlayGames();
+            if (signedInUser) setUser(signedInUser);
+        } catch (error) {
+            console.error('Play Games login failed context:', error);
+            throw error;
+        }
+    };
+
     const handleEmailLogin = async (email: string, password: string) => {
         try {
             const signedInUser = await loginWithEmailPassword(email, password);
@@ -147,7 +158,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
 
     return (
-        <AuthContext.Provider value={{ user, loading, login: handleLogin, continueAsGuest: handleGuestLogin, loginWithEmail: handleEmailLogin, signUpWithEmail: handleEmailSignUp, logout: handleLogout, deleteAccount: handleDeleteAccount }}>
+        <AuthContext.Provider value={{ user, loading, login: handleLogin, loginWithPlayGames: handlePlayGamesLogin, continueAsGuest: handleGuestLogin, loginWithEmail: handleEmailLogin, signUpWithEmail: handleEmailSignUp, logout: handleLogout, deleteAccount: handleDeleteAccount }}>
             {children}
         </AuthContext.Provider>
     );

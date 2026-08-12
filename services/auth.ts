@@ -44,6 +44,7 @@ const AUTH_PROVIDER_LABELS: Record<string, string> = {
 };
 const AUTH_SOURCE_STORAGE_KEY = 'koiworld.authSource';
 const GUEST_MODE_STORAGE_KEY = 'koiworld.guestMode';
+const EXPLICIT_GUEST_MODE_STORAGE_KEY = 'koiworld.explicitGuestMode';
 const PLAY_GAMES_PROVIDER_ID = 'playgames.google.com';
 const NATIVE_AUTH_EXCHANGE_URL = 'https://asia-northeast1-koi-garden-abcf5.cloudfunctions.net/exchangeNativeFirebaseToken';
 
@@ -69,18 +70,31 @@ const clearAuthSource = () => {
 
 const isGuestModeRequested = () => {
     if (typeof window === 'undefined') return false;
-    return window.localStorage.getItem(GUEST_MODE_STORAGE_KEY) === '1';
+    const guestMode = window.localStorage.getItem(GUEST_MODE_STORAGE_KEY) === '1';
+    const explicitlySelected = window.localStorage.getItem(EXPLICIT_GUEST_MODE_STORAGE_KEY) === '1';
+
+    // Older builds also set guestMode when automatic Play Games sign-in
+    // failed. Do not let that fallback permanently disable the next startup
+    // attempt; only an explicit guest choice or logout should do so.
+    if (guestMode && !explicitlySelected) {
+        window.localStorage.removeItem(GUEST_MODE_STORAGE_KEY);
+        return false;
+    }
+
+    return guestMode && explicitlySelected;
 };
 
 const rememberGuestMode = () => {
     if (typeof window !== 'undefined') {
         window.localStorage.setItem(GUEST_MODE_STORAGE_KEY, '1');
+        window.localStorage.setItem(EXPLICIT_GUEST_MODE_STORAGE_KEY, '1');
     }
 };
 
 const clearGuestMode = () => {
     if (typeof window !== 'undefined') {
         window.localStorage.removeItem(GUEST_MODE_STORAGE_KEY);
+        window.localStorage.removeItem(EXPLICIT_GUEST_MODE_STORAGE_KEY);
     }
 };
 
@@ -221,6 +235,47 @@ export const loginWithGoogle = async (): Promise<void> => {
 
         throw error;
     }
+};
+
+/**
+ * Switches the current session to the native Play Games identity.
+ *
+ * This intentionally signs out the current Firebase account first. Google,
+ * email, guest, and Play Games sessions use different Firebase UIDs, so a
+ * provider switch must never continue writing the previous account's data.
+ */
+export const loginWithPlayGames = async (): Promise<AppUser> => {
+    if (Capacitor.getPlatform() !== 'android') {
+        throw new Error('Play Games 로그인은 Android 앱에서만 사용할 수 있습니다.');
+    }
+
+    try {
+        await FirebaseAuthentication.signOut();
+    } catch (error) {
+        // The native session may already be signed out. Continue with the
+        // Firebase JS session reset so switching providers remains possible.
+        console.warn('[Auth] Native sign-out before Play Games switch failed.', error);
+    }
+
+    await signOutFromFirebase(auth);
+    clearGuestMode();
+
+    const playGamesResult = await FirebaseAuthentication.signInWithPlayGames({
+        skipNativeAuth: false,
+    });
+    const nativeProviderIds = Array.from(new Set([
+        ...(playGamesResult.user?.providerData?.map(provider => provider.providerId) ?? []),
+        ...(playGamesResult.credential?.providerId ? [playGamesResult.credential.providerId] : []),
+    ]));
+
+    if (!nativeProviderIds.includes(PLAY_GAMES_PROVIDER_ID)) {
+        throw new Error(`네이티브 인증 Provider가 Play Games가 아닙니다: ${nativeProviderIds.join(', ') || '없음'}`);
+    }
+
+    rememberAuthSource('playgames');
+    const signedInUser = await signInWebWithNativePlayGames();
+    logFirebaseAuthState('Play Games 수동 로그인 완료', signedInUser);
+    return toAppUser(signedInUser) as AppUser;
 };
 
 export const loginAsGuest = async (): Promise<AppUser | null> => {

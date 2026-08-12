@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Camera, Check, ChevronRight, Gamepad2, Mail, Phone, Save, Trash2, User, UserRound, X } from 'lucide-react';
+import { Capacitor } from '@capacitor/core';
 import { useAuth } from '../contexts/AuthContext';
 import { audioManager } from '../utils/audio';
 import { broadcastForceClear, clearLocalGameSaves, resumeLocalGameSave, suppressLocalGameSave } from '../services/localSave';
@@ -79,7 +80,7 @@ export const AccountModal: React.FC<AccountModalProps> = ({
     onSaveProfile,
     onLogoutCleanup,
 }) => {
-    const { user, logout, deleteAccount } = useAuth();
+    const { user, logout, loginWithPlayGames, deleteAccount } = useAuth();
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [nicknameInput, setNicknameInput] = useState(userNickname);
     const [selectedPhotoURL, setSelectedPhotoURL] = useState<string | null>(null);
@@ -87,6 +88,7 @@ export const AccountModal: React.FC<AccountModalProps> = ({
     const [isSaving, setIsSaving] = useState(false);
     const [isProcessingImage, setIsProcessingImage] = useState(false);
     const [isLoggingOut, setIsLoggingOut] = useState(false);
+    const [isSwitchingToPlayGames, setIsSwitchingToPlayGames] = useState(false);
     const [isDeletingAccount, setIsDeletingAccount] = useState(false);
     const [requiresReauthPassword, setRequiresReauthPassword] = useState(false);
     const [reauthPassword, setReauthPassword] = useState('');
@@ -179,6 +181,24 @@ export const AccountModal: React.FC<AccountModalProps> = ({
             alert('로그아웃에 실패했습니다.');
         } finally {
             setIsLoggingOut(false);
+        }
+    };
+
+    const handlePlayGamesSwitch = async () => {
+        if (isSwitchingToPlayGames || isLoggingOut || isDeletingAccount) return;
+        if (!window.confirm('Play Games 계정으로 전환하시겠습니까? 현재 계정 데이터는 그대로 보존됩니다.')) return;
+
+        try {
+            suppressLocalGameSave();
+            setIsSwitchingToPlayGames(true);
+            setError(null);
+            await loginWithPlayGames();
+            onClose();
+            window.location.reload();
+        } catch (switchError) {
+            resumeLocalGameSave();
+            setError(switchError instanceof Error ? switchError.message : 'Play Games 전환에 실패했습니다.');
+            setIsSwitchingToPlayGames(false);
         }
     };
 
@@ -287,6 +307,17 @@ export const AccountModal: React.FC<AccountModalProps> = ({
                                 <ChevronRight size={18} />
                             </button>
                         </div>
+                        {Capacitor.getPlatform() === 'android' && user?.authSource !== 'playgames' && (
+                            <button
+                                onClick={handlePlayGamesSwitch}
+                                disabled={isSwitchingToPlayGames || isLoggingOut || isDeletingAccount}
+                                className="w-full min-h-[48px] rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-300 transition-colors flex items-center justify-center gap-2 font-medium disabled:opacity-60"
+                                aria-label="Play Games 계정으로 전환하기"
+                            >
+                                <Gamepad2 size={18} />
+                                {isSwitchingToPlayGames ? 'Play Games 전환 중...' : 'Play Games로 전환'}
+                            </button>
+                        )}
                     </div>
 
                     <div className="space-y-2">

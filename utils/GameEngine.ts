@@ -631,7 +631,7 @@ export class GameEngine {
 
         // Draw Foods (Absolute Top Layer)
         this.foods.forEach(food => {
-            this.ctx.fillStyle = food.feedAmount > 1 ? '#fbbf24' : '#78350f'; // Yellow for corn (amount=3)
+            this.ctx.fillStyle = food.feedAmount > 1 ? '#fbbf24' : '#78350f'; // Yellow for corn (amount=2)
             this.ctx.beginPath();
             this.ctx.arc(food.position.x, food.position.y, 4, 0, Math.PI * 2);
             this.ctx.fill();

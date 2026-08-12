@@ -12,7 +12,7 @@ const FEED_COOLDOWN_MS = 3000;
 interface FoodPellet {
     id: number;
     position: { x: number; y: number };
-    feedAmount: number; // 1 for normal, 3 for corn
+    feedAmount: number; // 1 for normal, 2 for corn
 }
 
 interface FeedAnimation {
@@ -491,7 +491,7 @@ export const useKoiPond = (initialState?: UseKoiPondInitialState) => {
                     const newCooldown = { feedCooldownUntil: now + FEED_COOLDOWN_MS };
 
                     // User Request: Basic(+5), Corn(+10)
-                    // Assuming Corn has feedAmount > 1 (usually 3)
+                    // Corn has feedAmount > 1 (currently 2)
                     const staminaGain = feedAmount > 1 ? 10 : 5;
 
                     const newStamina = Math.min(100, (k.stamina ?? 0) + staminaGain);

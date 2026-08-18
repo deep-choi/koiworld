@@ -150,6 +150,7 @@ export interface PondData {
 }
 
 export interface SavedGameState {
+  schemaVersion?: number;
   ponds: Ponds;
   activePondId: string;
   zenPoints: number;

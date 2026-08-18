@@ -21,6 +21,11 @@ service cloud.firestore {
       return resource.data.get('saveProtocolVersion', 0) >= 2;
     }
 
+    function usesCanonicalProgression(userId) {
+      return exists(/databases/$(database)/documents/users/$(userId))
+        && get(/databases/$(database)/documents/users/$(userId)).data.get('progressionProtocolVersion', 0) >= 1;
+    }
+
     function onlyAccountMetadataChanged() {
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
         'profile',
@@ -71,8 +76,14 @@ service cloud.firestore {
 
     match /rankings/{userId} {
       allow read: if true;
-      allow create, update: if isOwner(userId) && validRanking(userId);
-      allow delete: if isOwner(userId);
+      // Public rankings are a server projection of canonical account state.
+      // Legacy production clients may keep their existing transaction until
+      // that account is migrated by loadAccountState. Afterwards profile and
+      // score changes must pass through callable functions.
+      allow create, update: if isOwner(userId)
+        && !usesCanonicalProgression(userId)
+        && validRanking(userId);
+      allow delete: if false;
     }
 
     match /rankingState/{userId} {

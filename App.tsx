@@ -31,7 +31,8 @@ import { ensureUserProfileNickname, updateUserProfileSettings } from './services
 import { RankingModal } from './components/RankingModal';
 import { useAchievements } from './hooks/useAchievements';
 import { AchievementModal } from './components/AchievementModal';
-import { isValidSavedGameState } from './utils/savedGameState';
+import { CURRENT_GAME_STATE_SCHEMA_VERSION, normalizeSavedGameState } from './utils/savedGameState';
+import { purchaseHonorTrophies } from './services/ranking';
 
 interface Animation {
   id: number;
@@ -53,6 +54,7 @@ const CORN_LARGE_PACK_PRICE = 5000;
 const CORN_LARGE_PACK_AMOUNT = 250;
 
 const createInitialGameState = (): SavedGameState => ({
+  schemaVersion: CURRENT_GAME_STATE_SCHEMA_VERSION,
   ponds: createInitialPonds(),
   activePondId: 'pond-1',
   zenPoints: import.meta.env.DEV ? 10000 : 2000,
@@ -80,8 +82,8 @@ const loadGameState = (uid?: string | null): SavedGameState | null => {
     }
 
     if (savedData) {
-      const parsed = JSON.parse(savedData);
-      if (isValidSavedGameState(parsed)) {
+      const parsed = normalizeSavedGameState(JSON.parse(savedData));
+      if (parsed) {
         return parsed;
       }
       localStorage.removeItem(scopedKey);
@@ -175,6 +177,7 @@ export const App: React.FC = () => {
   const [isAchievementModalOpen, setIsAchievementModalOpen] = useState(false);
   const lastAchievementCheckKeyRef = useRef('');
   const achievementGeneticsSignatureCacheRef = useRef(new WeakMap<Koi['genetics'], string>());
+  const flushCurrentGameStateRef = useRef<() => Promise<void>>(async () => undefined);
 
   // Show achievement unlock notification
   useEffect(() => {
@@ -225,46 +228,23 @@ export const App: React.FC = () => {
 
   const handleClaimReward = async (id: string) => {
     try {
+      if (user && !user.isAnonymous) {
+        serverMutationInProgressRef.current = true;
+        await flushCurrentGameStateRef.current();
+      }
       const reward = await claimReward(id, (rewardContent) => {
-      setNotification({
-        message: `보상 획득! 업적 포인트 ${rewardContent.achievementPoints}점`,
-        type: 'success'
+        setNotification({
+          message: `보상 획득! 업적 포인트 ${rewardContent.achievementPoints}점`,
+          type: 'success'
+        });
+        audioManager.playSFX('coin');
       });
-      audioManager.playSFX('coin');
-      });
-
       if (!reward) return;
-
-      const immediateState: SavedGameState = {
-        ...(gameStateRef.current ?? {
-          ponds,
-          activePondId,
-          zenPoints,
-          foodCount,
-          cornCount,
-          honorPoints,
-          achievementPoints: achievementScore,
-          achievements: { unlockedIds, claimedIds },
-          koiNameCounter,
-        }),
-        achievementPoints: achievementScore + reward.achievementPoints,
-        achievements: {
-          unlockedIds: Array.from(new Set([...unlockedIds, id])),
-          claimedIds: Array.from(new Set([...claimedIds, id])),
-        },
-      };
-      gameStateRef.current = immediateState;
-
-      if (!isDuplicateTabPaused && !isLocalGameSaveSuppressed()) {
-        persistLocalGameState(immediateState, localSaveScope);
-      }
-
-      if (user && !user.isAnonymous && isCloudSyncReady && cloudHydratedUserIdRef.current === user.uid && !isDuplicateTabPaused && !isLocalGameSaveSuppressed()) {
-        await enqueueCloudSave(user.uid, immediateState);
-      }
     } catch (error) {
-      console.error('Achievement reward save failed:', error);
-      setNotification({ message: '업적 보상 저장에 실패했습니다. 잠시 후 다시 시도해주세요.', type: 'error' });
+      console.error('Achievement reward claim failed:', error);
+      setNotification({ message: '업적 보상을 서버에서 확인하지 못했습니다. 저장 상태를 확인한 뒤 다시 시도해주세요.', type: 'error' });
+    } finally {
+      serverMutationInProgressRef.current = false;
     }
   };
   const feedingIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -296,6 +276,7 @@ export const App: React.FC = () => {
   const localHydratedScopeRef = useRef<string | null>('guest');
   const cloudSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const pendingCloudPayloadRef = useRef<string | null>(null);
+  const serverMutationInProgressRef = useRef(false);
   const rankingSyncKeyRef = useRef('');
   const tabLockRef = useRef<TabLockController | null>(null);
 
@@ -421,6 +402,7 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     // 사용자 전환 시 첫 클라우드 저장을 허용하도록 이전 저장 해시를 초기화합니다.
+    setInitialAchievementData(null);
     lastCloudSavePayloadRef.current = null;
     cloudGameStateRevisionRef.current = null;
     cloudSaveBlockedRef.current = false;
@@ -442,6 +424,7 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     gameStateRef.current = {
+      schemaVersion: CURRENT_GAME_STATE_SCHEMA_VERSION,
       ponds,
       activePondId,
       zenPoints,
@@ -494,11 +477,14 @@ export const App: React.FC = () => {
           }
           const nextRevision = await saveGameToCloud(uid, state, expectedRevision, 'auto');
           cloudGameStateRevisionRef.current = nextRevision;
+          setCloudSaveIssue(null);
         } catch (error) {
           if (error instanceof GameStateRevisionConflictError) {
             cloudSaveBlockedRef.current = true;
             setIsCloudSyncReady(false);
             setCloudSaveIssue('다른 기기에서 더 최신 저장본이 확인되었습니다. 기존 데이터를 덮어쓰지 않도록 이 기기의 클라우드 저장을 멈췄습니다. 앱을 다시 열어 최신 저장본을 불러오세요.');
+          } else {
+            setCloudSaveIssue('클라우드 저장이 완료되지 않았습니다. 네트워크를 확인하면 자동으로 다시 시도합니다. 로그아웃 전에는 반드시 저장 상태를 확인해주세요.');
           }
           if (lastCloudSavePayloadRef.current === payload) {
             lastCloudSavePayloadRef.current = previousCloudPayload;
@@ -515,15 +501,74 @@ export const App: React.FC = () => {
     return nextSave;
   }, []);
 
+  const flushCurrentGameState = useCallback(async () => {
+    const currentState = gameStateRef.current;
+    if (!currentState) return;
+    if (user && !user.isAnonymous) {
+      if (
+        isDuplicateTabPaused
+        || isLocalGameSaveSuppressed()
+        || !isCloudSyncReady
+        || !achievementsLoaded
+        || cloudHydratedUserIdRef.current !== user.uid
+        || cloudSaveBlockedRef.current
+      ) {
+        throw new Error('Authenticated game state is not ready for a safe cloud flush.');
+      }
+    } else if (isDuplicateTabPaused || isLocalGameSaveSuppressed()) {
+      return;
+    }
+    if (localHydratedScopeRef.current !== (localSaveScope ?? 'guest')) return;
+
+    const payload = persistLocalGameState(currentState, localSaveScope);
+    if (
+      user
+      && !user.isAnonymous
+      && payload !== lastCloudSavePayloadRef.current
+    ) {
+      await enqueueCloudSave(user.uid, currentState);
+    }
+    await cloudSaveQueueRef.current;
+  }, [
+    user,
+    localSaveScope,
+    isCloudSyncReady,
+    achievementsLoaded,
+    isDuplicateTabPaused,
+    enqueueCloudSave,
+    persistLocalGameState,
+  ]);
+  flushCurrentGameStateRef.current = flushCurrentGameState;
+
+  useEffect(() => {
+    const saveBeforeBackground = () => {
+      if (document.visibilityState !== 'hidden') return;
+      void flushCurrentGameState().catch(error => {
+        console.error('Background save failed:', error);
+      });
+    };
+    const saveBeforePageHide = () => {
+      void flushCurrentGameState().catch(error => {
+        console.error('Page hide save failed:', error);
+      });
+    };
+    document.addEventListener('visibilitychange', saveBeforeBackground);
+    window.addEventListener('pagehide', saveBeforePageHide);
+    return () => {
+      document.removeEventListener('visibilitychange', saveBeforeBackground);
+      window.removeEventListener('pagehide', saveBeforePageHide);
+    };
+  }, [flushCurrentGameState]);
+
   useEffect(() => {
     rankingSyncKeyRef.current = '';
   }, [achievementScope]);
 
-  // Achievement and trophy scores are client-owned. Once the authenticated
-  // state is hydrated, publish the local values immediately so the public
-  // ranking does not wait for the periodic save interval.
+  // Publish newly unlocked achievement IDs after canonical hydration. The
+  // server preserves claimed rewards and trophy totals even if this snapshot
+  // is stale or incomplete.
   useEffect(() => {
-    if (!user || user.isAnonymous || !isCloudSyncReady || cloudHydratedUserIdRef.current !== user.uid || !achievementsLoaded || !gameStateRef.current) return;
+    if (!user || user.isAnonymous || !isCloudSyncReady || serverMutationInProgressRef.current || cloudHydratedUserIdRef.current !== user.uid || !achievementsLoaded || !gameStateRef.current) return;
 
     const syncKey = JSON.stringify({
       achievementScore,
@@ -561,7 +606,7 @@ export const App: React.FC = () => {
         setIsCloudSyncReady(false);
         setCloudSaveIssue(null);
         suppressLocalGameSave();
-        handleLoadGame(loadGameState(null) ?? createInitialGameState(), { silent: true, replace: true });
+        handleLoadGame(loadGameState(null) ?? createInitialGameState(), { silent: true, replace: true, hydrateAchievements: true });
         localHydratedScopeRef.current = 'guest';
         resumeLocalGameSave();
         return;
@@ -583,8 +628,7 @@ export const App: React.FC = () => {
         const fallbackState = scopedLocalState ?? guestRecoveryState ?? createInitialGameState();
         // This is only a temporary render state. Cloud saving remains frozen
         // until the account document has been classified below.
-        handleLoadGame(fallbackState, { silent: true, replace: true });
-        localHydratedScopeRef.current = localSaveScope;
+        handleLoadGame(fallbackState, { silent: true, replace: true, hydrateAchievements: false });
 
         // Read before creating/touching the profile document. A pre-existing
         // document with no usable gameState is a recovery case, not a new
@@ -606,21 +650,16 @@ export const App: React.FC = () => {
           const revision = await saveGameToCloud(user.uid, fallbackState, 0, 'new-account');
           if (cancelled) return;
           cloudGameStateRevisionRef.current = revision;
-          handleLoadGame(fallbackState, { markAsSynced: true, replace: true });
+          handleLoadGame(fallbackState, { markAsSynced: true, replace: true, hydrateAchievements: true });
         } else if (existingUserData.gameData) {
-          let revision = existingUserData.gameDataRevision;
+          const revision = existingUserData.gameDataRevision;
           if (existingUserData.gameDataSource === 'backup') {
-            // Repair a missing/corrupt primary only from a validated backup.
-            revision = await saveGameToCloud(user.uid, existingUserData.gameData, revision, 'backup-recovery');
-            if (cancelled) return;
+            // loadAccountState already repaired the primary transactionally.
             setNotification({ message: '최근 클라우드 백업으로 저장 데이터를 복구했습니다.', type: 'info' });
           }
 
           cloudGameStateRevisionRef.current = revision;
-          handleLoadGame(existingUserData.gameData, { markAsSynced: true, replace: true });
-          if (existingUserData.achievements) {
-            setInitialAchievementData({ ...existingUserData.achievements, scope: user.uid });
-          }
+          handleLoadGame(existingUserData.gameData, { markAsSynced: true, replace: true, hydrateAchievements: true });
         } else {
           // The account existed before this session but neither its primary
           // state nor a validated backup is usable. Keep cloud writes off so
@@ -664,7 +703,7 @@ export const App: React.FC = () => {
     const saveInterval = setInterval(async () => {
       const currentState = gameStateRef.current;
       if (!currentState) return;
-      if (isDuplicateTabPaused || isLocalGameSaveSuppressed()) return;
+      if (isDuplicateTabPaused || isLocalGameSaveSuppressed() || serverMutationInProgressRef.current) return;
       if (localHydratedScopeRef.current !== (localSaveScope ?? 'guest')) return;
 
       const payload = JSON.stringify(currentState);
@@ -675,7 +714,7 @@ export const App: React.FC = () => {
       }
 
       // Cloud save only when payload changes.
-      if (!user || user.isAnonymous || !isCloudSyncReady || cloudHydratedUserIdRef.current !== user.uid) return;
+      if (!user || user.isAnonymous || !isCloudSyncReady || !achievementsLoaded || cloudHydratedUserIdRef.current !== user.uid) return;
       if (payload === lastCloudSavePayloadRef.current) return;
       try {
         await enqueueCloudSave(user.uid, currentState);
@@ -687,7 +726,7 @@ export const App: React.FC = () => {
     }, 15000);
 
     return () => clearInterval(saveInterval);
-  }, [user, localSaveScope, isCloudSyncReady, isDuplicateTabPaused, enqueueCloudSave, persistLocalGameState]);
+  }, [user, localSaveScope, isCloudSyncReady, achievementsLoaded, isDuplicateTabPaused, enqueueCloudSave, persistLocalGameState]);
 
   const handleSaveProfile = useCallback(async (nickname: string, photoURL: string | null) => {
     if (!user) return;
@@ -731,6 +770,7 @@ export const App: React.FC = () => {
     if (!window.confirm("정말 새 게임을 시작하시겠습니까? 현재 진행 상황이 모두 사라집니다.")) return false;
 
     const initialState: SavedGameState = {
+      schemaVersion: CURRENT_GAME_STATE_SCHEMA_VERSION,
       ponds: createInitialPonds(),
       activePondId: 'pond-1',
       zenPoints: import.meta.env.DEV ? 10000 : 2000,
@@ -788,20 +828,19 @@ export const App: React.FC = () => {
     setInitialAchievementData(null);
   };
 
-  const handleLoadGame = (loadedState: SavedGameState, options: { silent?: boolean; markAsSynced?: boolean; replace?: boolean } = {}) => {
-    if (!isValidSavedGameState(loadedState)) {
+  const handleLoadGame = (
+    loadedState: SavedGameState,
+    options: { silent?: boolean; markAsSynced?: boolean; replace?: boolean; hydrateAchievements?: boolean } = {},
+  ) => {
+    const normalizedState = normalizeSavedGameState(loadedState);
+    if (!normalizedState) {
       console.warn("Ignored invalid game state:", loadedState);
       return;
     }
 
     const mergedState: SavedGameState = {
-      ...loadedState,
-      honorPoints: Number(loadedState.honorPoints ?? 0),
-      achievementPoints: Number(loadedState.achievementPoints ?? 0),
-      achievements: {
-        unlockedIds: loadedState.achievements?.unlockedIds ?? [],
-        claimedIds: loadedState.achievements?.claimedIds ?? [],
-      },
+      ...normalizedState,
+      schemaVersion: CURRENT_GAME_STATE_SCHEMA_VERSION,
     };
 
     if (options.markAsSynced) {
@@ -823,12 +862,14 @@ export const App: React.FC = () => {
     setCornCount(mergedState.cornCount || 0);
     setHonorPoints(mergedState.honorPoints);
     setKoiNameCounter(mergedState.koiNameCounter);
-    setInitialAchievementData({
-      unlockedIds: mergedState.achievements.unlockedIds,
-      claimedIds: mergedState.achievements.claimedIds,
-      totalPoints: mergedState.achievementPoints,
-      scope: achievementScope,
-    });
+    if (options.hydrateAchievements !== false) {
+      setInitialAchievementData({
+        unlockedIds: mergedState.achievements?.unlockedIds ?? [],
+        claimedIds: mergedState.achievements?.claimedIds ?? [],
+        totalPoints: mergedState.achievementPoints,
+        scope: achievementScope,
+      });
+    }
     if (!options.silent) {
       setNotification({ message: "게임을 불러왔습니다.", type: 'success' });
     }
@@ -838,6 +879,7 @@ export const App: React.FC = () => {
     if (!user || user.isAnonymous || !isCloudSyncReady || cloudHydratedUserIdRef.current !== user.uid || isDuplicateTabPaused) return;
 
     return listenToGameData(user.uid, (cloudState, revision) => {
+      if (serverMutationInProgressRef.current) return;
       const cloudPayload = JSON.stringify(cloudState);
       if (cloudPayload === lastCloudSavePayloadRef.current) {
         cloudGameStateRevisionRef.current = revision;
@@ -1045,60 +1087,53 @@ export const App: React.FC = () => {
       return;
     }
 
-    let nextZenPoints = zenPoints - totalCost;
-    let nextHonorPoints = (honorPoints || 0) + quantity;
+    try {
+      let nextZenPoints = zenPoints - totalCost;
+      let nextHonorPoints = (honorPoints || 0) + quantity;
 
-    setZenPoints(nextZenPoints);
-    setHonorPoints(nextHonorPoints);
-    audioManager.playSFX('purchase');
-    setNotification({ message: `명예 트로피 ${quantity}개를 구매했습니다!`, type: 'success' });
-
-    const immediateState: SavedGameState = {
-      ...(gameStateRef.current ?? {
-        ponds,
-        activePondId,
-        zenPoints,
-        foodCount,
-        cornCount,
-        honorPoints,
-        achievementPoints: achievementScore,
-        achievements: { unlockedIds, claimedIds },
-        koiNameCounter,
-      }),
-      zenPoints: nextZenPoints,
-      honorPoints: nextHonorPoints,
-    };
-    gameStateRef.current = immediateState;
-
-    if (!isDuplicateTabPaused && !isLocalGameSaveSuppressed()) {
-      persistLocalGameState(immediateState, localSaveScope);
-    }
-
-    // Serialize this save behind any periodic save already in progress.
-    if (user && !user.isAnonymous && isCloudSyncReady && cloudHydratedUserIdRef.current === user.uid && !isDuplicateTabPaused && !isLocalGameSaveSuppressed()) {
-      try {
-        await enqueueCloudSave(user.uid, immediateState);
-      } catch (error) {
-        if ((error as { code?: string })?.code !== 'unavailable') {
-          console.error("Immediate cloud sync failed:", error);
+      if (user && !user.isAnonymous) {
+        if (!isCloudSyncReady || !achievementsLoaded || cloudHydratedUserIdRef.current !== user.uid) {
+          setNotification({ message: '계정 저장을 불러오는 중입니다. 잠시 후 다시 시도해주세요.', type: 'error' });
+          return;
         }
+        serverMutationInProgressRef.current = true;
+        await flushCurrentGameState();
+        const result = await purchaseHonorTrophies(quantity);
+        nextZenPoints = result.zenPoints;
+        nextHonorPoints = result.honorPoints;
+        cloudGameStateRevisionRef.current = result.revision;
       }
+
+      const immediateState: SavedGameState = {
+        ...(gameStateRef.current ?? createInitialGameState()),
+        schemaVersion: CURRENT_GAME_STATE_SCHEMA_VERSION,
+        zenPoints: nextZenPoints,
+        honorPoints: nextHonorPoints,
+      };
+      gameStateRef.current = immediateState;
+      setZenPoints(nextZenPoints);
+      setHonorPoints(nextHonorPoints);
+      persistLocalGameState(immediateState, localSaveScope);
+      if (user && !user.isAnonymous) {
+        // Persist any simulation changes that occurred while the server
+        // purchase transaction was running, now using its returned revision.
+        await enqueueCloudSave(user.uid, immediateState);
+      }
+      audioManager.playSFX('purchase');
+      setNotification({ message: `명예 트로피 ${quantity}개를 구매했습니다!`, type: 'success' });
+    } catch (error) {
+      console.error('Trophy purchase failed:', error);
+      setNotification({ message: '트로피 구매를 서버에 저장하지 못했습니다. 포인트는 차감되지 않았습니다.', type: 'error' });
+    } finally {
+      serverMutationInProgressRef.current = false;
     }
   }, [
     zenPoints,
     honorPoints,
     user,
     isCloudSyncReady,
-    isDuplicateTabPaused,
-    ponds,
-    activePondId,
-    foodCount,
-    cornCount,
-    achievementScore,
-    unlockedIds,
-    claimedIds,
-    koiNameCounter,
-    enqueueCloudSave,
+    achievementsLoaded,
+    flushCurrentGameState,
     persistLocalGameState,
     localSaveScope,
   ]);
@@ -1540,6 +1575,7 @@ export const App: React.FC = () => {
         userNickname={userNickname}
         profilePhotoURL={userPhotoURL}
         onSaveProfile={handleSaveProfile}
+        onBeforeAccountChange={flushCurrentGameState}
         onLogoutCleanup={handleLogoutCleanup}
       />
       {
@@ -1684,6 +1720,7 @@ export const App: React.FC = () => {
         achievements={achievements}
         unlockedIds={unlockedIds}
         claimedIds={claimedIds}
+        totalPoints={achievementScore}
         onClaim={handleClaimReward}
       />
 

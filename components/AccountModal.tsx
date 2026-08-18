@@ -11,6 +11,7 @@ interface AccountModalProps {
     userNickname: string;
     profilePhotoURL: string | null;
     onSaveProfile: (nickname: string, photoURL: string | null) => Promise<void>;
+    onBeforeAccountChange: () => Promise<void>;
     onLogoutCleanup: () => void;
 }
 
@@ -78,6 +79,7 @@ export const AccountModal: React.FC<AccountModalProps> = ({
     userNickname,
     profilePhotoURL,
     onSaveProfile,
+    onBeforeAccountChange,
     onLogoutCleanup,
 }) => {
     const { user, logout, loginWithPlayGames, deleteAccount } = useAuth();
@@ -169,9 +171,10 @@ export const AccountModal: React.FC<AccountModalProps> = ({
         if (!window.confirm('정말 로그아웃 하시겠습니까? 진행 데이터는 계정에 안전하게 저장됩니다.')) return;
 
         try {
-            suppressLocalGameSave();
             setIsLoggingOut(true);
             audioManager.playSFX('click');
+            await onBeforeAccountChange();
+            suppressLocalGameSave();
             await logout();
             onClose();
             onLogoutCleanup();
@@ -189,9 +192,10 @@ export const AccountModal: React.FC<AccountModalProps> = ({
         if (!window.confirm('Play Games 계정으로 전환하시겠습니까? 현재 계정 데이터는 그대로 보존됩니다.')) return;
 
         try {
-            suppressLocalGameSave();
             setIsSwitchingToPlayGames(true);
             setError(null);
+            await onBeforeAccountChange();
+            suppressLocalGameSave();
             await loginWithPlayGames();
             onClose();
             window.location.reload();

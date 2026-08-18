@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Achievement, AchievementState, Koi } from '../types';
+import { claimAchievement as claimAchievementOnServer } from '../services/ranking';
 import { ACHIEVEMENTS, checkUnlockableAchievements } from '../utils/achievements';
 
 const createEmptyAchievementState = (): AchievementState => ({
@@ -23,58 +24,75 @@ const uniqueIds = (ids: unknown): string[] => {
         .filter(id => knownAchievementIds.has(id));
 };
 
-const mergeAchievementSnapshots = (...snapshots: Array<AchievementSnapshot | null | undefined>): AchievementState => {
+const pointsFromClaims = (claimedIds: string[]) => claimedIds.reduce((sum, id) => {
+    const achievement = ACHIEVEMENTS.find(item => item.id === id);
+    return sum + (achievement?.reward.achievementPoints || 0);
+}, 0);
+
+const mergeAchievementSnapshots = (
+    snapshots: Array<AchievementSnapshot | null | undefined>,
+    canonicalTotal?: number,
+): AchievementState => {
     const unlockedIds = uniqueIds(snapshots.flatMap(snapshot => snapshot?.unlockedIds ?? []));
     const claimedIds = uniqueIds(snapshots.flatMap(snapshot => snapshot?.claimedIds ?? []));
-
-    // A claimed reward always implies that the achievement was unlocked.
     const mergedUnlockedIds = uniqueIds([...unlockedIds, ...claimedIds]);
-    const pointsFromKnownClaims = claimedIds.reduce((sum, id) => {
-        const achievement = ACHIEVEMENTS.find(item => item.id === id);
-        return sum + (achievement?.reward.achievementPoints || 0);
-    }, 0);
+    const calculatedPoints = pointsFromClaims(claimedIds);
+    const suppliedTotal = Number(canonicalTotal);
+
     return {
         unlockedIds: mergedUnlockedIds,
         claimedIds,
-        // Recalculate from the claims that still exist in the current
-        // achievement catalog. Removed legacy achievements must not keep
-        // resurrecting stale points from an old local/cloud snapshot.
-        totalPoints: pointsFromKnownClaims,
+        // Canonical server totals may include retired legacy achievements
+        // whose IDs are intentionally hidden from the current catalog.
+        totalPoints: Number.isFinite(suppliedTotal) && suppliedTotal >= 0
+            ? Math.max(calculatedPoints, Math.floor(suppliedTotal))
+            : calculatedPoints,
         lastChecked: Date.now(),
     };
 };
 
 export const useAchievements = (
     userId: string | undefined,
-    initialData?: { unlockedIds: string[]; claimedIds: string[]; totalPoints?: number; } | null
+    initialData?: { unlockedIds: string[]; claimedIds: string[]; totalPoints?: number; } | null,
 ) => {
+    const scope = userId ?? 'guest';
     const [state, setState] = useState<AchievementState>(() => createEmptyAchievementState());
+    const [loadedScope, setLoadedScope] = useState<string | null>(null);
     const stateRef = useRef<AchievementState>(state);
-    const storageScopeRef = useRef(userId ?? 'guest');
+    const storageScopeRef = useRef(scope);
     stateRef.current = state;
 
-    const [isLoaded, setIsLoaded] = useState(false);
+    const isLoaded = loadedScope === scope && (!userId || initialData !== null);
 
     const persistLocalState = useCallback((nextState: Pick<AchievementState, 'unlockedIds' | 'claimedIds' | 'totalPoints'>) => {
         try {
-            const storageId = userId ?? 'guest';
-            localStorage.setItem(`koi_garden_achievements_${storageId}`, JSON.stringify({
+            localStorage.setItem(`koi_garden_achievements_${scope}`, JSON.stringify({
                 unlockedIds: nextState.unlockedIds,
                 claimedIds: nextState.claimedIds,
                 totalPoints: nextState.totalPoints,
             }));
-        } catch (e) {
-            console.error("Failed to persist achievements locally", e);
+        } catch (error) {
+            console.error('Failed to persist achievements locally', error);
         }
-    }, [userId]);
+    }, [scope]);
 
-    // Load and merge all available sources. Achievement progress is monotonic:
-    // an older cloud snapshot must never erase a locally saved achievement.
     useEffect(() => {
-        const key = `koi_garden_achievements_${userId ?? 'guest'}`;
+        // Authenticated accounts must wait for the canonical server snapshot.
+        // Loading an empty localStorage value first was the reinstall race that
+        // allowed restored koi to overwrite claimed achievement IDs.
+        if (userId && !initialData) {
+            if (storageScopeRef.current !== scope) {
+                storageScopeRef.current = scope;
+                const emptyState = createEmptyAchievementState();
+                stateRef.current = emptyState;
+                setState(emptyState);
+            }
+            setLoadedScope(null);
+            return;
+        }
 
         let localData: AchievementSnapshot | null = null;
-        const saved = localStorage.getItem(key);
+        const saved = localStorage.getItem(`koi_garden_achievements_${scope}`);
         if (saved) {
             try {
                 const parsed = JSON.parse(saved) as AchievementSnapshot;
@@ -83,75 +101,98 @@ export const useAchievements = (
                     claimedIds: uniqueIds(parsed.claimedIds),
                     totalPoints: Number(parsed.totalPoints),
                 };
-            } catch (e) {
-                console.error("Failed to load achievements", e);
+            } catch (error) {
+                console.error('Failed to load achievements', error);
             }
         }
 
-        // Keep in-memory progress only within the same account. A delayed
-        // cloud snapshot must not roll progress backwards or leak another
-        // account's achievements into the current account.
-        const storageScope = userId ?? 'guest';
-        const inMemoryState = storageScopeRef.current === storageScope ? stateRef.current : null;
-        storageScopeRef.current = storageScope;
-        const nextState = mergeAchievementSnapshots(inMemoryState, localData, initialData);
+        const sameScopeState = storageScopeRef.current === scope ? stateRef.current : null;
+        storageScopeRef.current = scope;
+        const nextState = userId
+            ? mergeAchievementSnapshots([
+                // Local/in-memory unlocks are harmless recovery hints. Claimed
+                // rewards and the total always come from the server snapshot.
+                { unlockedIds: localData?.unlockedIds },
+                { unlockedIds: sameScopeState?.unlockedIds },
+                initialData,
+            ], initialData?.totalPoints)
+            : mergeAchievementSnapshots(
+                [sameScopeState, localData],
+                Math.max(Number(localData?.totalPoints || 0), Number(sameScopeState?.totalPoints || 0)),
+            );
+
         stateRef.current = nextState;
         setState(nextState);
-        setIsLoaded(true);
+        setLoadedScope(scope);
         persistLocalState(nextState);
-    }, [userId, initialData, persistLocalState]);
+    }, [userId, scope, initialData, persistLocalState]);
 
     const checkAchievements = useCallback((kois: Koi[]) => {
         if (!isLoaded) return [];
-        const newUnlocks = checkUnlockableAchievements(kois, state.unlockedIds);
+        const currentState = stateRef.current;
+        const newUnlocks = checkUnlockableAchievements(kois, currentState.unlockedIds);
+        if (newUnlocks.length === 0) return [];
 
-        if (newUnlocks.length > 0) {
-            const newIds = newUnlocks.map(a => a.id);
-            const nextUnlockedIds = [...state.unlockedIds, ...newIds];
-            const nextState = {
-                ...state,
-                unlockedIds: nextUnlockedIds,
+        const nextState: AchievementState = {
+            ...currentState,
+            unlockedIds: uniqueIds([...currentState.unlockedIds, ...newUnlocks.map(achievement => achievement.id)]),
+            lastChecked: Date.now(),
+        };
+        stateRef.current = nextState;
+        setState(nextState);
+        persistLocalState(nextState);
+        return newUnlocks;
+    }, [isLoaded, persistLocalState]);
+
+    const claimReward = useCallback(async (
+        achievementId: string,
+        onRewardClaimed?: (reward: Achievement['reward']) => void,
+    ) => {
+        if (!isLoaded) return null;
+        const currentState = stateRef.current;
+        if (currentState.claimedIds.includes(achievementId)) return null;
+        if (!currentState.unlockedIds.includes(achievementId)) return null;
+
+        const achievement = ACHIEVEMENTS.find(item => item.id === achievementId);
+        if (!achievement) return null;
+
+        if (userId) {
+            const result = await claimAchievementOnServer(achievementId);
+            const nextState: AchievementState = {
+                ...currentState,
+                unlockedIds: uniqueIds([...currentState.unlockedIds, ...result.unlockedIds]),
+                claimedIds: uniqueIds([...currentState.claimedIds, ...result.claimedIds]),
+                totalPoints: result.achievementPoints,
                 lastChecked: Date.now(),
             };
-
+            stateRef.current = nextState;
             setState(nextState);
             persistLocalState(nextState);
 
-            return newUnlocks;
+            if (result.achievementReward <= 0) return null;
+            const reward = { achievementPoints: result.achievementReward };
+            onRewardClaimed?.(reward);
+            return reward;
         }
-        return [];
-    }, [state, isLoaded, persistLocalState]);
 
-    const claimReward = useCallback(async (achievementId: string, onRewardClaimed?: (reward: Achievement['reward']) => void) => {
-        if (!isLoaded) return null;
-        if (state.claimedIds.includes(achievementId)) return null;
-        if (!state.unlockedIds.includes(achievementId)) return null;
-
-        const achievement = ACHIEVEMENTS.find(a => a.id === achievementId);
-        if (!achievement) return null;
-
-        const nextClaimedIds = uniqueIds([...state.claimedIds, achievementId]);
-        const nextUnlockedIds = uniqueIds([...state.unlockedIds, achievementId]);
         const nextState: AchievementState = {
-            ...state,
-            unlockedIds: nextUnlockedIds,
-            claimedIds: nextClaimedIds,
-            totalPoints: state.totalPoints + achievement.reward.achievementPoints,
+            ...currentState,
+            unlockedIds: uniqueIds([...currentState.unlockedIds, achievementId]),
+            claimedIds: uniqueIds([...currentState.claimedIds, achievementId]),
+            totalPoints: currentState.totalPoints + achievement.reward.achievementPoints,
+            lastChecked: Date.now(),
         };
-
+        stateRef.current = nextState;
         setState(nextState);
         persistLocalState(nextState);
         onRewardClaimed?.(achievement.reward);
         return achievement.reward;
-    }, [state, isLoaded, persistLocalState]);
+    }, [userId, isLoaded, persistLocalState]);
 
-    const getAchievementStatus = useCallback((id: string) => {
-        const isUnlocked = state.unlockedIds.includes(id);
-        const isClaimed = state.claimedIds.includes(id);
-        return { isUnlocked, isClaimed };
-    }, [state.unlockedIds, state.claimedIds]);
-
-    const hasUnclaimedRewards = state.unlockedIds.some(id => !state.claimedIds.includes(id));
+    const getAchievementStatus = useCallback((id: string) => ({
+        isUnlocked: state.unlockedIds.includes(id),
+        isClaimed: state.claimedIds.includes(id),
+    }), [state.unlockedIds, state.claimedIds]);
 
     return {
         achievements: ACHIEVEMENTS,
@@ -160,8 +201,8 @@ export const useAchievements = (
         checkAchievements,
         claimReward,
         getAchievementStatus,
-        hasUnclaimedRewards,
+        hasUnclaimedRewards: state.unlockedIds.some(id => !state.claimedIds.includes(id)),
         totalPoints: state.totalPoints || 0,
-        isLoaded
+        isLoaded,
     };
 };

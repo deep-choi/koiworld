@@ -8,6 +8,7 @@ interface AchievementModalProps {
     achievements: Achievement[];
     unlockedIds: string[];
     claimedIds: string[];
+    totalPoints: number;
     onClaim: (id: string, reward: Achievement['reward']) => void;
 }
 
@@ -24,6 +25,7 @@ export const AchievementModal: React.FC<AchievementModalProps> = ({
     achievements,
     unlockedIds,
     claimedIds,
+    totalPoints,
     onClaim
 }) => {
     const [activeTab, setActiveTab] = useState('novice');
@@ -52,11 +54,6 @@ export const AchievementModal: React.FC<AchievementModalProps> = ({
         const tierOrder = ['novice', 'intermediate', 'advanced', 'legend'];
         return tierOrder.indexOf(a.tier) - tierOrder.indexOf(b.tier);
     });
-
-    const totalPoints = claimedIds.reduce((sum, id) => {
-        const ach = achievements.find(a => a.id === id);
-        return sum + (ach?.reward.achievementPoints || 0);
-    }, 0);
 
     const clearedCount = filteredAchievements.filter(ach => unlockedIds.includes(ach.id)).length;
 

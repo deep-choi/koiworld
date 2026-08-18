@@ -4,6 +4,18 @@ import { FieldValue, getFirestore, type DocumentData, type Transaction } from 'f
 import { setGlobalOptions } from 'firebase-functions/v2';
 import { HttpsError, onCall, onRequest } from 'firebase-functions/v2/https';
 import type { Request, Response } from 'express';
+import {
+    PROGRESSION_PROTOCOL_VERSION,
+    achievementReward,
+    asRecord,
+    calculateAchievementPoints,
+    currentAchievementIds,
+    finiteInteger,
+    normalizeAchievementIds,
+    reconcileProgression,
+    uniqueStrings,
+    type CanonicalProgression,
+} from './progression.js';
 
 initializeApp();
 
@@ -15,6 +27,8 @@ const MAX_EVENT_ID_LENGTH = 80;
 const MAX_PROFILE_DATA_URL_LENGTH = 120_000;
 const MAX_GAME_STATE_BYTES = 850_000;
 const SAVE_PROTOCOL_VERSION = 2;
+const GAME_STATE_SCHEMA_VERSION = 3;
+const DAILY_BACKUP_SLOT_COUNT = 14;
 const SAVE_REASONS = new Set(['auto', 'new-account', 'backup-recovery', 'explicit-reset']);
 const NATIVE_AUTH_SOURCE = 'playgames';
 
@@ -38,15 +52,15 @@ type Profile = {
     photoURL: string | null;
 };
 
-type RankingState = {
+type RankingState = CanonicalProgression & {
     uid: string;
-    honorPoints: number;
-    achievementPoints: number;
-    claimedAchievementIds: string[];
+    progressionProtocolVersion: number;
 };
 
 type GameState = {
+    schemaVersion?: unknown;
     zenPoints?: unknown;
+    foodCount?: unknown;
     cornCount?: unknown;
     honorPoints?: unknown;
     achievementPoints?: unknown;
@@ -65,18 +79,15 @@ type RankingResult = {
     achievementPoints: number;
     zenPoints?: number;
     acceptedQuantity?: number;
+    revision?: number;
 };
 
 const usersRef = (uid: string) => db.collection('users').doc(uid);
-const gameStateBackupRef = (uid: string) => usersRef(uid).collection('gameStateBackups').doc('latest');
+const gameStateBackupsRef = (uid: string) => usersRef(uid).collection('gameStateBackups');
+const gameStateBackupRef = (uid: string, backupId = 'latest') => gameStateBackupsRef(uid).doc(backupId);
 const rankingStateRef = (uid: string) => db.collection('rankingState').doc(uid);
 const rankingRef = (uid: string) => db.collection('rankings').doc(uid);
 const eventRef = (uid: string, eventId: string) => db.collection('rankingEvents').doc(`${uid}_${eventId}`);
-
-const asRecord = (value: unknown): Record<string, unknown> =>
-    value && typeof value === 'object' && !Array.isArray(value)
-        ? value as Record<string, unknown>
-        : {};
 
 const asGameState = (value: unknown): GameState => asRecord(value) as GameState;
 
@@ -113,16 +124,6 @@ const requireSaveRevision = (value: unknown): number => {
         throw new HttpsError('invalid-argument', '유효한 저장 리비전이 필요합니다.');
     }
     return value;
-};
-
-const finiteInteger = (value: unknown, fallback = 0): number => {
-    if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
-    return Math.max(0, Math.floor(value));
-};
-
-const uniqueStrings = (value: unknown): string[] => {
-    if (!Array.isArray(value)) return [];
-    return Array.from(new Set(value.filter((item): item is string => typeof item === 'string')));
 };
 
 const normalizePhotoURL = (value: unknown): string | null => {
@@ -220,7 +221,7 @@ export const exchangeNativeFirebaseToken = onRequest(async (request, response) =
 export const saveGameState = onCall(async request => {
     const uid = requireAuth(request.auth?.uid);
     const data = asRecord(request.data);
-    const gameState = normalizeGameStateForSave(data.gameState);
+    const incomingGameState = normalizeGameStateForSave(data.gameState);
     const expectedRevision = requireSaveRevision(data.expectedRevision);
     const saveReason = typeof data.reason === 'string' && SAVE_REASONS.has(data.reason)
         ? data.reason
@@ -229,10 +230,30 @@ export const saveGameState = onCall(async request => {
         ? data.deviceId.trim().slice(0, 128)
         : '';
     const userReference = usersRef(uid);
+    const stateReference = rankingStateRef(uid);
+    const publicRankingReference = rankingRef(uid);
     const backupReference = gameStateBackupRef(uid);
 
+    // Historical queries are only needed while an account is crossing the
+    // canonical progression boundary. Normal 15-second saves remain a small
+    // fixed transaction after the first successful migration.
+    const preflightUserSnapshot = await userReference.get();
+    const preflightUserData = preflightUserSnapshot.exists ? preflightUserSnapshot.data() ?? {} : {};
+    const needsProgressionMigration = finiteInteger(preflightUserData.progressionProtocolVersion)
+        < PROGRESSION_PROTOCOL_VERSION;
+    const [historicalAchievementIds, recoveryGameStates, publicRankingSnapshot] = needsProgressionMigration
+        ? await Promise.all([
+            loadHistoricalAchievementIds(uid),
+            loadRecoveryGameStates(uid),
+            publicRankingReference.get(),
+        ])
+        : [[], [], null];
+
     return db.runTransaction(async transaction => {
-        const userSnapshot = await transaction.get(userReference);
+        const [userSnapshot, stateSnapshot] = await Promise.all([
+            transaction.get(userReference),
+            transaction.get(stateReference),
+        ]);
         const userData = userSnapshot.exists ? userSnapshot.data() ?? {} : {};
         const currentRevision = finiteInteger(userData.gameStateRevision);
 
@@ -246,20 +267,46 @@ export const saveGameState = onCall(async request => {
 
         const currentGameState = userData.gameState;
         const nextRevision = currentRevision + 1;
-        const honorPoints = finiteInteger(gameState.honorPoints);
-        const achievementPoints = finiteInteger(gameState.achievementPoints);
+        const progression = reconcileProgression({
+            userData,
+            rankingStateData: stateSnapshot.exists ? stateSnapshot.data() : undefined,
+            publicRankingData: publicRankingSnapshot?.exists ? publicRankingSnapshot.data() : undefined,
+            currentGameState,
+            incomingGameState,
+            backupGameStates: recoveryGameStates,
+            historicalAchievementIds,
+            allowIncomingProgression: finiteInteger(userData.progressionProtocolVersion)
+                < PROGRESSION_PROTOCOL_VERSION,
+        });
+        const nextState: RankingState = {
+            uid,
+            ...progression,
+            progressionProtocolVersion: PROGRESSION_PROTOCOL_VERSION,
+        };
+        const gameState = gameStateWithRanking(incomingGameState, nextState);
+        const currentPayload = isValidGameState(currentGameState) ? JSON.stringify(currentGameState) : null;
+        const nextPayload = JSON.stringify(gameState);
 
-        if (
-            isValidGameState(currentGameState)
-            && JSON.stringify(currentGameState) !== JSON.stringify(gameState)
-        ) {
-            transaction.set(backupReference, {
+        if (currentPayload && currentPayload !== nextPayload) {
+            const backup = {
                 gameState: currentGameState,
                 gameStateRevision: currentRevision,
                 savedAt: FieldValue.serverTimestamp(),
                 replacedByDeviceId: deviceId || null,
                 replacedByReason: saveReason,
-            });
+            };
+            transaction.set(backupReference, { ...backup, backupKind: 'latest' });
+
+            const dayKey = new Date().toISOString().slice(0, 10);
+            if (userData.lastDailyBackupDate !== dayKey) {
+                const dayNumber = Math.floor(Date.now() / 86_400_000);
+                const slot = String(dayNumber % DAILY_BACKUP_SLOT_COUNT).padStart(2, '0');
+                transaction.set(gameStateBackupRef(uid, `daily-${slot}`), {
+                    ...backup,
+                    backupKind: 'daily',
+                    dayKey,
+                });
+            }
         }
 
         transaction.set(userReference, {
@@ -269,25 +316,22 @@ export const saveGameState = onCall(async request => {
             gameStateSavedAt: FieldValue.serverTimestamp(),
             lastSaveDeviceId: deviceId || null,
             lastSaveReason: saveReason,
-            honorPoints,
-            achievementPoints,
+            lastDailyBackupDate: new Date().toISOString().slice(0, 10),
+            progressionProtocolVersion: PROGRESSION_PROTOCOL_VERSION,
+            legacyAchievementPointsBase: nextState.legacyAchievementPointsBase,
+            honorPoints: nextState.honorPoints,
+            achievementPoints: nextState.achievementPoints,
             updatedAt: FieldValue.serverTimestamp(),
         }, { merge: true });
 
-        const profile = readProfileFromUser(userData);
-        transaction.set(rankingRef(uid), {
-            uid,
-            nickname: profile.nickname,
-            photoURL: profile.photoURL,
-            honorPoints,
-            achievementPoints,
-            updatedAt: FieldValue.serverTimestamp(),
-        }, { merge: true });
+        writeRankingState(transaction, uid, userData, nextState);
 
         return {
             revision: nextRevision,
             savedAt: Date.now(),
             protocolVersion: SAVE_PROTOCOL_VERSION,
+            schemaVersion: GAME_STATE_SCHEMA_VERSION,
+            gameState,
         };
     });
 });
@@ -305,25 +349,16 @@ const readRankingState = (
     legacyUserData?: DocumentData,
     historicalAchievementIds: unknown[] = [],
 ): RankingState => {
-    const legacyGameState = asGameState(legacyUserData?.gameState);
-    const legacyAchievements = asRecord(legacyGameState.achievements);
-    const claimedAchievementIds = normalizeAchievementIds([
-        ...uniqueStrings(data?.claimedAchievementIds),
-        ...uniqueStrings(legacyAchievements.claimedIds),
-        ...historicalAchievementIds,
-    ]);
-    const hasClaimHistory = Array.isArray(data?.claimedAchievementIds)
-        || Array.isArray(legacyAchievements.claimedIds);
-
+    const progression = reconcileProgression({
+        userData: legacyUserData,
+        rankingStateData: data,
+        currentGameState: legacyUserData?.gameState,
+        historicalAchievementIds,
+    });
     return {
         uid,
-        honorPoints: finiteInteger(data?.honorPoints ?? legacyUserData?.honorPoints ?? legacyGameState.honorPoints),
-        // Keep the ranking total derived from server-owned claim history. This
-        // repairs totals after an achievement definition is removed or changed.
-        achievementPoints: hasClaimHistory
-            ? calculateAchievementPoints(claimedAchievementIds)
-            : finiteInteger(data?.achievementPoints ?? legacyUserData?.achievementPoints ?? legacyGameState.achievementPoints),
-        claimedAchievementIds,
+        ...progression,
+        progressionProtocolVersion: PROGRESSION_PROTOCOL_VERSION,
     };
 };
 
@@ -356,63 +391,19 @@ const gameStateWithRanking = (
 ): GameState => ({
     ...gameState,
     ...extra,
+    schemaVersion: GAME_STATE_SCHEMA_VERSION,
     honorPoints: state.honorPoints,
     achievementPoints: state.achievementPoints,
     achievements: {
         ...asRecord(gameState.achievements),
-        unlockedIds: normalizeAchievementIds([
+        unlockedIds: currentAchievementIds([
             ...uniqueStrings(asRecord(gameState.achievements).unlockedIds),
+            ...state.unlockedAchievementIds,
             ...state.claimedAchievementIds,
         ]),
-        claimedIds: state.claimedAchievementIds,
+        claimedIds: currentAchievementIds(state.claimedAchievementIds),
     },
 });
-
-const achievementReward = (achievementId: string): { points: number } | null => {
-    const spotCountRewards: Record<number, { points: number }> = {
-        4: { points: 100 },
-        8: { points: 200 },
-        12: { points: 300 },
-        20: { points: 500 },
-    };
-    const spotCountMatch = /^spot_count_(4|8|12|20)$/.exec(achievementId);
-    if (spotCountMatch) return spotCountRewards[Number(spotCountMatch[1])];
-    if (/^spot_color_(주황|노랑|하양|검정)$/.test(achievementId)) return { points: 100 };
-    if (achievementId === 'special_five_color') return { points: 200 };
-    if (/^color_(빨강|주황|노랑|크림|검정)_basic$/.test(achievementId)) return { points: 200 };
-    if (/^(saturation_100|saturation_0|lightness_100|lightness_0)$/.test(achievementId)) {
-        return { points: 300 };
-    }
-    if (/^legend_spot_(주황|노랑|하양|검정)$/.test(achievementId)) return { points: 500 };
-    return null;
-};
-
-const migrateAchievementId = (achievementId: string): string | null => {
-    if (achievementReward(achievementId)) return achievementId;
-
-    // The old client created one achievement per color for these conditions.
-    // They are now global achievements, so preserve one claim for each global
-    // condition when rebuilding the server-owned ranking state.
-    const legacyColorVariant = /^color_(빨강|주황|노랑|크림|검정)_(sat_high|sat_low|light_high|light_low)$/.exec(achievementId);
-    if (legacyColorVariant) {
-        const [, , variant] = legacyColorVariant;
-        if (variant === 'sat_high') return 'saturation_100';
-        if (variant === 'sat_low') return 'saturation_0';
-        if (variant === 'light_high') return 'lightness_100';
-        if (variant === 'light_low') return 'lightness_0';
-    }
-
-    // Removed spot-count and master achievements have no current equivalent.
-    return null;
-};
-
-const normalizeAchievementIds = (value: unknown): string[] =>
-    Array.from(new Set(uniqueStrings(value)
-        .map(migrateAchievementId)
-        .filter((achievementId): achievementId is string => achievementId !== null)));
-
-const calculateAchievementPoints = (achievementIds: string[]): number =>
-    achievementIds.reduce((total, achievementId) => total + (achievementReward(achievementId)?.points ?? 0), 0);
 
 const loadHistoricalAchievementIds = async (uid: string): Promise<string[]> => {
     const snapshot = await db.collection('rankingEvents').where('uid', '==', uid).get();
@@ -424,6 +415,129 @@ const loadHistoricalAchievementIds = async (uid: string): Promise<string[]> => {
         return [event.achievementId, result.achievementId];
     });
 };
+
+type RecoverySnapshot = {
+    gameState: GameState;
+    gameStateRevision: number;
+};
+
+const loadRecoverySnapshots = async (uid: string): Promise<RecoverySnapshot[]> => {
+    const snapshot = await gameStateBackupsRef(uid).get();
+    return snapshot.docs
+        .map(documentSnapshot => {
+            const data = documentSnapshot.data();
+            return {
+                gameState: asGameState(data.gameState),
+                gameStateRevision: finiteInteger(data.gameStateRevision),
+            };
+        })
+        .filter(snapshotData => isValidGameState(snapshotData.gameState));
+};
+
+const loadRecoveryGameStates = async (uid: string): Promise<GameState[]> =>
+    (await loadRecoverySnapshots(uid)).map(snapshot => snapshot.gameState);
+
+/**
+ * Reads and repairs an account before the client is allowed to render, check
+ * achievements, or auto-save. This is the single restore entry point for the
+ * schema-3 client.
+ */
+export const loadAccountState = onCall(async request => {
+    const uid = requireAuth(request.auth?.uid);
+    const userReference = usersRef(uid);
+    const preflightUser = await userReference.get();
+    if (!preflightUser.exists) {
+        return { exists: false };
+    }
+
+    const preflightUserData = preflightUser.data() ?? {};
+    const needsProgressionMigration = finiteInteger(preflightUserData.progressionProtocolVersion)
+        < PROGRESSION_PROTOCOL_VERSION;
+    const needsGameStateRecovery = !isValidGameState(preflightUserData.gameState);
+    const [historicalAchievementIds, recoverySnapshots, publicRankingSnapshot] = await Promise.all([
+        needsProgressionMigration ? loadHistoricalAchievementIds(uid) : Promise.resolve([]),
+        needsProgressionMigration || needsGameStateRecovery
+            ? loadRecoverySnapshots(uid)
+            : Promise.resolve([]),
+        needsProgressionMigration ? rankingRef(uid).get() : Promise.resolve(null),
+    ]);
+    const backupGameStates = recoverySnapshots.map(snapshot => snapshot.gameState);
+    const newestValidBackup = [...recoverySnapshots]
+        .sort((left, right) => right.gameStateRevision - left.gameStateRevision)[0];
+
+    return db.runTransaction(async transaction => {
+        const [userSnapshot, stateSnapshot] = await Promise.all([
+            transaction.get(userReference),
+            transaction.get(rankingStateRef(uid)),
+        ]);
+        if (!userSnapshot.exists) return { exists: false };
+
+        const userData = userSnapshot.data() ?? {};
+        const currentGameState = asGameState(userData.gameState);
+        const hasPrimaryValue = userData.gameState !== null && userData.gameState !== undefined;
+        const primaryIsValid = isValidGameState(currentGameState);
+        const source = primaryIsValid
+            ? 'primary'
+            : newestValidBackup
+                ? 'backup'
+                : hasPrimaryValue
+                    ? 'invalid'
+                    : 'missing';
+        const coreGameState = primaryIsValid
+            ? currentGameState
+            : newestValidBackup?.gameState ?? null;
+        const progression = reconcileProgression({
+            userData,
+            rankingStateData: stateSnapshot.exists ? stateSnapshot.data() : undefined,
+            publicRankingData: publicRankingSnapshot?.exists ? publicRankingSnapshot.data() : undefined,
+            currentGameState,
+            backupGameStates,
+            historicalAchievementIds,
+        });
+        const canonicalState: RankingState = {
+            uid,
+            ...progression,
+            progressionProtocolVersion: PROGRESSION_PROTOCOL_VERSION,
+        };
+        const currentRevision = finiteInteger(userData.gameStateRevision);
+        const canonicalGameState = coreGameState
+            ? gameStateWithRanking(coreGameState, canonicalState)
+            : null;
+        const didRepairGameState = canonicalGameState !== null
+            && JSON.stringify(canonicalGameState) !== JSON.stringify(userData.gameState);
+        const revision = currentRevision + (didRepairGameState ? 1 : 0);
+
+        transaction.set(userReference, {
+            ...(canonicalGameState ? {
+                gameState: canonicalGameState,
+                gameStateRevision: revision,
+                gameStateSavedAt: didRepairGameState ? FieldValue.serverTimestamp() : userData.gameStateSavedAt ?? null,
+            } : {}),
+            saveProtocolVersion: SAVE_PROTOCOL_VERSION,
+            progressionProtocolVersion: PROGRESSION_PROTOCOL_VERSION,
+            legacyAchievementPointsBase: canonicalState.legacyAchievementPointsBase,
+            honorPoints: canonicalState.honorPoints,
+            achievementPoints: canonicalState.achievementPoints,
+            updatedAt: FieldValue.serverTimestamp(),
+        }, { merge: true });
+        writeRankingState(transaction, uid, userData, canonicalState);
+
+        const profile = readProfileFromUser(userData);
+        return {
+            exists: true,
+            gameState: canonicalGameState,
+            gameStateRevision: revision,
+            gameStateSource: source,
+            nickname: profile.nickname,
+            photoURL: profile.photoURL,
+            activeDeviceId: typeof userData.activeDeviceId === 'string' ? userData.activeDeviceId : null,
+            honorPoints: canonicalState.honorPoints,
+            achievementPoints: canonicalState.achievementPoints,
+            progressionProtocolVersion: PROGRESSION_PROTOCOL_VERSION,
+            schemaVersion: GAME_STATE_SCHEMA_VERSION,
+        };
+    });
+});
 
 const basePhenotype = (genes: unknown): string => {
     const validGenes = (Array.isArray(genes)
@@ -533,7 +647,9 @@ export const initializeRankingProfile = onCall(async request => {
     const profile = normalizeProfile(request.data);
     const userReference = usersRef(uid);
     const stateReference = rankingStateRef(uid);
-    const historicalAchievementIds = await loadHistoricalAchievementIds(uid);
+    // The schema-3 client calls loadAccountState before profile projection, so
+    // rankingState already contains any migrated event history here.
+    const historicalAchievementIds: string[] = [];
 
     return db.runTransaction(async transaction => {
         const userSnapshot = await transaction.get(userReference);
@@ -546,19 +662,28 @@ export const initializeRankingProfile = onCall(async request => {
             historicalAchievementIds,
         );
         const gameState = asGameState(userData.gameState);
+        const hasProgressionEvidence = isValidGameState(gameState)
+            || stateSnapshot.exists
+            || historicalAchievementIds.length > 0
+            || finiteInteger(userData.honorPoints) > 0
+            || finiteInteger(userData.achievementPoints) > 0;
 
         transaction.set(userReference, {
             profile: { nickname: profile.nickname, photoURL: profile.photoURL },
-            honorPoints: state.honorPoints,
-            achievementPoints: state.achievementPoints,
-            gameState: {
-                ...gameState,
+            ...(hasProgressionEvidence ? {
                 honorPoints: state.honorPoints,
                 achievementPoints: state.achievementPoints,
-            },
+                legacyAchievementPointsBase: state.legacyAchievementPointsBase,
+                progressionProtocolVersion: PROGRESSION_PROTOCOL_VERSION,
+                ...(isValidGameState(gameState) ? { gameState: gameStateWithRanking(gameState, state) } : {}),
+            } : {}),
             updatedAt: FieldValue.serverTimestamp(),
         }, { merge: true });
-        writeRankingState(transaction, uid, { ...userData, profile }, state);
+        if (hasProgressionEvidence) {
+            writeRankingState(transaction, uid, { ...userData, profile }, state);
+        } else {
+            transaction.set(rankingRef(uid), rankingDocument(uid, profile, state), { merge: true });
+        }
         return {
             honorPoints: state.honorPoints,
             achievementPoints: state.achievementPoints,
@@ -599,15 +724,31 @@ export const purchaseHonorTrophies = onCall(async request => {
             ...state,
             honorPoints: state.honorPoints + quantity,
         };
+        const currentRevision = finiteInteger(userData.gameStateRevision);
+        const nextRevision = currentRevision + 1;
         const result: RankingResult = {
             acceptedQuantity: quantity,
             honorPoints: nextState.honorPoints,
             achievementPoints: nextState.achievementPoints,
             zenPoints: zenPoints - totalCost,
+            revision: nextRevision,
         };
 
+        transaction.set(gameStateBackupRef(uid), {
+            gameState,
+            gameStateRevision: currentRevision,
+            savedAt: FieldValue.serverTimestamp(),
+            replacedByDeviceId: null,
+            replacedByReason: 'trophy-purchase',
+            backupKind: 'latest',
+        });
         transaction.set(userReference, {
             gameState: gameStateWithRanking(gameState, nextState, { zenPoints: result.zenPoints }),
+            gameStateRevision: nextRevision,
+            gameStateSavedAt: FieldValue.serverTimestamp(),
+            saveProtocolVersion: SAVE_PROTOCOL_VERSION,
+            progressionProtocolVersion: PROGRESSION_PROTOCOL_VERSION,
+            legacyAchievementPointsBase: nextState.legacyAchievementPointsBase,
             honorPoints: nextState.honorPoints,
             achievementPoints: nextState.achievementPoints,
             updatedAt: FieldValue.serverTimestamp(),
@@ -634,7 +775,6 @@ export const claimAchievement = onCall(async request => {
     const userReference = usersRef(uid);
     const stateReference = rankingStateRef(uid);
     const eventReference = eventRef(uid, id);
-    const historicalAchievementIds = await loadHistoricalAchievementIds(uid);
 
     return db.runTransaction(async transaction => {
         const userSnapshot = await transaction.get(userReference);
@@ -648,7 +788,6 @@ export const claimAchievement = onCall(async request => {
             stateSnapshot.exists ? stateSnapshot.data() : undefined,
             uid,
             userData,
-            historicalAchievementIds,
         );
         if (state.claimedAchievementIds.includes(achievementId)) {
             return {
@@ -657,19 +796,34 @@ export const claimAchievement = onCall(async request => {
                 honorPoints: state.honorPoints,
                 achievementPoints: state.achievementPoints,
                 claimedIds: state.claimedAchievementIds,
-                unlockedIds: state.claimedAchievementIds,
+                unlockedIds: state.unlockedAchievementIds,
             } satisfies AchievementClaimResult;
         }
 
         const gameState = asGameState(userData.gameState);
-        if (!achievementConditionMet(achievementId, gameState)) {
+        if (!isValidGameState(gameState)) {
+            throw new HttpsError('failed-precondition', '사용자 게임 저장 데이터를 확인할 수 없습니다.');
+        }
+        if (
+            !state.unlockedAchievementIds.includes(achievementId)
+            && !achievementConditionMet(achievementId, gameState)
+        ) {
             throw new HttpsError('failed-precondition', '현재 서버 저장 상태에서 업적 조건을 확인할 수 없습니다.');
         }
 
+        const claimedAchievementIds = normalizeAchievementIds([
+            ...state.claimedAchievementIds,
+            achievementId,
+        ]);
+        const unlockedAchievementIds = normalizeAchievementIds([
+            ...state.unlockedAchievementIds,
+            achievementId,
+        ]);
         const nextState: RankingState = {
             ...state,
-            achievementPoints: state.achievementPoints + reward.points,
-            claimedAchievementIds: [...state.claimedAchievementIds, achievementId],
+            achievementPoints: state.legacyAchievementPointsBase + calculateAchievementPoints(claimedAchievementIds),
+            claimedAchievementIds,
+            unlockedAchievementIds,
         };
         const result: AchievementClaimResult = {
             achievementId,
@@ -677,12 +831,14 @@ export const claimAchievement = onCall(async request => {
             honorPoints: nextState.honorPoints,
             achievementPoints: nextState.achievementPoints,
             claimedIds: nextState.claimedAchievementIds,
-            unlockedIds: nextState.claimedAchievementIds,
+            unlockedIds: nextState.unlockedAchievementIds,
         };
 
         transaction.set(userReference, {
-            gameState: gameStateWithRanking(gameState, nextState, {
-            }),
+            gameState: gameStateWithRanking(gameState, nextState),
+            saveProtocolVersion: SAVE_PROTOCOL_VERSION,
+            progressionProtocolVersion: PROGRESSION_PROTOCOL_VERSION,
+            legacyAchievementPointsBase: nextState.legacyAchievementPointsBase,
             honorPoints: nextState.honorPoints,
             achievementPoints: nextState.achievementPoints,
             updatedAt: FieldValue.serverTimestamp(),
@@ -705,8 +861,17 @@ export const deleteAccountData = onCall(async request => {
     const userReference = usersRef(uid);
     const stateReference = rankingStateRef(uid);
     const publicRankingReference = rankingRef(uid);
-    const events = await db.collection('rankingEvents').where('uid', '==', uid).get();
-    const references = [userReference, stateReference, publicRankingReference, ...events.docs.map(snapshot => snapshot.ref)];
+    const [events, backups] = await Promise.all([
+        db.collection('rankingEvents').where('uid', '==', uid).get(),
+        gameStateBackupsRef(uid).get(),
+    ]);
+    const references = [
+        userReference,
+        stateReference,
+        publicRankingReference,
+        ...events.docs.map(snapshot => snapshot.ref),
+        ...backups.docs.map(snapshot => snapshot.ref),
+    ];
 
     for (let offset = 0; offset < references.length; offset += 400) {
         const batch = db.batch();

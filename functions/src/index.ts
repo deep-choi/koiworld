@@ -13,6 +13,9 @@ const TROPHY_PRICE = 100_000;
 const MAX_TROPHY_QUANTITY = 99;
 const MAX_EVENT_ID_LENGTH = 80;
 const MAX_PROFILE_DATA_URL_LENGTH = 120_000;
+const MAX_GAME_STATE_BYTES = 850_000;
+const SAVE_PROTOCOL_VERSION = 2;
+const SAVE_REASONS = new Set(['auto', 'new-account', 'backup-recovery', 'explicit-reset']);
 const NATIVE_AUTH_SOURCE = 'playgames';
 
 setGlobalOptions({
@@ -65,6 +68,7 @@ type RankingResult = {
 };
 
 const usersRef = (uid: string) => db.collection('users').doc(uid);
+const gameStateBackupRef = (uid: string) => usersRef(uid).collection('gameStateBackups').doc('latest');
 const rankingStateRef = (uid: string) => db.collection('rankingState').doc(uid);
 const rankingRef = (uid: string) => db.collection('rankings').doc(uid);
 const eventRef = (uid: string, eventId: string) => db.collection('rankingEvents').doc(`${uid}_${eventId}`);
@@ -75,6 +79,41 @@ const asRecord = (value: unknown): Record<string, unknown> =>
         : {};
 
 const asGameState = (value: unknown): GameState => asRecord(value) as GameState;
+
+const isValidGameState = (value: unknown): value is GameState => {
+    const gameState = asRecord(value);
+    const ponds = asRecord(gameState.ponds);
+    const activePondId = gameState.activePondId;
+
+    return typeof activePondId === 'string'
+        && Object.prototype.hasOwnProperty.call(ponds, activePondId)
+        && typeof gameState.zenPoints === 'number'
+        && Number.isFinite(gameState.zenPoints)
+        && typeof gameState.foodCount === 'number'
+        && Number.isFinite(gameState.foodCount)
+        && typeof gameState.koiNameCounter === 'number'
+        && Number.isFinite(gameState.koiNameCounter);
+};
+
+const normalizeGameStateForSave = (value: unknown): GameState => {
+    if (!isValidGameState(value)) {
+        throw new HttpsError('invalid-argument', '유효하지 않은 게임 저장 데이터입니다.');
+    }
+
+    const serialized = JSON.stringify(value);
+    if (Buffer.byteLength(serialized, 'utf8') > MAX_GAME_STATE_BYTES) {
+        throw new HttpsError('invalid-argument', '게임 저장 데이터가 허용 크기를 초과했습니다.');
+    }
+
+    return JSON.parse(serialized) as GameState;
+};
+
+const requireSaveRevision = (value: unknown): number => {
+    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+        throw new HttpsError('invalid-argument', '유효한 저장 리비전이 필요합니다.');
+    }
+    return value;
+};
 
 const finiteInteger = (value: unknown, fallback = 0): number => {
     if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
@@ -154,8 +193,103 @@ export const exchangeNativeFirebaseToken = onRequest(async (request, response) =
         response.status(200).json({ token, uid: decodedToken.uid });
     } catch (error) {
         console.error('Native Firebase token exchange failed:', error);
-        response.status(401).json({ error: 'The Firebase ID token is invalid or expired.' });
+        const code = typeof error === 'object' && error && 'code' in error
+            ? String((error as { code?: string }).code ?? '')
+            : '';
+        const isClientTokenError = [
+            'auth/argument-error',
+            'auth/id-token-expired',
+            'auth/id-token-revoked',
+            'auth/invalid-id-token',
+        ].includes(code);
+        response.status(isClientTokenError ? 401 : 503).json({
+            error: isClientTokenError
+                ? 'Play Games 인증이 만료되었습니다. 다시 로그인해주세요.'
+                : 'Play Games 저장 계정 연결을 완료하지 못했습니다. 잠시 후 다시 시도해주세요.',
+        });
     }
+});
+
+/**
+ * Persists the complete game snapshot under a server-enforced revision.
+ *
+ * Once an account is migrated to protocol 2, Firestore Rules reject legacy
+ * clients that try to write gameState directly. This prevents an older app or
+ * stale device from silently replacing a newer snapshot for the same UID.
+ */
+export const saveGameState = onCall(async request => {
+    const uid = requireAuth(request.auth?.uid);
+    const data = asRecord(request.data);
+    const gameState = normalizeGameStateForSave(data.gameState);
+    const expectedRevision = requireSaveRevision(data.expectedRevision);
+    const saveReason = typeof data.reason === 'string' && SAVE_REASONS.has(data.reason)
+        ? data.reason
+        : 'auto';
+    const deviceId = typeof data.deviceId === 'string'
+        ? data.deviceId.trim().slice(0, 128)
+        : '';
+    const userReference = usersRef(uid);
+    const backupReference = gameStateBackupRef(uid);
+
+    return db.runTransaction(async transaction => {
+        const userSnapshot = await transaction.get(userReference);
+        const userData = userSnapshot.exists ? userSnapshot.data() ?? {} : {};
+        const currentRevision = finiteInteger(userData.gameStateRevision);
+
+        if (currentRevision !== expectedRevision) {
+            throw new HttpsError(
+                'aborted',
+                '다른 기기에서 더 최신 저장본이 확인되었습니다.',
+                { expectedRevision, actualRevision: currentRevision },
+            );
+        }
+
+        const currentGameState = userData.gameState;
+        const nextRevision = currentRevision + 1;
+        const honorPoints = finiteInteger(gameState.honorPoints);
+        const achievementPoints = finiteInteger(gameState.achievementPoints);
+
+        if (
+            isValidGameState(currentGameState)
+            && JSON.stringify(currentGameState) !== JSON.stringify(gameState)
+        ) {
+            transaction.set(backupReference, {
+                gameState: currentGameState,
+                gameStateRevision: currentRevision,
+                savedAt: FieldValue.serverTimestamp(),
+                replacedByDeviceId: deviceId || null,
+                replacedByReason: saveReason,
+            });
+        }
+
+        transaction.set(userReference, {
+            gameState,
+            gameStateRevision: nextRevision,
+            saveProtocolVersion: SAVE_PROTOCOL_VERSION,
+            gameStateSavedAt: FieldValue.serverTimestamp(),
+            lastSaveDeviceId: deviceId || null,
+            lastSaveReason: saveReason,
+            honorPoints,
+            achievementPoints,
+            updatedAt: FieldValue.serverTimestamp(),
+        }, { merge: true });
+
+        const profile = readProfileFromUser(userData);
+        transaction.set(rankingRef(uid), {
+            uid,
+            nickname: profile.nickname,
+            photoURL: profile.photoURL,
+            honorPoints,
+            achievementPoints,
+            updatedAt: FieldValue.serverTimestamp(),
+        }, { merge: true });
+
+        return {
+            revision: nextRevision,
+            savedAt: Date.now(),
+            protocolVersion: SAVE_PROTOCOL_VERSION,
+        };
+    });
 });
 
 const requireEventId = (value: unknown): string => {

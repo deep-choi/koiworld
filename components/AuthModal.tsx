@@ -12,7 +12,7 @@ interface AuthModalProps {
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
-    const { login, loginWithPlayGames, loginWithEmail, signUpWithEmail, user, loading } = useAuth();
+    const { login, loginWithPlayGames, loginWithEmail, signUpWithEmail, user, loading, authIssue, clearAuthIssue } = useAuth();
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
     const [email, setEmail] = useState('');
@@ -28,7 +28,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         // component stayed mounted. Re-opening the auth modal then disabled
         // every control, even though no request was running anymore.
         setIsSubmitting(false);
-    }, [isOpen]);
+        setFormError(authIssue ?? '');
+    }, [authIssue, isOpen]);
 
     if (!isOpen) return null;
     if (loading) {
@@ -57,6 +58,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
         try {
             setIsSubmitting(true);
+            clearAuthIssue();
+            setFormError('');
             suppressLocalGameSave();
             await login();
         } catch (error) {
@@ -87,13 +90,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
         try {
             setIsSubmitting(true);
+            clearAuthIssue();
+            setFormError('');
             suppressLocalGameSave();
             await loginWithPlayGames();
         } catch (error) {
             console.error('Play Games login failed:', error);
             resumeLocalGameSave();
             setIsSubmitting(false);
-            alert(error instanceof Error ? error.message : 'Play Games 로그인에 실패했습니다.');
+            setFormError(error instanceof Error ? error.message : 'Play Games 로그인에 실패했습니다.');
         }
     };
 
@@ -181,7 +186,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                     <button
                         className="auth-close-button"
                         type="button"
-                        onClick={onClose}
+                        onClick={() => {
+                            clearAuthIssue();
+                            onClose();
+                        }}
                         aria-label="로그인 창 닫기"
                     >
                         <X size={22} strokeWidth={2} />

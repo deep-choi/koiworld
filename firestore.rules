@@ -17,6 +17,18 @@ service cloud.firestore {
         && request.resource.data.get('gameState', {}).get('achievementPoints', 0) == 0;
     }
 
+    function usesServerSaveProtocol() {
+      return resource.data.get('saveProtocolVersion', 0) >= 2;
+    }
+
+    function onlyAccountMetadataChanged() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        'profile',
+        'activeDeviceId',
+        'updatedAt'
+      ]);
+    }
+
     function validRanking(userId) {
       return request.resource.data.keys().hasOnly([
           'uid',
@@ -41,7 +53,20 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if isOwner(userId);
       allow create: if isOwner(userId) && initialUserDocument();
-      allow update, delete: if isOwner(userId);
+      // Accounts migrate gradually. Legacy clients may keep saving until the
+      // first protocol-2 server save. After migration, only harmless profile
+      // and session metadata can be changed directly; complete game snapshots
+      // must pass through the revision-checked Cloud Function.
+      allow update: if isOwner(userId)
+        && (!usesServerSaveProtocol() || onlyAccountMetadataChanged());
+      allow delete: if isOwner(userId);
+    }
+
+    // Backups are written by the server save transaction. Clients can recover
+    // them but cannot replace recovery data directly.
+    match /users/{userId}/gameStateBackups/{backupId} {
+      allow read: if isOwner(userId) && backupId == 'latest';
+      allow write: if false;
     }
 
     match /rankings/{userId} {

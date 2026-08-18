@@ -1,9 +1,22 @@
 import { SavedGameState } from '../types';
-import { fetchUserSnapshot, saveGameState, subscribeToUserGameState } from './cloudData';
+import {
+    fetchUserSnapshot,
+    GameStateRevisionConflictError,
+    type GameStateSource,
+    saveGameState,
+    subscribeToUserGameState,
+} from './cloudData';
 import { isValidSavedGameState } from '../utils/savedGameState';
 
-export const saveGameToCloud = async (userId: string, gameState: SavedGameState) => {
-    await saveGameState(userId, gameState);
+export { GameStateRevisionConflictError };
+
+export const saveGameToCloud = async (
+    userId: string,
+    gameState: SavedGameState,
+    expectedRevision: number,
+    reason: 'auto' | 'new-account' | 'backup-recovery' | 'explicit-reset' = 'auto',
+) => {
+    return saveGameState(userId, gameState, expectedRevision, reason);
 };
 
 export const loadGameFromCloud = async (userId: string): Promise<SavedGameState | null> => {
@@ -11,16 +24,18 @@ export const loadGameFromCloud = async (userId: string): Promise<SavedGameState 
     return isValidSavedGameState(snapshot?.gameState) ? snapshot.gameState : null;
 };
 
-export const listenToGameData = (userId: string, onUpdate: (data: SavedGameState) => void) => {
-    return subscribeToUserGameState(userId, (state) => {
+export const listenToGameData = (userId: string, onUpdate: (data: SavedGameState, revision: number) => void) => {
+    return subscribeToUserGameState(userId, (state, revision) => {
         if (isValidSavedGameState(state)) {
-            onUpdate(state);
+            onUpdate(state, revision);
         }
     });
 };
 
 export interface UserDataSnapshot {
     gameData: SavedGameState | null;
+    gameDataRevision: number;
+    gameDataSource: GameStateSource;
     nickname: string | null;
     photoURL: string | null;
     activeDeviceId: string | null;
@@ -46,6 +61,8 @@ export const loadUserDataOnce = async (userId: string): Promise<UserDataSnapshot
 
     return {
         gameData: state || null,
+        gameDataRevision: data.gameStateRevision,
+        gameDataSource: data.gameStateSource,
         nickname: data.nickname || null,
         photoURL: data.photoURL || null,
         activeDeviceId: data.activeDeviceId || null,

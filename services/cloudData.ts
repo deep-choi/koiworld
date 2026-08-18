@@ -11,13 +11,14 @@ import {
     serverTimestamp,
     setDoc,
 } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
 import { SavedGameState } from '../types';
 import {
     CloudUserDocument,
     UserGameData,
     UserProfile,
 } from '../types/online';
-import { auth, db } from './firebase';
+import { auth, db, functions } from './firebase';
 import { deleteAccountData } from './ranking';
 import { isValidSavedGameState } from '../utils/savedGameState';
 
@@ -27,8 +28,24 @@ export interface CloudUserSnapshot {
     photoURL: string | null;
     activeDeviceId: string | null;
     gameState: SavedGameState | null;
+    gameStateRevision: number;
+    gameStateSource: GameStateSource;
     honorPoints: number;
     achievementPoints: number;
+}
+
+export type GameStateSource = 'primary' | 'backup' | 'missing' | 'invalid';
+
+export class GameStateRevisionConflictError extends Error {
+    readonly code = 'game-state-revision-conflict';
+
+    constructor(
+        public readonly expectedRevision: number,
+        public readonly actualRevision: number,
+    ) {
+        super('A newer cloud save exists for this account.');
+        this.name = 'GameStateRevisionConflictError';
+    }
 }
 
 export interface ProfileSnapshot {
@@ -39,8 +56,13 @@ export interface ProfileSnapshot {
 
 const createPlaceholderTimestamp = () => new Date().toISOString();
 const userDocRef = (userId: string) => doc(db, 'users', userId);
+const gameStateBackupDocRef = (userId: string) => doc(db, 'users', userId, 'gameStateBackups', 'latest');
 const rankingDocRef = (userId: string) => doc(db, 'rankings', userId);
-const sanitizeForFirestore = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+
+const normalizeGameStateRevision = (value: unknown): number => {
+    const revision = Number(value);
+    return Number.isSafeInteger(revision) && revision >= 0 ? revision : 0;
+};
 
 const assertCurrentUser = (userId: string) => {
     const currentUser = auth.currentUser;
@@ -159,9 +181,34 @@ export async function fetchUserSnapshot(userId: string): Promise<CloudUserSnapsh
     const data = snapshot.data();
     const profile = (data.profile ?? {}) as { nickname?: string; photoURL?: string | null };
     const savedGameState = (data.gameState ?? null) as SavedGameState | null;
+    const gameStateRevision = normalizeGameStateRevision(data.gameStateRevision);
+    let gameState = isValidSavedGameState(savedGameState) ? savedGameState : null;
+    let gameStateSource: GameStateSource = gameState
+        ? 'primary'
+        : savedGameState === null
+            ? 'missing'
+            : 'invalid';
+
+    // A backup is intentionally read only when the primary snapshot cannot
+    // be used. Normal login remains a single document read, while a corrupt
+    // or missing primary can recover without treating the account as new.
+    if (!gameState) {
+        try {
+            const backupSnapshot = await getDoc(gameStateBackupDocRef(userId));
+            const backupGameState = backupSnapshot.exists()
+                ? backupSnapshot.data().gameState
+                : null;
+            if (isValidSavedGameState(backupGameState)) {
+                gameState = backupGameState;
+                gameStateSource = 'backup';
+            }
+        } catch (error) {
+            console.warn('Failed to read game state backup:', error);
+        }
+    }
+
     const honorPoints = Number(savedGameState?.honorPoints ?? data.honorPoints ?? 0);
     const achievementPoints = Number(savedGameState?.achievementPoints ?? data.achievementPoints ?? 0);
-    const gameState = savedGameState;
 
     return {
         userId,
@@ -169,6 +216,8 @@ export async function fetchUserSnapshot(userId: string): Promise<CloudUserSnapsh
         photoURL: normalizePhotoURL(profile.photoURL),
         activeDeviceId: typeof data.activeDeviceId === 'string' ? data.activeDeviceId : null,
         gameState,
+        gameStateRevision,
+        gameStateSource,
         honorPoints,
         achievementPoints,
     };
@@ -245,60 +294,73 @@ export function subscribeToUserProfile(
 
 export function subscribeToUserGameState(
     userId: string,
-    onUpdate: (state: SavedGameState | null) => void,
+    onUpdate: (state: SavedGameState | null, revision: number) => void,
 ): () => void {
     assertCurrentUser(userId);
 
     return onSnapshot(userDocRef(userId), (snapshot) => {
         if (!snapshot.exists()) {
-            onUpdate(null);
+            onUpdate(null, 0);
             return;
         }
         const data = snapshot.data();
         const gameState = (data.gameState ?? null) as SavedGameState | null;
         if (!gameState) {
-            onUpdate(null);
+            onUpdate(null, normalizeGameStateRevision(data.gameStateRevision));
             return;
         }
-        onUpdate(gameState);
+        onUpdate(gameState, normalizeGameStateRevision(data.gameStateRevision));
     });
 }
 
-export async function saveGameState(userId: string, gameState: SavedGameState): Promise<void> {
+export async function saveGameState(
+    userId: string,
+    gameState: SavedGameState,
+    expectedRevision: number,
+    reason: 'auto' | 'new-account' | 'backup-recovery' | 'explicit-reset' = 'auto',
+): Promise<number> {
     assertCurrentUser(userId);
     if (!isValidSavedGameState(gameState)) {
         throw new Error('Invalid game state cannot be saved.');
     }
 
-    const sanitizedGameState = sanitizeForFirestore(gameState);
-    const privateRef = userDocRef(userId);
-    const publicRef = rankingDocRef(userId);
+    const callable = httpsCallable<{
+        gameState: SavedGameState;
+        expectedRevision: number;
+        deviceId: string | null;
+        reason: 'auto' | 'new-account' | 'backup-recovery' | 'explicit-reset';
+    }, {
+        revision: number;
+        savedAt: number;
+        protocolVersion: number;
+    }>(functions, 'saveGameState');
 
-    await runTransaction(db, async (transaction) => {
-        const snapshot = await transaction.get(privateRef);
-        const data = snapshot.exists() ? snapshot.data() : {};
-        const profile = (data.profile ?? {}) as { nickname?: string; photoURL?: string | null };
-        // Client-owned progression is persisted exactly as supplied by the
-        // active account namespace. No legacy ranking value is merged back in.
-        const nextGameState = sanitizedGameState;
-        const honorPoints = Number(nextGameState.honorPoints ?? 0);
-        const achievementPoints = Number(nextGameState.achievementPoints ?? 0);
+    try {
+        const result = await callable({
+            gameState,
+            expectedRevision,
+            reason,
+            deviceId: typeof window !== 'undefined'
+                ? window.localStorage.getItem('koiworld_device_id')
+                : null,
+        });
+        return normalizeGameStateRevision(result.data.revision);
+    } catch (error) {
+        const code = typeof error === 'object' && error && 'code' in error
+            ? String((error as { code?: string }).code ?? '')
+            : '';
+        const details = typeof error === 'object' && error && 'details' in error
+            ? (error as { details?: { expectedRevision?: unknown; actualRevision?: unknown } }).details
+            : undefined;
 
-        transaction.set(privateRef, {
-            gameState: nextGameState,
-            honorPoints,
-            achievementPoints,
-            updatedAt: serverTimestamp(),
-        }, { merge: true });
-        transaction.set(publicRef, {
-            uid: userId,
-            nickname: profile.nickname || `Koi_${userId.slice(0, 6)}`,
-            photoURL: normalizePhotoURL(profile.photoURL),
-            honorPoints,
-            achievementPoints,
-            updatedAt: serverTimestamp(),
-        }, { merge: true });
-    });
+        if (code === 'functions/aborted') {
+            throw new GameStateRevisionConflictError(
+                normalizeGameStateRevision(details?.expectedRevision ?? expectedRevision),
+                normalizeGameStateRevision(details?.actualRevision),
+            );
+        }
+        throw error;
+    }
 }
 
 export async function getRankings(

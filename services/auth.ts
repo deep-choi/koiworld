@@ -45,14 +45,14 @@ const AUTH_PROVIDER_LABELS: Record<string, string> = {
 const AUTH_SOURCE_STORAGE_KEY = 'koiworld.authSource';
 const GUEST_MODE_STORAGE_KEY = 'koiworld.guestMode';
 const EXPLICIT_GUEST_MODE_STORAGE_KEY = 'koiworld.explicitGuestMode';
+const EXPLICIT_GUEST_MODE_VERSION_KEY = 'koiworld.explicitGuestMode.v2';
 const PLAY_GAMES_PROVIDER_ID = 'playgames.google.com';
 const NATIVE_AUTH_EXCHANGE_URL = 'https://asia-northeast1-koi-garden-abcf5.cloudfunctions.net/exchangeNativeFirebaseToken';
 const PLAY_GAMES_BOOTSTRAP_TIMEOUT_MS = 10_000;
 
 // Incrementing this value invalidates an in-flight automatic Play Games
-// attempt. This matters when the timeout falls back to guest mode and the
-// native plugin resolves later: that late result must not switch the JS
-// Firebase session back to Play Games.
+// attempt. A late native result must never switch the JS Firebase session
+// after the app has already reported that account verification failed.
 let automaticPlayGamesAttemptVersion = 0;
 
 const invalidateAutomaticPlayGamesAttempt = () => {
@@ -81,19 +81,18 @@ const clearAuthSource = () => {
 
 const isGuestModeRequested = () => {
     if (typeof window === 'undefined') return false;
-    const guestMode = window.localStorage.getItem(GUEST_MODE_STORAGE_KEY) === '1';
-    const explicitlySelected = window.localStorage.getItem(EXPLICIT_GUEST_MODE_STORAGE_KEY) === '1';
 
-    // A guest marker represents the last selected namespace. Automatic
-    // fallback also writes this marker, so a later app launch restores the
-    // guest session instead of repeatedly showing a Play Games prompt.
-    return guestMode || explicitlySelected;
+    // Older releases wrote the same guest markers for both an explicit guest
+    // choice and a failed Play Games bootstrap. Only the versioned marker is
+    // trustworthy; legacy anonymous sessions must retry real account auth.
+    return window.localStorage.getItem(EXPLICIT_GUEST_MODE_VERSION_KEY) === '1';
 };
 
 const rememberGuestMode = () => {
     if (typeof window !== 'undefined') {
         window.localStorage.setItem(GUEST_MODE_STORAGE_KEY, '1');
         window.localStorage.setItem(EXPLICIT_GUEST_MODE_STORAGE_KEY, '1');
+        window.localStorage.setItem(EXPLICIT_GUEST_MODE_VERSION_KEY, '1');
     }
 };
 
@@ -101,6 +100,7 @@ const clearGuestMode = () => {
     if (typeof window !== 'undefined') {
         window.localStorage.removeItem(GUEST_MODE_STORAGE_KEY);
         window.localStorage.removeItem(EXPLICIT_GUEST_MODE_STORAGE_KEY);
+        window.localStorage.removeItem(EXPLICIT_GUEST_MODE_VERSION_KEY);
     }
 };
 
@@ -185,6 +185,12 @@ const toAppUser = (user: FirebaseUser | null): AppUser | null => {
 const sanitizeErrorMessage = (message: string) => message
     .replace(/([?&](?:id_token|access_token|server_auth_code)=)[^&\s)]+/gi, '$1[redacted]')
     .replace(/(\b(?:idToken|accessToken|serverAuthCode)\s*[:=]\s*["']?)[^,\s}"']+/gi, '$1[redacted]');
+
+const createAuthError = (code: string, message: string) => {
+    const error = new Error(message) as Error & { code: string };
+    error.code = code;
+    return error;
+};
 
 export const checkRedirectResult = async (): Promise<AppUser | null> => {
     try {
@@ -280,10 +286,16 @@ export const loginWithPlayGames = async (): Promise<AppUser> => {
         throw new Error(`네이티브 인증 Provider가 Play Games가 아닙니다: ${nativeProviderIds.join(', ') || '없음'}`);
     }
 
-    rememberAuthSource('playgames');
-    const signedInUser = await signInWebWithNativePlayGames();
-    logFirebaseAuthState('Play Games 수동 로그인 완료', signedInUser);
-    return toAppUser(signedInUser) as AppUser;
+    try {
+        rememberAuthSource('playgames');
+        const signedInUser = await signInWebWithNativePlayGames();
+        logFirebaseAuthState('Play Games 수동 로그인 완료', signedInUser);
+        return toAppUser(signedInUser) as AppUser;
+    } catch (error) {
+        clearAuthSource();
+        await signOutFromFirebase(auth).catch(() => undefined);
+        throw error;
+    }
 };
 
 export const loginAsGuest = async (): Promise<AppUser | null> => {
@@ -322,7 +334,7 @@ const signInWebWithNativePlayGames = async (): Promise<FirebaseUser> => {
     return signedInResult.user;
 };
 
-const attemptAutomaticPlayGamesLogin = async (): Promise<AppUser | null> => {
+const attemptAutomaticPlayGamesLogin = async (): Promise<AppUser> => {
     const attemptVersion = ++automaticPlayGamesAttemptVersion;
 
     const nativeLogin = (async () => {
@@ -381,13 +393,15 @@ const attemptAutomaticPlayGamesLogin = async (): Promise<AppUser | null> => {
         if (result === 'timeout') {
             invalidateAutomaticPlayGamesAttempt();
             // Best effort only: the native call may still be waiting on the
-            // Play Games UI. Do not delay the promised 10-second guest entry.
+            // Play Games UI. It must not silently become a guest session.
             void FirebaseAuthentication.signOut().catch(error => {
                 console.warn('[Auth] Timed-out Play Games native sign-out failed.', error);
             });
             void nativeLogin.catch(() => undefined);
-            console.warn('[Auth] Play Games automatic sign-in timed out; using guest mode.');
-            return null;
+            throw createAuthError(
+                'auth/play-games-timeout',
+                'Play Games 계정 확인 시간이 초과되었습니다. 다시 로그인해주세요.',
+            );
         }
 
         return result;
@@ -406,14 +420,12 @@ export const initializeAndroidSession = async (): Promise<AppUser | null> => {
         return toAppUser(auth.currentUser);
     }
 
-    try {
-        // Wait until Firebase restores the locally persisted anonymous user
-        // before linking the Play Games credential. Without this, the native
-        // flow can finish first and create a new UID instead of preserving the
-        // player's existing guest data.
-        await auth.authStateReady();
+    // Wait until Firebase restores its persisted user before deciding whether
+    // this is an explicit guest session or an account that must be verified.
+    await auth.authStateReady();
 
-        if (isGuestModeRequested() || auth.currentUser?.isAnonymous) {
+    if (isGuestModeRequested()) {
+        try {
             const guestUser = auth.currentUser?.isAnonymous
                 ? auth.currentUser
                 : (await signInAnonymously(auth)).user;
@@ -421,21 +433,32 @@ export const initializeAndroidSession = async (): Promise<AppUser | null> => {
             rememberGuestMode();
             logFirebaseAuthState('게스트 모드 유지', guestUser);
             return toAppUser(guestUser);
+        } catch (error) {
+            console.error('[Auth] Explicit guest session restore failed.', error);
+            throw error;
         }
+    }
 
-        // A deliberately selected Google/email session must remain that
-        // account on restart. Play Games is automatic only when there is no
-        // existing authenticated account to restore.
-        if (auth.currentUser && !auth.currentUser.isAnonymous) {
-            logFirebaseAuthState('기존 인증 계정 복원', auth.currentUser);
-            return toAppUser(auth.currentUser);
-        }
+    // A deliberately selected Google/email/Play Games session must remain that
+    // account on restart.
+    if (auth.currentUser && !auth.currentUser.isAnonymous) {
+        logFirebaseAuthState('기존 인증 계정 복원', auth.currentUser);
+        return toAppUser(auth.currentUser);
+    }
 
-        const playGamesUser = await attemptAutomaticPlayGamesLogin();
-        if (playGamesUser) return playGamesUser;
+    // A legacy anonymous user may have been created by an automatic Play Games
+    // failure. Remove only the Firebase auth session; its local guest save is
+    // intentionally retained so it can still be recovered or migrated later.
+    if (auth.currentUser?.isAnonymous) {
+        await signOutFromFirebase(auth);
+        clearAuthSource();
+        clearGuestMode();
+        logFirebaseAuthState('레거시 익명 fallback 세션 해제', null);
+    }
+
+    try {
+        return await attemptAutomaticPlayGamesLogin();
     } catch (error) {
-        // Play Games may be unavailable on a device or not yet configured for
-        // the tester. Firebase anonymous auth still lets the user play.
         const errorDetails = {
             code: typeof error === 'object' && error && 'code' in error
                 ? String((error as { code?: string }).code ?? '')
@@ -443,24 +466,17 @@ export const initializeAndroidSession = async (): Promise<AppUser | null> => {
             message: sanitizeErrorMessage(error instanceof Error ? error.message : String(error)),
         };
         console.warn(
-            `[Auth] Play Games automatic sign-in failed; anonymous fallback may be used. ${JSON.stringify(errorDetails)}`,
+            `[Auth] Play Games automatic sign-in failed; Firebase remains signed out. ${JSON.stringify(errorDetails)}`,
+        );
+        invalidateAutomaticPlayGamesAttempt();
+        clearAuthSource();
+        clearGuestMode();
+        await signOutFromFirebase(auth).catch(() => undefined);
+        throw createAuthError(
+            'auth/play-games-bootstrap-failed',
+            'Play Games는 연결됐지만 게임 저장 계정을 확인하지 못했습니다. 데이터 보호를 위해 익명 모드로 전환하지 않았습니다. Play Games로 다시 로그인해주세요.',
         );
     }
-
-    if (!auth.currentUser) {
-        const result = await signInAnonymously(auth);
-        rememberAuthSource('anonymous');
-        rememberGuestMode();
-        logFirebaseAuthState('익명 로그인 fallback 완료', result.user);
-        return toAppUser(result.user);
-    }
-
-    if (auth.currentUser.isAnonymous) {
-        rememberAuthSource('anonymous');
-        rememberGuestMode();
-    }
-    logFirebaseAuthState('기존 Firebase 사용자 유지', auth.currentUser);
-    return toAppUser(auth.currentUser);
 };
 
 export const loginWithEmailPassword = async (email: string, password: string): Promise<AppUser | null> => {
@@ -533,12 +549,6 @@ export const deleteCurrentUser = async (): Promise<void> => {
         console.error('Account deletion failed:', error);
         throw error;
     }
-};
-
-const createAuthError = (code: string, message: string) => {
-    const error = new Error(message) as Error & { code: string };
-    error.code = code;
-    return error;
 };
 
 export const reauthenticateCurrentUser = async (password?: string): Promise<void> => {

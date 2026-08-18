@@ -7,6 +7,8 @@ import { deleteUserData } from '../services/cloudData';
 interface AuthContextType {
     user: AppUser | null;
     loading: boolean;
+    authIssue: string | null;
+    clearAuthIssue: () => void;
     login: () => Promise<void>;
     loginWithPlayGames: () => Promise<void>;
     continueAsGuest: () => Promise<void>;
@@ -21,6 +23,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
     const [user, setUser] = useState<AppUser | null>(null);
     const [loading, setLoading] = useState(true);
+    const [authIssue, setAuthIssue] = useState<string | null>(null);
     const isBootstrappingNativeSession = useRef(Capacitor.getPlatform() === 'android');
 
     useEffect(() => {
@@ -65,14 +68,17 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                     try {
                         const nativeUser = await initializeAndroidSession();
                         if (isMounted && nativeUser) {
+                            setAuthIssue(null);
                             setUser(nativeUser);
                         }
                     } catch (error) {
-                        // initializeAndroidSession already falls back to an
-                        // anonymous Firebase session. Keep this guard so a native
-                        // plugin error cannot leave the AuthProvider loading
-                        // forever or skip the rest of app startup.
                         console.error("Android Play Games bootstrap failed:", error);
+                        if (isMounted) {
+                            setUser(null);
+                            setAuthIssue(error instanceof Error
+                                ? error.message
+                                : 'Play Games 저장 계정을 확인하지 못했습니다. 다시 로그인해주세요.');
+                        }
                     }
                 }
             } finally {
@@ -90,6 +96,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const unsubscribe = subscribeToAuthChanges((currentUser) => {
             if (!isMounted) return;
             setUser(currentUser);
+            if (currentUser && !currentUser.isAnonymous) {
+                setAuthIssue(null);
+            }
             if (!isBootstrappingNativeSession.current) {
                 setLoading(false);
             }
@@ -103,6 +112,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     const handleLogin = async () => {
         try {
+            setAuthIssue(null);
             await loginWithGoogle();
         } catch (error) {
             // 에러 처리는 UI에서 하거나 여기서 토스트 메시지 등을 띄울 수 있음
@@ -113,10 +123,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     const handlePlayGamesLogin = async () => {
         try {
+            setAuthIssue(null);
             const signedInUser = await loginWithPlayGames();
             if (signedInUser) setUser(signedInUser);
         } catch (error) {
             console.error('Play Games login failed context:', error);
+            setAuthIssue(error instanceof Error ? error.message : 'Play Games 로그인에 실패했습니다.');
             throw error;
         }
     };
@@ -175,7 +187,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
 
     return (
-        <AuthContext.Provider value={{ user, loading, login: handleLogin, loginWithPlayGames: handlePlayGamesLogin, continueAsGuest: handleGuestLogin, loginWithEmail: handleEmailLogin, signUpWithEmail: handleEmailSignUp, logout: handleLogout, deleteAccount: handleDeleteAccount }}>
+        <AuthContext.Provider value={{ user, loading, authIssue, clearAuthIssue: () => setAuthIssue(null), login: handleLogin, loginWithPlayGames: handlePlayGamesLogin, continueAsGuest: handleGuestLogin, loginWithEmail: handleEmailLogin, signUpWithEmail: handleEmailSignUp, logout: handleLogout, deleteAccount: handleDeleteAccount }}>
             {children}
         </AuthContext.Provider>
     );

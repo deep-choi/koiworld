@@ -8,6 +8,7 @@
     "build": "vite build",
     "typecheck": "tsc --noEmit",
     "test:save": "node --test tests/save.test.cjs",
+    "test:rendering": "node --test tests/koi-renderer.test.cjs",
     "audit:release": "npm audit --omit=dev",
     "preview": "vite preview",
     "cap:sync": "npm run build && cap sync",

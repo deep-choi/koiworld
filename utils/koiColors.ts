@@ -17,8 +17,8 @@ const parseHsla = (color: string): { h: number, s: number, l: number } => {
     return { h: parseFloat(match[1]), s: parseFloat(match[2]), l: parseFloat(match[3]) };
 };
 
-/** Fin, shading and accent colours derived from the expressed body colour. */
-const buildColors = (phenotype: GeneType, body: string, accent: string | null): KoiColors => {
+/** Fin and shading colours derived from the expressed body colour. */
+const buildColors = (phenotype: GeneType, body: string): KoiColors => {
     if (phenotype === GeneType.CREAM) {
         return {
             body,
@@ -29,7 +29,6 @@ const buildColors = (phenotype: GeneType, body: string, accent: string | null): 
             membrane: 'rgba(236, 243, 245, 0.6)',
             ridge: 'rgba(160, 182, 190, 0.55)',
             whisker: 'rgba(196, 176, 152, 0.95)',
-            accent,
         };
     }
     if (phenotype === GeneType.BLACK) {
@@ -42,7 +41,6 @@ const buildColors = (phenotype: GeneType, body: string, accent: string | null): 
             membrane: 'rgba(66, 50, 45, 0.72)',
             ridge: 'rgba(12, 8, 7, 0.55)',
             whisker: 'rgba(78, 60, 54, 0.95)',
-            accent,
         };
     }
     const { h, s, l } = parseHsla(body);
@@ -55,7 +53,6 @@ const buildColors = (phenotype: GeneType, body: string, accent: string | null): 
         membrane: hsla(h, s * 0.9, Math.min(l + 6, 86), 0.6),
         ridge: hsla(h, s, l - 14, 0.55),
         whisker: hsla(h, s * 0.85, l - 8, 0.95),
-        accent,
     };
 };
 
@@ -75,15 +72,5 @@ export const buildKoiRenderStyle = (koi: Koi): KoiRenderStyle => {
         color: getSpotColorWithSaturation(GENE_COLOR_MAP[spot.color], colorSaturation, idx),
     }));
 
-    // The tail picks up a stripe from the rearmost spot near the tail whose colour differs from the body.
-    let accent: string | null = null;
-    let accentY = 55;
-    genetics.spots.forEach((spot, idx) => {
-        if (spot.y <= accentY || spot.color === basePhenotype) return;
-        if (basePhenotype === GeneType.CREAM && spot.color === GeneType.WHITE) return;
-        accentY = spot.y;
-        accent = spots[idx].color;
-    });
-
-    return { colors: buildColors(basePhenotype, body, accent), spots, phenotype };
+    return { colors: buildColors(basePhenotype, body), spots, phenotype };
 };

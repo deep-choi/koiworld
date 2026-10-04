@@ -1,47 +1,6 @@
 import React, { useState } from 'react';
 import { Store, Fish, Palette, Trophy, Menu, Medal } from 'lucide-react';
-
-interface IconProps {
-  size?: number;
-  className?: string;
-}
-
-const CornIcon = ({ size = 24, className = "" }: IconProps) => (
-  <div
-    className={`bg-current ${className}`}
-    style={{
-      width: size,
-      height: size,
-      maskImage: "url('/corn.png')",
-      maskSize: "contain",
-      maskRepeat: "no-repeat",
-      maskPosition: "center",
-      WebkitMaskImage: "url('/corn.png')",
-      WebkitMaskSize: "contain",
-      WebkitMaskRepeat: "no-repeat",
-      WebkitMaskPosition: "center",
-    }}
-  />
-);
-
-const FeedIcon = ({ size = 24, className = "" }: IconProps) => (
-  <div
-    className={`bg-current ${className}`}
-    style={{
-      width: size,
-      height: size,
-      maskImage: "url('/feed.png')",
-      maskSize: "contain",
-      maskRepeat: "no-repeat",
-      maskPosition: "center",
-      WebkitMaskImage: "url('/feed.png')",
-      WebkitMaskSize: "contain",
-      WebkitMaskRepeat: "no-repeat",
-      WebkitMaskPosition: "center",
-    }}
-  />
-);
-
+import { CornIcon, FeedIcon } from './FoodIcons';
 
 interface ControlBarProps {
   onShopClick: () => void;
@@ -200,11 +159,6 @@ export const ControlBar: React.FC<ControlBarProps> = ({
         <Fish size={24} className="sm:w-[26px] sm:h-[26px]" strokeWidth={2} />
       </button>
 
-      {/* Image Preloader to prevent flicker/delay on first menu open */}
-      <div style={{ position: 'absolute', width: 0, height: 0, overflow: 'hidden', opacity: 0, pointerEvents: 'none' }}>
-        <img src="/feed.png" alt="preload" />
-        <img src="/corn.png" alt="preload" />
-      </div>
     </div>
   );
 };

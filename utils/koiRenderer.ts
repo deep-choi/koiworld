@@ -15,7 +15,6 @@ export interface KoiColors {
     membrane: string;      // dorsal fin membrane
     ridge: string;         // line on the back where the dorsal fin roots
     whisker: string;
-    accent: string | null; // tail stripe colour, taken from a spot near the tail
 }
 
 export interface RenderSpot {
@@ -49,6 +48,9 @@ const LIGHT_X = -0.55;
 // (about 0.075 per link at the engine's turn limit), so it only stops the body folding during hard strikes;
 // a lower value makes the whole body pivot like a board and whips the tail.
 const MAX_LINK_BEND = 0.12;
+// 몸통의 곡률 제한만 적용하면 느린 이동 중 제약이 풀리는 순간 꼬리가 크게
+// 튈 수 있습니다. 각 마디가 돌아가는 속도도 시간 기준으로 제한합니다.
+const MAX_LINK_TURN_RATE = 3.2;
 const LIGHT_Y = -0.83;
 
 // Rounded nose, full width at 27% of the length, slim peduncle.
@@ -94,6 +96,8 @@ export class KoiRenderer {
     private readonly bufY = new Float64Array(SCRATCH_SIZE);
     private readonly bufX2 = new Float64Array(SCRATCH_SIZE);
     private readonly bufY2 = new Float64Array(SCRATCH_SIZE);
+    private readonly selX = new Float64Array(80);
+    private readonly selY = new Float64Array(80);
     private readonly sa: SpinePoint = { x: 0, y: 0, fx: 1, fy: 0, nx: 0, ny: 1 };
     private readonly sb: SpinePoint = { x: 0, y: 0, fx: 1, fy: 0, nx: 0, ny: 1 };
 
@@ -116,11 +120,15 @@ export class KoiRenderer {
         return REFERENCE_RADIUS * this.scale;
     }
 
-    private initSegments(x: number, y: number) {
+    private initSegments(x: number, y: number, angle: number) {
         const physicsSpacing = this.getPhysicsSpacing();
         this.physicsSegments = [];
         for (let i = 0; i < this.physicsSegmentCount; i++) {
-            this.physicsSegments.push({ x: x, y: y + i * physicsSpacing, angle: -Math.PI / 2 });
+            this.physicsSegments.push({
+                x: x - Math.cos(angle) * i * physicsSpacing,
+                y: y - Math.sin(angle) * i * physicsSpacing,
+                angle: i === 0 ? angle : angle + Math.PI,
+            });
         }
         this.segments = this.physicsSegments;
         this.initialized = true;
@@ -162,7 +170,7 @@ export class KoiRenderer {
             this.physicsSegments.push({
                 x: x - Math.cos(angle) * i * physicsSpacing,
                 y: y - Math.sin(angle) * i * physicsSpacing,
-                angle: angle
+                angle: i === 0 ? angle : angle + Math.PI,
             });
         }
         this.segments = this.physicsSegments;
@@ -207,8 +215,11 @@ export class KoiRenderer {
             this.rebuildRadiusCache();
         }
 
+        const speedSquared = koi.velocity.vx * koi.velocity.vx + koi.velocity.vy * koi.velocity.vy;
         if (!this.initialized) {
-            this.initSegments(targetX, targetY);
+            // 처음부터 이동 방향에 맞춰 배치해 생성 직후의 불필요한 큰 회전을 막습니다.
+            const angle = speedSquared > 0.001 * 0.001 ? Math.atan2(koi.velocity.vy, koi.velocity.vx) : -Math.PI / 2;
+            this.initSegments(targetX, targetY, angle);
         }
 
         const head = this.physicsSegments[0];
@@ -217,17 +228,20 @@ export class KoiRenderer {
         const dy = targetY - head.y;
         const distanceSquared = dx * dx + dy * dy;
 
-        const moveFactor = 6.0 * dt;
+        const moveFactor = 1 - Math.exp(-6.0 * dt);
 
         if (distanceSquared > 100 * 100) {
-            head.x = targetX;
-            head.y = targetY;
+            // 화면 가장자리 순환 등 큰 위치 변경에서는 몸 전체를 함께 옮깁니다.
+            // 머리만 이동시키면 꼬리가 이전 위치에서 급하게 접혀 따라오게 됩니다.
+            for (const segment of this.physicsSegments) {
+                segment.x += dx;
+                segment.y += dy;
+            }
         } else {
             head.x += dx * moveFactor;
             head.y += dy * moveFactor;
         }
 
-        const speedSquared = koi.velocity.vx * koi.velocity.vx + koi.velocity.vy * koi.velocity.vy;
         if (speedSquared > 0.001 * 0.001) {
             const targetAngle = Math.atan2(koi.velocity.vy, koi.velocity.vx);
 
@@ -235,11 +249,12 @@ export class KoiRenderer {
             while (diff < -Math.PI) diff += Math.PI * 2;
             while (diff > Math.PI) diff -= Math.PI * 2;
 
-            const turnFactor = 3.6 * dt;
+            const turnFactor = 1 - Math.exp(-3.6 * dt);
             head.angle += diff * turnFactor;
         }
 
         const physicsSpacing = this.getPhysicsSpacing();
+        const maxLinkTurn = MAX_LINK_TURN_RATE * dt;
         for (let i = 1; i < this.physicsSegmentCount; i++) {
             const cur = this.physicsSegments[i];
             const prev = this.physicsSegments[i - 1];
@@ -257,6 +272,13 @@ export class KoiRenderer {
             while (bend > Math.PI) bend -= Math.PI * 2;
             if (bend > MAX_LINK_BEND) linkAngle = prevAngle + MAX_LINK_BEND;
             else if (bend < -MAX_LINK_BEND) linkAngle = prevAngle - MAX_LINK_BEND;
+
+            // 목표 곡률까지 한 프레임에 강제로 돌리지 않고, 기존 각도에서 부드럽게
+            // 따라갑니다. 물결 애니메이션은 별도로 그대로 적용하므로 살랑임은 유지됩니다.
+            let turn = linkAngle - cur.angle;
+            while (turn < -Math.PI) turn += Math.PI * 2;
+            while (turn > Math.PI) turn -= Math.PI * 2;
+            linkAngle = cur.angle + Math.max(-maxLinkTurn, Math.min(maxLinkTurn, turn));
 
             cur.x = prev.x + Math.cos(linkAngle) * physicsSpacing;
             cur.y = prev.y + Math.sin(linkAngle) * physicsSpacing;
@@ -386,45 +408,69 @@ export class KoiRenderer {
         this.renderKoi(ctx, colors, spots, time);
     }
 
+    /**
+     * Dashed yellow outline around the whole koi: body, pectoral/pelvic fins and tail,
+     * following the drawn (waved) spine so it hugs the fish as it swims.
+     */
     private drawSelectionOutline(ctx: CanvasRenderingContext2D) {
+        const R = this.R;
+        const margin = 4 + R * 0.3;
+        const T = TAIL_LENGTH * R;
+        const X = this.selX, Y = this.selY;
+        const BODY_SAMPLES = 24;
+        const TAIL_SAMPLES: ReadonlyArray<readonly [number, number]> = [[0.2, 0.3], [0.5, 0.45], [0.85, 0.62], [1.05, 0.5]];
+        const sideCount = BODY_SAMPLES + TAIL_SAMPLES.length;
+
+        // Half-width envelope along the body: body radius plus bumps where the fins reach out.
+        const halfWidth = (u: number) => R * (
+            bodyProfile(u)
+            + 0.95 * Math.exp(-Math.pow((u - 0.27) / 0.12, 2))   // pectoral fins
+            + 0.45 * Math.exp(-Math.pow((u - 0.58) / 0.08, 2))   // pelvic fins
+        ) + margin;
+
+        const tail = this.spineAt(1, this.sb);
+        for (const side of [1, -1]) {
+            for (let k = 0; k < sideCount; k++) {
+                let x: number, y: number;
+                if (k < BODY_SAMPLES) {
+                    const u = k / (BODY_SAMPLES - 1);
+                    const s = this.spineAt(u, this.sa);
+                    const w = halfWidth(u);
+                    x = s.x + s.nx * side * w;
+                    y = s.y + s.ny * side * w;
+                } else {
+                    const [along, across] = TAIL_SAMPLES[k - BODY_SAMPLES];
+                    const w = across * T + margin;
+                    x = tail.x - tail.fx * along * T + tail.nx * side * w;
+                    y = tail.y - tail.fy * along * T + tail.ny * side * w;
+                }
+                // left side runs head→tail, right side tail→head, so the loop closes around the fish
+                const index = side === 1 ? k : 2 * sideCount - 1 - k;
+                X[index] = x;
+                Y[index] = y;
+            }
+        }
+        // rounded cap in front of the nose
+        let count = 2 * sideCount;
+        const r0 = halfWidth(0), fx = this.fx[0], fy = this.fy[0];
+        for (let j = 1; j < 6; j++) {
+            const a = -Math.PI / 2 + j * Math.PI / 6;  // from the right side, round the front, to the left side
+            X[count] = this.px[0] + fx * Math.cos(a) * r0 * 1.05 - fy * Math.sin(a) * r0;
+            Y[count] = this.py[0] + fy * Math.cos(a) * r0 * 1.05 + fx * Math.sin(a) * r0;
+            count++;
+        }
+
         ctx.save();
         ctx.beginPath();
-
-        const outerPoints: { x: number, y: number }[] = [];
-
-        for (let i = 0; i < this.segmentCount; i++) {
-            const r = this.getRadius(i) + 8;
-            const s = this.segments[i];
-            const angle = s.angle + Math.PI / 2;
-            outerPoints.push({ x: s.x + Math.cos(angle) * r, y: s.y + Math.sin(angle) * r });
-        }
-
-        for (let i = this.segmentCount - 1; i >= 0; i--) {
-            const r = this.getRadius(i) + 8;
-            const s = this.segments[i];
-            const angle = s.angle - Math.PI / 2;
-            outerPoints.push({ x: s.x + Math.cos(angle) * r, y: s.y + Math.sin(angle) * r });
-        }
-
-        if (outerPoints.length > 0) {
-            ctx.moveTo(outerPoints[0].x, outerPoints[0].y);
-            for (let i = 1; i < outerPoints.length; i++) {
-                ctx.lineTo(outerPoints[i].x, outerPoints[i].y);
-            }
-            ctx.closePath();
-
-            ctx.strokeStyle = '#ffff00';
-            ctx.lineWidth = 3;
-            ctx.setLineDash([5, 5]);
-            ctx.stroke();
-
-            ctx.shadowColor = '#ffff00';
-            ctx.shadowBlur = 15;
-            ctx.stroke();
-            ctx.shadowBlur = 0;
-            ctx.setLineDash([]);
-        }
-
+        this.appendSmoothPath(ctx, X, Y, count);
+        ctx.strokeStyle = '#ffff00';
+        ctx.lineWidth = 3;
+        ctx.lineJoin = 'round';
+        ctx.setLineDash([5, 5]);
+        ctx.stroke();
+        ctx.shadowColor = '#ffff00';
+        ctx.shadowBlur = 15;
+        ctx.stroke();
         ctx.restore();
     }
 
@@ -619,7 +665,7 @@ export class KoiRenderer {
         ctx.restore();
     }
 
-    /** Forked tail that carries on the body wave; an accent stripe when a spot sits near the tail. */
+    /** Forked tail that carries on the body wave. */
     private drawTail(ctx: CanvasRenderingContext2D, colors: KoiColors, detail: boolean) {
         const s = this.spineAt(1, this.sb);
         const R = this.R;
@@ -647,21 +693,6 @@ export class KoiRenderer {
         ctx.clip();
 
         ctx.lineCap = 'round';
-        if (colors.accent) {
-            ctx.strokeStyle = colors.accent;
-            ctx.lineWidth = T * 0.13;
-            ctx.globalAlpha = 0.7;
-            for (const sgn of [1, -1]) {
-                ctx.beginPath();
-                for (let j = 0; j <= 10; j++) {
-                    const q = j / 10;
-                    W(q * 0.95 * T, sgn * (0.06 + q * 0.4) * T, this.bufX2, this.bufY2, 0);
-                    if (j) ctx.lineTo(this.bufX2[0], this.bufY2[0]); else ctx.moveTo(this.bufX2[0], this.bufY2[0]);
-                }
-                ctx.stroke();
-            }
-            ctx.globalAlpha = 1;
-        }
         if (detail) {
             ctx.strokeStyle = colors.ray;
             ctx.lineWidth = Math.max(0.7, R * 0.05);

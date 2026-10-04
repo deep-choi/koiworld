@@ -1,46 +1,6 @@
 import React, { useState } from 'react';
 import { X, ShoppingCart, Minus, Plus, Trophy } from 'lucide-react';
-
-interface IconProps {
-    size?: number;
-    className?: string;
-}
-
-const CornIcon = ({ size = 24, className = "" }: IconProps) => (
-    <div
-        className={`bg-current ${className}`}
-        style={{
-            width: size,
-            height: size,
-            maskImage: "url('/corn.png')",
-            maskSize: "contain",
-            maskRepeat: "no-repeat",
-            maskPosition: "center",
-            WebkitMaskImage: "url('/corn.png')",
-            WebkitMaskSize: "contain",
-            WebkitMaskRepeat: "no-repeat",
-            WebkitMaskPosition: "center",
-        }}
-    />
-);
-
-const FeedIcon = ({ size = 24, className = "" }: IconProps) => (
-    <div
-        className={`bg-current ${className}`}
-        style={{
-            width: size,
-            height: size,
-            maskImage: "url('/feed.png')",
-            maskSize: "contain",
-            maskRepeat: "no-repeat",
-            maskPosition: "center",
-            WebkitMaskImage: "url('/feed.png')",
-            WebkitMaskSize: "contain",
-            WebkitMaskRepeat: "no-repeat",
-            WebkitMaskPosition: "center",
-        }}
-    />
-);
+import { CornIcon, FeedIcon } from './FoodIcons';
 
 interface ShopModalProps {
     onClose: () => void;

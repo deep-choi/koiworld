@@ -1,7 +1,7 @@
 import React, { useRef, useEffect } from 'react';
 import { Koi } from '../types';
 import { KoiRenderer } from '../utils/koiRenderer';
-import { getPhenotype, getDisplayColor, getSpineColor, GENE_COLOR_MAP, calculateSpotPhenotype } from '../utils/genetics';
+import { buildKoiRenderStyle } from '../utils/koiColors';
 
 interface SingleKoiCanvasProps {
     koi: Koi;
@@ -42,33 +42,7 @@ export const SingleKoiCanvas: React.FC<SingleKoiCanvasProps> = ({ koi, width = 3
         const scale = Math.min(width, height) / 300;
         renderer.setScale(scale, true); // Set scale immediately
 
-        const colorsObject = () => {
-            // Calculate colors from genetics
-            const phenotype = getPhenotype(koi.genetics.baseColorGenes);
-            const bodyColor = getDisplayColor(phenotype, koi.genetics.lightness, koi.genetics.saturation);
-            const spineColor = getSpineColor(phenotype, koi.genetics.lightness, koi.genetics.saturation);
-            const spotPhenotype = calculateSpotPhenotype(koi.genetics.spotPhenotypeGenes, koi);
-
-            const colors = {
-                outline: 'rgba(255, 255, 255, 0.15)',
-                body: bodyColor,
-                pattern: '#FF4500',
-                spine: spineColor || '#000000',
-                fin: bodyColor.replace(/hsla\((\d+),\s*([\.\d]+)%,\s*([\.\d]+)%,\s*1\)/, (match: string, h: string, s: string, l: string) => {
-                    const desaturatedS = Math.max(0, parseFloat(s) * 0.4);
-                    return `hsla(${h}, ${desaturatedS}%, ${l}%, 0.5)`;
-                })
-            };
-
-            const spots = koi.genetics.spots.map(spot => ({
-                ...spot,
-                color: GENE_COLOR_MAP[spot.color]
-            }));
-
-            return { colors, spots, spotPhenotype };
-        };
-
-        const { colors, spots, spotPhenotype } = colorsObject();
+        const { colors, spots, phenotype: spotPhenotype } = buildKoiRenderStyle(koi);
 
         // Animation loop - 코이가 중앙에서 원을 그리며 헤엄칩니다.
         const animate = () => {
@@ -102,7 +76,7 @@ export const SingleKoiCanvas: React.FC<SingleKoiCanvasProps> = ({ koi, width = 3
 
             rendererRef.current.update(swimKoi, dt, true);
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            rendererRef.current.drawWorld(ctx, colors, spots, false, Date.now(), spotPhenotype);
+            rendererRef.current.drawWorld(ctx, colors, spots, false, now, spotPhenotype);
 
             animationRef.current = requestAnimationFrame(animate);
         };

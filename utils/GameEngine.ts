@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import { Koi, PondTheme, Decoration, DecorationType, SpotPhenotype, GrowthStage } from '../types';
-import { KoiRenderer } from './koiRenderer';
-import { GENE_COLOR_MAP, getPhenotype, getDisplayColor, getSpineColor, calculateSpotPhenotype, getSpotColorWithSaturation } from './genetics';
+import { KoiRenderer, KoiColors, RenderSpot } from './koiRenderer';
+import { buildKoiRenderStyle } from './koiColors';
 import { WaterEffects } from './WaterEffects';
 
 const NO_KOI_POSITIONS: { x: number, y: number, vx: number, vy: number }[] = [];
@@ -17,14 +17,7 @@ interface KoiEntity extends GameEntity {
     renderer: KoiRenderer;
     target: { x: number, y: number };
     chaseTimer: number; // Time spent chasing current target
-    cachedColors: {
-        outline: string;
-        body: string;
-        pattern: string;
-        spine: string;
-        fin: string; // Pre-calculated transparent color
-        spots: Array<{ x: number, y: number, size: number, color: string, shape?: any }>;
-    };
+    cachedColors: KoiColors & { spots: RenderSpot[] };
     phenotype?: SpotPhenotype;
     geneticsHash?: string; // 유전자 변경 감지용 해시
 }
@@ -52,10 +45,14 @@ export class GameEngine {
     private height: number = 0;
 
     // Physics Constants (Time-based now)
-    // Speed was 2.0 px/frame @ 60fps => 120 px/sec. Let's make it 100 px/sec for slightly calmer movement.
-    private readonly SPEED = 100.0;
+    // Cruising speed in px/sec (was 100; lowered for a calmer pond).
+    private readonly SPEED = 70.0;
     // Turn speed was 0.03 rad/frame @ 60fps => 1.8 rad/sec. Let's make it 2.0 rad/sec.
     private readonly TURN_SPEED = 2.0;
+    // Upper bound on how fast a koi can rotate (rad/sec), so big course changes don't whip around.
+    private readonly MAX_TURN_RATE = 1.6;
+    // How quickly speed eases toward its target (1/sec).
+    private readonly ACCELERATION = 1.5;
     private readonly MARGIN = 50;
 
     // FPS Counter
@@ -278,26 +275,7 @@ export class GameEngine {
                 const startY = (koiData.position.y / 100) * this.height;
 
                 // Pre-calculate colors
-                const baseColorPhenotype = getPhenotype(koiData.genetics.baseColorGenes);
-                const bodyColor = getDisplayColor(baseColorPhenotype, koiData.genetics.lightness ?? 50, koiData.genetics.saturation ?? 50);
-                const spineColor = getSpineColor(baseColorPhenotype, koiData.genetics.lightness ?? 50, koiData.genetics.saturation ?? 50);
-
-                // Calculate Fin Color (Regex logic moved here to run once)
-                // "hsla(h, s%, l%, 1)" -> "hsla(h, s*0.4%, l%, 0.5)"
-                const finColor = bodyColor.replace(/hsla\((\d+),\s*([.\d]+)%,\s*([.\d]+)%,\s*1\)/, (match, h, s, l) => {
-                    const desaturatedS = Math.max(0, parseFloat(s) * 0.4);
-                    return `hsla(${h}, ${desaturatedS}%, ${l}%, 0.5)`;
-                });
-
-                // phenotype 먼저 계산 (채도 반영에 필요)
-                const phenotype = koiData.genetics.spotPhenotypeGenes ? calculateSpotPhenotype(koiData.genetics.spotPhenotypeGenes, koiData) : undefined;
-                const colorSaturation = phenotype?.colorSaturation ?? 0.5;
-
-                // spots 색상에 채도와 명도 변형 반영 (ctx.filter 대신 색상 자체에 적용)
-                const spots = koiData.genetics.spots.map((spot, idx) => ({
-                    ...spot,
-                    color: getSpotColorWithSaturation(GENE_COLOR_MAP[spot.color], colorSaturation, idx)
-                }));
+                const style = buildKoiRenderStyle(koiData);
                 const geneticsHash = `${koiData.genetics.baseColorGenes.join('')}-${koiData.genetics.lightness}-${koiData.genetics.saturation}-${koiData.genetics.spots.length}`;
 
                 this.kois.set(koiData.id, {
@@ -312,15 +290,8 @@ export class GameEngine {
                     renderer,
                     target: this.getRandomTarget(),
                     chaseTimer: 0,
-                    cachedColors: {
-                        outline: 'rgba(255, 255, 255, 0.15)',
-                        body: bodyColor,
-                        pattern: '#FF4500',
-                        spine: spineColor || '#000000',
-                        fin: finColor,
-                        spots: spots
-                    },
-                    phenotype,
+                    cachedColors: { ...style.colors, spots: style.spots },
+                    phenotype: style.phenotype,
                     geneticsHash
                 });
                 this.updateKoiScale(this.kois.get(koiData.id)!, true);
@@ -333,32 +304,9 @@ export class GameEngine {
 
                 if (entity.geneticsHash !== geneticsHash) {
                     // 유전자가 변경되었을 때만 색상 재계산
-                    const baseColorPhenotype = getPhenotype(koiData.genetics.baseColorGenes);
-                    const bodyColor = getDisplayColor(baseColorPhenotype, koiData.genetics.lightness ?? 50, koiData.genetics.saturation ?? 50);
-                    const spineColor = getSpineColor(baseColorPhenotype, koiData.genetics.lightness ?? 50, koiData.genetics.saturation ?? 50);
-                    const finColor = bodyColor.replace(/hsla\((\d+),\s*([.\d]+)%,\s*([.\d]+)%,\s*1\)/, (match, h, s, l) => {
-                        const desaturatedS = Math.max(0, parseFloat(s) * 0.4);
-                        return `hsla(${h}, ${desaturatedS}%, ${l}%, 0.5)`;
-                    });
-
-                    // phenotype 먼저 계산 (채도 반영에 필요)
-                    entity.phenotype = koiData.genetics.spotPhenotypeGenes ? calculateSpotPhenotype(koiData.genetics.spotPhenotypeGenes, koiData) : undefined;
-                    const colorSaturation = entity.phenotype?.colorSaturation ?? 0.5;
-
-                    // spots 색상에 채도와 명도 변형 반영 (ctx.filter 대신 색상 자체에 적용)
-                    const spots = koiData.genetics.spots.map((spot, idx) => ({
-                        ...spot,
-                        color: getSpotColorWithSaturation(GENE_COLOR_MAP[spot.color], colorSaturation, idx)
-                    }));
-
-                    entity.cachedColors = {
-                        outline: 'rgba(255, 255, 255, 0.15)',
-                        body: bodyColor,
-                        pattern: '#FF4500',
-                        spine: spineColor || '#000000',
-                        fin: finColor,
-                        spots: spots
-                    };
+                    const style = buildKoiRenderStyle(koiData);
+                    entity.cachedColors = { ...style.colors, spots: style.spots };
+                    entity.phenotype = style.phenotype;
 
                     entity.geneticsHash = geneticsHash;
                 }
@@ -532,8 +480,9 @@ export class GameEngine {
             const angleToTarget = Math.atan2(target.y - head.y, target.x - head.x);
             const distToTargetForPhysics = Math.hypot(target.x - head.x, target.y - head.y);
 
-            // Current angle from velocity
+            // Current angle and speed from velocity
             let currentAngle = Math.atan2(entity.data.velocity.vy, entity.data.velocity.vx);
+            const previousSpeed = Math.hypot(entity.data.velocity.vx, entity.data.velocity.vy);
 
             let diff = angleToTarget - currentAngle;
             while (diff < -Math.PI) diff += Math.PI * 2;
@@ -541,6 +490,7 @@ export class GameEngine {
 
             // Dynamic Physics Parameters
             let currentTurnSpeed = this.TURN_SPEED;
+            let maxTurnRate = this.MAX_TURN_RATE;
             let currentSpeed = this.SPEED;
 
             // Stamina-based speed modifier
@@ -555,17 +505,23 @@ export class GameEngine {
             if (chasingFood && distToTargetForPhysics < 100) {
                 if (entity.chaseTimer > 1.5) {
                     // STRIKE MODE: stuck for > 1.5s
-                    // Snap to target (5x turn) and Dash (1.5x speed)
-                    currentTurnSpeed *= 5.0;
-                    currentSpeed *= 1.5;
+                    // Turn harder (2.5x, capped) and push a little faster (1.2x speed)
+                    currentTurnSpeed *= 2.5;
+                    maxTurnRate = 3.0;
+                    currentSpeed *= 1.2;
                 } else {
                     // Normal Approach: Smoother, wider turns
                     currentTurnSpeed *= 0.5;
                 }
             }
 
-            // Apply turn speed with Delta Time
-            currentAngle += diff * currentTurnSpeed * dt;
+            // Apply turn speed with Delta Time, capped so large course changes stay smooth
+            const turnRate = Math.max(-maxTurnRate, Math.min(maxTurnRate, diff * currentTurnSpeed));
+            currentAngle += turnRate * dt;
+
+            // Slow down through sharp turns instead of speeding up, and ease speed changes
+            currentSpeed *= 1 - 0.4 * Math.min(1, Math.abs(diff) / Math.PI);
+            currentSpeed = previousSpeed + (currentSpeed - previousSpeed) * Math.min(1, this.ACCELERATION * dt);
 
             // Update Velocity
             entity.data.velocity.vx = Math.cos(currentAngle) * currentSpeed;

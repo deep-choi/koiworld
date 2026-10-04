@@ -11,11 +11,11 @@ const SPECIAL_COLORS: GeneType[] = [
 ];
 
 export const GENE_COLOR_MAP: Record<GeneType, string> = {
-    [GeneType.BLACK]: '#252525', // Charcoal Black (Lighter per request)
-    [GeneType.RED]: '#E53E3E',
-    [GeneType.YELLOW]: '#F6E05E',
-    [GeneType.WHITE]: '#ffffff', // Spot pattern color only
-    [GeneType.ORANGE]: '#ED8936',
+    [GeneType.BLACK]: '#2B211F', // Warm brown-black
+    [GeneType.RED]: '#E4472F', // Warm vermilion
+    [GeneType.YELLOW]: '#F4CC3B', // Golden yellow
+    [GeneType.WHITE]: '#FBFAF6', // Spot pattern color only
+    [GeneType.ORANGE]: '#F08A2C',
     [GeneType.CREAM]: '#FEFDE7',
 };
 
@@ -508,10 +508,6 @@ const getSafeDisplayLightness = (baseLightness: number, lightness: number): numb
     return Math.max(12, Math.min(90, shiftedLightness));
 };
 
-const getSafeSpineLightness = (bodyLightness: number): number => (
-    Math.max(8, bodyLightness - 10)
-);
-
 export const getDisplayColor = (phenotype: GeneType, lightness: number, saturation: number = 50): string => {
     if (phenotype === GeneType.CREAM) {
         const cream = getCreamDisplayHsl(lightness, saturation);
@@ -528,24 +524,6 @@ export const getDisplayColor = (phenotype: GeneType, lightness: number, saturati
     const finalS = Math.max(10, Math.min(95, hsl.s * saturationMultiplier));
 
     return `hsla(${hsl.h}, ${finalS}%, ${finalL}%, 1)`;
-};
-
-export const getSpineColor = (phenotype: GeneType, lightness: number, saturation: number = 50): string => {
-    if (phenotype === GeneType.CREAM) {
-        const cream = getCreamDisplayHsl(lightness, saturation);
-        return `hsla(${cream.h}, ${cream.s}%, ${getSafeSpineLightness(cream.l)}%, 0.3)`;
-    }
-
-    const hex = GENE_COLOR_MAP[phenotype] || '#000000';
-    const hsl = hexToHSL(hex);
-
-    // Apply saturation (same logic as getDisplayColor)
-    const saturationMultiplier = 0.5 + (saturation / 100);
-    const finalS = Math.max(10, Math.min(95, hsl.s * saturationMultiplier));
-
-    let finalL = getSafeDisplayLightness(hsl.l, lightness);
-
-    return `hsla(${hsl.h}, ${finalS}%, ${getSafeSpineLightness(finalL)}%, 0.3)`;
 };
 
 // ============================================

@@ -1,4 +1,5 @@
-import { SavedGameState } from '../types';
+import { SavedGameState, GrowthStage } from '../types';
+import { isValidGameStateCore } from '../functions/src/saveValidation';
 
 export const CURRENT_GAME_STATE_SCHEMA_VERSION = 3;
 
@@ -11,17 +12,7 @@ const stringIds = (value: unknown): string[] => {
 };
 
 export const isValidSavedGameState = (value: unknown): value is SavedGameState => {
-    if (!value || typeof value !== 'object') return false;
-
-    const state = value as Partial<SavedGameState>;
-    if (!state.ponds || typeof state.ponds !== 'object') return false;
-    if (typeof state.activePondId !== 'string') return false;
-    if (!state.ponds[state.activePondId]) return false;
-    if (!isFiniteNumber(state.zenPoints)) return false;
-    if (!isFiniteNumber(state.foodCount)) return false;
-    if (!isFiniteNumber(state.koiNameCounter)) return false;
-
-    return true;
+    return isValidGameStateCore(value);
 };
 
 export const isCompleteSavedGameState = (value: unknown): value is SavedGameState => {
@@ -41,6 +32,20 @@ export const normalizeSavedGameState = (value: unknown): SavedGameState | null =
     const state = value as SavedGameState;
     return {
         ...state,
+        ponds: Object.fromEntries(Object.entries(state.ponds).map(([id, pond]) => [id, {
+            ...pond,
+            decorations: pond.decorations ?? [],
+            waterQuality: pond.waterQuality ?? 100,
+            kois: pond.kois.map(koi => ({
+                ...koi,
+                name: koi.name ?? '코이', description: koi.description ?? '',
+                position: koi.position ?? { x: 50, y: 50 },
+                velocity: koi.velocity ?? { vx: 0, vy: 0 },
+                age: koi.age ?? 0, growthStage: koi.growthStage ?? GrowthStage.FRY, timesFed: koi.timesFed ?? 0,
+                stamina: koi.stamina ?? 100, foodTargetId: koi.foodTargetId ?? null, feedCooldownUntil: koi.feedCooldownUntil ?? null,
+                genetics: { ...koi.genetics, lightness: koi.genetics.lightness ?? 50, saturation: koi.genetics.saturation ?? 50 },
+            })),
+        }])),
         schemaVersion: CURRENT_GAME_STATE_SCHEMA_VERSION,
         cornCount: isFiniteNumber(state.cornCount) ? Math.max(0, Math.floor(state.cornCount)) : 0,
         honorPoints: isFiniteNumber(state.honorPoints) ? Math.max(0, Math.floor(state.honorPoints)) : 0,

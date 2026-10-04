@@ -1,4 +1,5 @@
 import { initializeApp } from 'firebase-admin/app';
+import { isDeepStrictEqual } from 'node:util';
 import { getAuth } from 'firebase-admin/auth';
 import { FieldValue, getFirestore, type DocumentData, type Transaction } from 'firebase-admin/firestore';
 import { setGlobalOptions } from 'firebase-functions/v2';
@@ -16,6 +17,8 @@ import {
     uniqueStrings,
     type CanonicalProgression,
 } from './progression.js';
+
+import { isValidGameStateCore } from './saveValidation.js';
 
 initializeApp();
 
@@ -91,20 +94,7 @@ const eventRef = (uid: string, eventId: string) => db.collection('rankingEvents'
 
 const asGameState = (value: unknown): GameState => asRecord(value) as GameState;
 
-const isValidGameState = (value: unknown): value is GameState => {
-    const gameState = asRecord(value);
-    const ponds = asRecord(gameState.ponds);
-    const activePondId = gameState.activePondId;
-
-    return typeof activePondId === 'string'
-        && Object.prototype.hasOwnProperty.call(ponds, activePondId)
-        && typeof gameState.zenPoints === 'number'
-        && Number.isFinite(gameState.zenPoints)
-        && typeof gameState.foodCount === 'number'
-        && Number.isFinite(gameState.foodCount)
-        && typeof gameState.koiNameCounter === 'number'
-        && Number.isFinite(gameState.koiNameCounter);
-};
+const isValidGameState = (value: unknown): value is GameState => isValidGameStateCore(value);
 
 const normalizeGameStateForSave = (value: unknown): GameState => {
     if (!isValidGameState(value)) {
@@ -267,6 +257,12 @@ export const saveGameState = onCall(async request => {
 
         const currentGameState = userData.gameState;
         const nextRevision = currentRevision + 1;
+        const rankingData = stateSnapshot.exists ? stateSnapshot.data() ?? {} : {};
+        const isFirstGameSave = saveReason === 'new-account' && currentGameState == null
+            && currentRevision === 0 && !userData.gameStateSavedAt
+            && finiteInteger(userData.honorPoints) === 0 && finiteInteger(userData.achievementPoints) === 0
+            && finiteInteger(rankingData.honorPoints) === 0 && finiteInteger(rankingData.achievementPoints) === 0
+            && uniqueStrings(rankingData.claimedAchievementIds).length === 0;
         const progression = reconcileProgression({
             userData,
             rankingStateData: stateSnapshot.exists ? stateSnapshot.data() : undefined,
@@ -276,7 +272,7 @@ export const saveGameState = onCall(async request => {
             backupGameStates: recoveryGameStates,
             historicalAchievementIds,
             allowIncomingProgression: finiteInteger(userData.progressionProtocolVersion)
-                < PROGRESSION_PROTOCOL_VERSION,
+                < PROGRESSION_PROTOCOL_VERSION || isFirstGameSave,
         });
         const nextState: RankingState = {
             uid,
@@ -284,10 +280,11 @@ export const saveGameState = onCall(async request => {
             progressionProtocolVersion: PROGRESSION_PROTOCOL_VERSION,
         };
         const gameState = gameStateWithRanking(incomingGameState, nextState);
-        const currentPayload = isValidGameState(currentGameState) ? JSON.stringify(currentGameState) : null;
-        const nextPayload = JSON.stringify(gameState);
+        const dayKey = new Date().toISOString().slice(0, 10);
+        let wroteDailyBackup = false;
 
-        if (currentPayload && currentPayload !== nextPayload) {
+        // Firestore가 객체 키 순서를 바꿔도 내용이 같으면 동일한 저장본입니다.
+        if (isValidGameState(currentGameState) && !isDeepStrictEqual(currentGameState, gameState)) {
             const backup = {
                 gameState: currentGameState,
                 gameStateRevision: currentRevision,
@@ -297,7 +294,6 @@ export const saveGameState = onCall(async request => {
             };
             transaction.set(backupReference, { ...backup, backupKind: 'latest' });
 
-            const dayKey = new Date().toISOString().slice(0, 10);
             if (userData.lastDailyBackupDate !== dayKey) {
                 const dayNumber = Math.floor(Date.now() / 86_400_000);
                 const slot = String(dayNumber % DAILY_BACKUP_SLOT_COUNT).padStart(2, '0');
@@ -306,6 +302,7 @@ export const saveGameState = onCall(async request => {
                     backupKind: 'daily',
                     dayKey,
                 });
+                wroteDailyBackup = true;
             }
         }
 
@@ -316,7 +313,8 @@ export const saveGameState = onCall(async request => {
             gameStateSavedAt: FieldValue.serverTimestamp(),
             lastSaveDeviceId: deviceId || null,
             lastSaveReason: saveReason,
-            lastDailyBackupDate: new Date().toISOString().slice(0, 10),
+            // 같은 본문을 재확인한 요청은 백업을 만들지 않으므로 날짜도 넘기지 않습니다.
+            ...(wroteDailyBackup ? { lastDailyBackupDate: dayKey } : {}),
             progressionProtocolVersion: PROGRESSION_PROTOCOL_VERSION,
             legacyAchievementPointsBase: nextState.legacyAchievementPointsBase,
             honorPoints: nextState.honorPoints,
@@ -528,6 +526,11 @@ export const loadAccountState = onCall(async request => {
             gameState: canonicalGameState,
             gameStateRevision: revision,
             gameStateSource: source,
+            // 프로필 생성 후 첫 저장이 실패한 빈 계정만 초기화를 재시도합니다.
+            canInitializeGameState: !hasPrimaryValue && currentRevision === 0
+                && !userData.gameStateSavedAt && backupGameStates.length === 0
+                && canonicalState.honorPoints === 0 && canonicalState.achievementPoints === 0
+                && canonicalState.claimedAchievementIds.length === 0,
             nickname: profile.nickname,
             photoURL: profile.photoURL,
             activeDeviceId: typeof userData.activeDeviceId === 'string' ? userData.activeDeviceId : null,

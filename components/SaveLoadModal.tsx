@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Music, Speaker, X } from 'lucide-react';
+import { Music, Speaker, X, Megaphone, ChevronRight } from 'lucide-react';
 import { audioManager } from '../utils/audio';
 import { useAuth } from '../contexts/AuthContext';
 import { broadcastForceClear, resumeLocalGameSave, suppressLocalGameSave } from '../services/localSave';
@@ -8,6 +8,12 @@ interface SaveLoadModalProps {
     isOpen: boolean;
     onClose: () => void;
     onNewGame: () => Promise<boolean>;
+    onCommunityClick: () => void;
+    saveStatusLabel: string;
+    localSavedAt: number | null;
+    cloudSavedAt: number | null;
+    isCloudSaving: boolean;
+    onSaveNow: () => void;
     isNight: boolean;
     onToggleDayNight: () => void;
 }
@@ -16,6 +22,12 @@ export const SaveLoadModal: React.FC<SaveLoadModalProps> = ({
     isOpen,
     onClose,
     onNewGame,
+    onCommunityClick,
+    saveStatusLabel,
+    localSavedAt,
+    cloudSavedAt,
+    isCloudSaving,
+    onSaveNow,
     isNight,
     onToggleDayNight,
 }) => {
@@ -69,7 +81,7 @@ export const SaveLoadModal: React.FC<SaveLoadModalProps> = ({
 
     return (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={onClose}>
-            <div className="light-modal bg-white rounded-2xl max-w-md w-full border border-slate-200 shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="light-modal bg-white rounded-2xl max-w-md w-full max-h-[90dvh] overflow-y-auto border border-slate-200 shadow-2xl" onClick={e => e.stopPropagation()}>
                 {/* 헤더 */}
                 <div className="flex justify-between items-center px-5 pt-5">
                     <h2 className="text-xl font-medium text-slate-900">
@@ -80,6 +92,24 @@ export const SaveLoadModal: React.FC<SaveLoadModalProps> = ({
                     </button>
                 </div>
 
+                <button type="button" onClick={onCommunityClick} className="mx-5 mt-5 flex w-[calc(100%-2.5rem)] items-center gap-3 rounded-xl bg-orange-50 px-4 py-3 text-left text-orange-800 hover:bg-orange-100">
+                    <Megaphone size={20} />
+                    <span className="flex-1 text-sm font-semibold">소식·커뮤니티</span>
+                    <ChevronRight size={18} />
+                </button>
+                <div className="mx-5 mt-4 rounded-xl border border-slate-200 p-4 text-sm text-slate-600">
+                    <div className="flex items-center justify-between gap-2">
+                        <p className="font-semibold text-slate-800" role="status">{saveStatusLabel}</p>
+                        <button type="button" onClick={onSaveNow} disabled={isCloudSaving} className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-semibold disabled:opacity-50">
+                            {isCloudSaving ? '저장 중…' : '지금 저장'}
+                        </button>
+                    </div>
+                    <p className="mt-2 text-xs">기기 저장: {localSavedAt ? new Date(localSavedAt).toLocaleTimeString('ko-KR') : '확인 중'}</p>
+                    {user && !user.isAnonymous ? <>
+                        <p className="mt-1 text-xs">서버 저장 확인: {cloudSavedAt ? new Date(cloudSavedAt).toLocaleTimeString('ko-KR') : '대기 중'}</p>
+                        <p className="mt-2 text-xs leading-5">연결이 끊기면 이 기기에 보관하고, 연결되면 자동으로 동기화해요. 앱 삭제나 휴대폰 교체 전에는 서버 저장을 완료해주세요.</p>
+                    </> : <p className="mt-2 text-xs leading-5">현재 진행도는 이 기기에만 저장돼요. 로그인하면 계정에 저장해 재설치나 휴대폰 교체 후 이어갈 수 있어요.</p>}
+                </div>
                 {/* 탭 */}
                 <div className="flex gap-2 px-5 pt-4">
                     <button

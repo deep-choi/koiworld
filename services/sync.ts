@@ -36,6 +36,7 @@ export interface UserDataSnapshot {
     gameData: SavedGameState | null;
     gameDataRevision: number;
     gameDataSource: GameStateSource;
+    canInitializeGameState: boolean;
     nickname: string | null;
     photoURL: string | null;
     activeDeviceId: string | null;
@@ -61,6 +62,7 @@ export const loadUserDataOnce = async (userId: string): Promise<UserDataSnapshot
 
     return {
         gameData: state || null,
+        canInitializeGameState: data.canInitializeGameState,
         gameDataRevision: data.gameStateRevision,
         gameDataSource: data.gameStateSource,
         nickname: data.nickname || null,

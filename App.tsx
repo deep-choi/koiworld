@@ -6,6 +6,7 @@ import { ShopModal } from './components/ShopModal';
 import { PondInfoModal } from './components/PondInfoModal';
 import { SaveLoadModal } from './components/SaveLoadModal';
 import { AccountModal } from './components/AccountModal';
+import { CommunityModal } from './components/CommunityModal';
 // SettingsModal removed
 
 
@@ -33,6 +34,8 @@ import { useAchievements } from './hooks/useAchievements';
 import { AchievementModal } from './components/AchievementModal';
 import { CURRENT_GAME_STATE_SCHEMA_VERSION, normalizeSavedGameState } from './utils/savedGameState';
 import { purchaseHonorTrophies } from './services/ranking';
+import { readLocalSave, writeLocalSave, acceptCloudSave, acknowledgeLocalSave, archiveLocalSave, chooseSaveSource } from './services/saveJournal';
+import { SavePolicy, progressKey } from './services/savePolicy';
 
 interface Animation {
   id: number;
@@ -81,14 +84,8 @@ const loadGameState = (uid?: string | null): SavedGameState | null => {
       if (savedData) localStorage.setItem(scopedKey, savedData);
     }
 
-    if (savedData) {
-      const parsed = normalizeSavedGameState(JSON.parse(savedData));
-      if (parsed) {
-        return parsed;
-      }
-      localStorage.removeItem(scopedKey);
-      console.warn("Invalid saved game state removed.");
-    }
+    if (savedData) return readLocalSave(uid)?.gameState ?? null;
+
   } catch (error) {
     console.error("Failed to load game state:", error);
   }
@@ -139,6 +136,7 @@ export const App: React.FC = () => {
   const [isCleanConfirmOpen, setIsCleanConfirmOpen] = useState(false);
   const [isRankingModalOpen, setIsRankingModalOpen] = useState(false);
   const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
+  const [isCommunityOpen, setIsCommunityOpen] = useState(false);
 
   // --- New Feature States ---
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
@@ -151,6 +149,15 @@ export const App: React.FC = () => {
   const [userPhotoURL, setUserPhotoURL] = useState<string | null>(null);
   const [isCloudSyncReady, setIsCloudSyncReady] = useState(false);
   const [cloudSaveIssue, setCloudSaveIssue] = useState<string | null>(null);
+  const [localSaveIssue, setLocalSaveIssue] = useState(false);
+  const [localSavedAt, setLocalSavedAt] = useState<number | null>(null);
+  const [cloudSavedAt, setCloudSavedAt] = useState<number | null>(null);
+  const [isCloudSaving, setIsCloudSaving] = useState(false);
+  const [hasPendingCloudSave, setHasPendingCloudSave] = useState(false);
+  const [isAccountRestoring, setIsAccountRestoring] = useState(true);
+  const [restoreAttempt, setRestoreAttempt] = useState(0);
+  const [saveChoice, setSaveChoice] = useState<{ uid: string; local: SavedGameState; cloud: SavedGameState; revision: number } | null>(null);
+  const [isChoosingSave, setIsChoosingSave] = useState(false);
   const [isDuplicateTabPaused, setIsDuplicateTabPaused] = useState(false);
 
   // Achievement System
@@ -276,8 +283,10 @@ export const App: React.FC = () => {
   const localHydratedScopeRef = useRef<string | null>('guest');
   const cloudSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const pendingCloudPayloadRef = useRef<string | null>(null);
+  const saveGenerationRef = useRef(0);
   const serverMutationInProgressRef = useRef(false);
-  const rankingSyncKeyRef = useRef('');
+  const savePolicyRef = useRef(new SavePolicy());
+  const localProgressKeyRef = useRef<string | null>(null);
   const tabLockRef = useRef<TabLockController | null>(null);
 
   useEffect(() => {
@@ -443,31 +452,53 @@ export const App: React.FC = () => {
   const persistLocalGameState = useCallback((state: SavedGameState, uid?: string | null) => {
     const payload = JSON.stringify(state);
     try {
-      localStorage.setItem(getScopedSaveGameKey(uid), payload);
+      writeLocalSave(uid, state, uid ? cloudGameStateRevisionRef.current : null);
       lastLocalSavePayloadRef.current = payload;
+      setLocalSavedAt(Date.now());
+      setLocalSaveIssue(false);
+      if (uid) setHasPendingCloudSave(payload !== lastCloudSavePayloadRef.current);
     } catch (error) {
-      console.error("Local save failed:", error);
+      setLocalSaveIssue(true);
+      throw error;
     }
     return payload;
   }, []);
 
+  // 중요한 변화는 React 상태 반영 직후 기기에 남깁니다. 연속 변화 때문에
+  // 정기 타이머가 밀리거나 앱 종료 이벤트가 생략되어도 마지막 진행도를 보호합니다.
+  useEffect(() => {
+    const state = gameStateRef.current;
+    if (!state || authLoading || isAccountRestoring || !achievementsLoaded || isDuplicateTabPaused
+        || isLocalGameSaveSuppressed() || serverMutationInProgressRef.current
+        || localHydratedScopeRef.current !== (localSaveScope ?? 'guest')) return;
+    savePolicyRef.current.observe(state, Date.now());
+    const key = progressKey(state);
+    if (key === localProgressKeyRef.current) return;
+    try {
+      persistLocalGameState(state, localSaveScope);
+      localProgressKeyRef.current = key;
+    } catch { /* 정기 저장과 사용자 재시도에서 다시 확인합니다. */ }
+  }, [ponds, activePondId, zenPoints, foodCount, cornCount, honorPoints, achievementScore,
+      unlockedIds, claimedIds, koiNameCounter, localSaveScope, authLoading, isAccountRestoring,
+      achievementsLoaded, isDuplicateTabPaused, persistLocalGameState]);
+
   const enqueueCloudSave = useCallback((uid: string, state: SavedGameState) => {
+    const generation = saveGenerationRef.current;
     const payload = JSON.stringify(state);
-    const previousCloudPayload = lastCloudSavePayloadRef.current;
-    lastCloudSavePayloadRef.current = payload;
+    if (pendingCloudPayloadRef.current === payload) return cloudSaveQueueRef.current;
     pendingCloudPayloadRef.current = payload;
+    setIsCloudSaving(true);
 
     const nextSave = cloudSaveQueueRef.current
       .catch(() => undefined)
       .then(async () => {
+        if (generation !== saveGenerationRef.current) throw new Error('Save session changed.');
         if (isLocalGameSaveSuppressed() || cloudSaveBlockedRef.current) {
-          if (lastCloudSavePayloadRef.current === payload) {
-            lastCloudSavePayloadRef.current = previousCloudPayload;
-          }
           if (pendingCloudPayloadRef.current === payload) {
             pendingCloudPayloadRef.current = null;
+            setIsCloudSaving(false);
           }
-          return;
+          throw new Error('Cloud saving is paused.');
         }
 
         try {
@@ -475,24 +506,34 @@ export const App: React.FC = () => {
           if (expectedRevision === null) {
             throw new Error('Cloud save was attempted before the account state was hydrated.');
           }
-          const nextRevision = await saveGameToCloud(uid, state, expectedRevision, 'auto');
-          cloudGameStateRevisionRef.current = nextRevision;
+          const saved = await saveGameToCloud(uid, state, expectedRevision, 'auto');
+          if (generation !== saveGenerationRef.current) throw new Error('Save session changed.');
+          cloudGameStateRevisionRef.current = saved.revision;
+          lastCloudSavePayloadRef.current = payload;
+          savePolicyRef.current.confirmed(state, Date.now());
+          setCloudSavedAt(Date.now());
+          setHasPendingCloudSave(JSON.stringify(gameStateRef.current) !== payload);
+          // 서버 쓰기가 성공했다면 기기 저장 실패와 구분합니다. 이전 리비전으로
+          // 같은 요청을 재전송하면 불필요한 충돌이 생길 수 있습니다.
+          try { acknowledgeLocalSave(uid, state, saved.revision); }
+          catch { setLocalSaveIssue(true); }
           setCloudSaveIssue(null);
         } catch (error) {
+          if (generation !== saveGenerationRef.current) throw error;
+          savePolicyRef.current.failed(Date.now());
+          setHasPendingCloudSave(true);
           if (error instanceof GameStateRevisionConflictError) {
             cloudSaveBlockedRef.current = true;
             setIsCloudSyncReady(false);
-            setCloudSaveIssue('다른 기기에서 더 최신 저장본이 확인되었습니다. 기존 데이터를 덮어쓰지 않도록 이 기기의 클라우드 저장을 멈췄습니다. 앱을 다시 열어 최신 저장본을 불러오세요.');
+            setCloudSaveIssue('다른 기기의 저장본이 확인되었습니다. 이 기기의 진행도도 보관하고 있어요. 다시 확인을 눌러 이어갈 저장본을 선택해주세요.');
           } else {
             setCloudSaveIssue('클라우드 저장이 완료되지 않았습니다. 네트워크를 확인하면 자동으로 다시 시도합니다. 로그아웃 전에는 반드시 저장 상태를 확인해주세요.');
           }
-          if (lastCloudSavePayloadRef.current === payload) {
-            lastCloudSavePayloadRef.current = previousCloudPayload;
-          }
           throw error;
         } finally {
-          if (pendingCloudPayloadRef.current === payload) {
+          if (generation === saveGenerationRef.current && pendingCloudPayloadRef.current === payload) {
             pendingCloudPayloadRef.current = null;
+            setIsCloudSaving(false);
           }
         }
       });
@@ -503,7 +544,13 @@ export const App: React.FC = () => {
 
   const flushCurrentGameState = useCallback(async () => {
     const currentState = gameStateRef.current;
-    if (!currentState) return;
+    if (!currentState || isDuplicateTabPaused || isLocalGameSaveSuppressed()
+        || localHydratedScopeRef.current !== (localSaveScope ?? 'guest')) {
+      if (user && !user.isAnonymous) throw new Error('Account save is not ready.');
+      return;
+    }
+    const payload = persistLocalGameState(currentState, localSaveScope);
+    if (!user || user.isAnonymous) return;
     if (user && !user.isAnonymous) {
       if (
         isDuplicateTabPaused
@@ -515,12 +562,8 @@ export const App: React.FC = () => {
       ) {
         throw new Error('Authenticated game state is not ready for a safe cloud flush.');
       }
-    } else if (isDuplicateTabPaused || isLocalGameSaveSuppressed()) {
-      return;
     }
-    if (localHydratedScopeRef.current !== (localSaveScope ?? 'guest')) return;
 
-    const payload = persistLocalGameState(currentState, localSaveScope);
     if (
       user
       && !user.isAnonymous
@@ -560,173 +603,180 @@ export const App: React.FC = () => {
     };
   }, [flushCurrentGameState]);
 
-  useEffect(() => {
-    rankingSyncKeyRef.current = '';
-  }, [achievementScope]);
-
-  // Publish newly unlocked achievement IDs after canonical hydration. The
-  // server preserves claimed rewards and trophy totals even if this snapshot
-  // is stale or incomplete.
-  useEffect(() => {
-    if (!user || user.isAnonymous || !isCloudSyncReady || serverMutationInProgressRef.current || cloudHydratedUserIdRef.current !== user.uid || !achievementsLoaded || !gameStateRef.current) return;
-
-    const syncKey = JSON.stringify({
-      achievementScore,
-      honorPoints,
-      unlockedIds,
-      claimedIds,
-    });
-    if (rankingSyncKeyRef.current === syncKey) return;
-    rankingSyncKeyRef.current = syncKey;
-
-    const currentState: SavedGameState = {
-      ...gameStateRef.current,
-      honorPoints,
-      achievementPoints: achievementScore,
-      achievements: { unlockedIds, claimedIds },
-    };
-    gameStateRef.current = currentState;
-    void enqueueCloudSave(user.uid, currentState).catch((error) => {
-      console.error('Ranking score sync failed:', error);
-      if (rankingSyncKeyRef.current === syncKey) rankingSyncKeyRef.current = '';
-    });
-  }, [user, isCloudSyncReady, achievementsLoaded, achievementScore, honorPoints, unlockedIds, claimedIds, enqueueCloudSave]);
-
-  // Session & Cloud Sync Logic
+  // 계정별 미전송 기록을 확인한 뒤 클라우드 쓰기와 플레이를 허용합니다.
   useEffect(() => {
     let cancelled = false;
-
+    saveGenerationRef.current += 1;
     const initSession = async () => {
-      let cloudReady = false;
+      setIsAccountRestoring(true);
+      setSaveChoice(null);
+      setCloudSaveIssue(null);
+      setLocalSaveIssue(false);
+      setLocalSavedAt(null);
+      setCloudSavedAt(null);
+      setIsCloudSaving(false);
+      setHasPendingCloudSave(false);
+      savePolicyRef.current = new SavePolicy();
+      localProgressKeyRef.current = null;
+      lastLocalSavePayloadRef.current = null;
       cloudHydratedUserIdRef.current = null;
       cloudGameStateRevisionRef.current = null;
       cloudSaveBlockedRef.current = false;
+      pendingCloudPayloadRef.current = null;
+      lastCloudSavePayloadRef.current = null;
       localHydratedScopeRef.current = null;
-      if (!user || user.isAnonymous) {
-        setIsCloudSyncReady(false);
-        setCloudSaveIssue(null);
-        suppressLocalGameSave();
-        handleLoadGame(loadGameState(null) ?? createInitialGameState(), { silent: true, replace: true, hydrateAchievements: true });
-        localHydratedScopeRef.current = 'guest';
-        resumeLocalGameSave();
-        return;
-      }
-
-      // Freeze local writes while switching namespaces. Otherwise the first
-      // guest render could be written into the newly selected account key
-      // before its own local/cloud state has been hydrated.
-      suppressLocalGameSave();
       setIsCloudSyncReady(false);
-      setCloudSaveIssue(null);
+      suppressLocalGameSave();
+      if (authLoading) return;
       try {
-        const scopedLocalState = loadGameState(localSaveScope);
-        const guestRecoveryState = loadGameState(null);
-        // A user who was silently placed in the legacy anonymous fallback may
-        // still have hours of valid progress under the guest key. Use it only
-        // as the seed for a genuinely new cloud account; an existing cloud
-        // snapshot still wins below and is never overwritten automatically.
-        const fallbackState = scopedLocalState ?? guestRecoveryState ?? createInitialGameState();
-        // This is only a temporary render state. Cloud saving remains frozen
-        // until the account document has been classified below.
-        handleLoadGame(fallbackState, { silent: true, replace: true, hydrateAchievements: false });
-
-        // Read before creating/touching the profile document. A pre-existing
-        // document with no usable gameState is a recovery case, not a new
-        // game. Creating the profile first was what made both cases look the
-        // same and allowed defaults to be uploaded later.
-        const existingUserData = await loadUserDataOnce(user.uid);
+        if (!user || user.isAnonymous) {
+          handleLoadGame(loadGameState(null) ?? createInitialGameState(), { silent: true, hydrateAchievements: true });
+          localHydratedScopeRef.current = 'guest';
+          setIsAccountRestoring(false);
+          return;
+        }
+        const local = readLocalSave(user.uid);
+        const fallbackState = local?.gameState ?? loadGameState(null) ?? createInitialGameState();
+        const existing = await loadUserDataOnce(user.uid);
         if (cancelled) return;
-
-        const [verifiedNickname] = await Promise.all([
+        let state: SavedGameState;
+        let revision: number;
+        if (existing === null || existing.canInitializeGameState) {
+          // 첫 게임 저장을 먼저 완료합니다. 프로필만 남은 구버전의 실패도
+          // 서버가 빈 계정임을 확인한 경우에 한해 재시도합니다.
+          writeLocalSave(user.uid, fallbackState, 0);
+          const saved = await saveGameToCloud(user.uid, fallbackState, existing?.gameDataRevision ?? 0, 'new-account');
+          revision = saved.revision;
+          state = saved.gameState;
+        } else if (existing.gameData) {
+          revision = existing.gameDataRevision;
+          const source = chooseSaveSource(local, existing.gameData, revision);
+          if (source === 'choose') {
+            setSaveChoice({ uid: user.uid, local: local!.gameState, cloud: existing.gameData, revision });
+            return;
+          }
+          state = source === 'local' ? local!.gameState : existing.gameData;
+          if (source === 'local') {
+            const saved = await saveGameToCloud(user.uid, state, revision, 'auto');
+            revision = saved.revision;
+            state = saved.gameState;
+          }
+          if (existing.gameDataSource === 'backup') {
+            setNotification({ message: '최근 클라우드 백업으로 저장 데이터를 복구했습니다.', type: 'info' });
+          }
+        } else {
+          throw new Error('이 계정의 저장본을 복구하지 못했습니다. 기존 데이터는 보존되어 있습니다.');
+        }
+        if (cancelled) return;
+        // 프로필 연결이 실패해도 완료된 게임 저장은 다음 시도에서 복구할 수 있습니다.
+        acceptCloudSave(user.uid, state, revision);
+        const [nickname] = await Promise.all([
           ensureUserProfileNickname(user.uid, user.displayName, user.email, user.photoURL),
           startSession(user.uid),
         ]);
         if (cancelled) return;
-
-        if (existingUserData === null) {
-          // A successful read proved this is a truly new cloud account, so
-          // the first state can be created explicitly rather than by the
-          // periodic auto-save timer.
-          const revision = await saveGameToCloud(user.uid, fallbackState, 0, 'new-account');
-          if (cancelled) return;
-          cloudGameStateRevisionRef.current = revision;
-          handleLoadGame(fallbackState, { markAsSynced: true, replace: true, hydrateAchievements: true });
-        } else if (existingUserData.gameData) {
-          const revision = existingUserData.gameDataRevision;
-          if (existingUserData.gameDataSource === 'backup') {
-            // loadAccountState already repaired the primary transactionally.
-            setNotification({ message: '최근 클라우드 백업으로 저장 데이터를 복구했습니다.', type: 'info' });
-          }
-
-          cloudGameStateRevisionRef.current = revision;
-          handleLoadGame(existingUserData.gameData, { markAsSynced: true, replace: true, hydrateAchievements: true });
-        } else {
-          // The account existed before this session but neither its primary
-          // state nor a validated backup is usable. Keep cloud writes off so
-          // a fallback/default state cannot destroy any recoverable data.
-          setUserNickname(verifiedNickname);
-          setUserPhotoURL(existingUserData.photoURL ?? user.photoURL ?? null);
-          setCloudSaveIssue('이 계정의 클라우드 저장본을 확인할 수 없습니다. 기존 데이터를 덮어쓰지 않도록 자동 저장을 멈췄습니다. 다시 확인하거나 설정에서 새 게임을 직접 시작할 수 있습니다.');
-          setNotification({ message: '클라우드 저장본을 확인할 수 없어 자동 저장을 멈췄습니다.', type: 'error' });
-          return;
-        }
-
-        // 서버에 저장된 닉네임으로 로컬 상태 업데이트
-        setUserNickname(verifiedNickname);
-        setUserPhotoURL(existingUserData?.photoURL ?? user.photoURL ?? null);
-
-        cloudReady = true;
+        cloudGameStateRevisionRef.current = revision;
+        handleLoadGame(state, { silent: true, markAsSynced: true, hydrateAchievements: true });
+        setUserNickname(nickname);
+        setUserPhotoURL(existing?.photoURL ?? user.photoURL ?? null);
         cloudHydratedUserIdRef.current = user.uid;
-        localHydratedScopeRef.current = localSaveScope;
+        localHydratedScopeRef.current = user.uid;
+        setIsCloudSyncReady(true);
+        setIsAccountRestoring(false);
       } catch (error) {
         if (!cancelled) {
-          console.error("Session init failed:", error);
-          setCloudSaveIssue('클라우드 저장본을 확인하지 못했습니다. 기존 데이터를 덮어쓰지 않도록 자동 저장을 멈췄습니다. 네트워크를 확인한 뒤 다시 시도하세요.');
-          setNotification({ message: '클라우드 저장 확인에 실패해 자동 저장을 멈췄습니다.', type: 'error' });
+          console.error('Account restore failed:', error);
+          setCloudSaveIssue('저장 데이터를 확인하지 못했습니다. 진행 상황을 안전하게 불러온 뒤 계속할 수 있어요. 인터넷 연결을 확인하고 다시 시도해주세요.');
         }
       } finally {
-        if (!cancelled) {
-          setIsCloudSyncReady(cloudReady);
-          resumeLocalGameSave();
-        }
+        if (!cancelled) resumeLocalGameSave();
       }
     };
+    void initSession();
+    return () => { cancelled = true; };
+  }, [user?.uid, user?.isAnonymous, authLoading, restoreAttempt]);
 
-    initSession();
-    return () => {
-      cancelled = true;
-    };
-  }, [user, localSaveScope]);
+  const retryAccountRestore = () => {
+    if (isCloudSyncReady && !cloudSaveBlockedRef.current) {
+      void flushCurrentGameState().catch(() => undefined);
+      return;
+    }
+    if (!user || user.isAnonymous) {
+      void flushCurrentGameState().then(() => setCloudSaveIssue(null)).catch(() => undefined);
+      return;
+    }
+    if (gameStateRef.current && localHydratedScopeRef.current === localSaveScope && !isLocalGameSaveSuppressed()) {
+      try { persistLocalGameState(gameStateRef.current, localSaveScope); } catch { return; }
+    }
+    setRestoreAttempt(attempt => attempt + 1);
+  };
 
-  // Periodic Save (Cloud + Local)
+  const resolveSaveChoice = async (source: 'local' | 'cloud') => {
+    if (!saveChoice || isChoosingSave || saveChoice.uid !== user?.uid) return;
+    setIsChoosingSave(true);
+    try {
+      archiveLocalSave(saveChoice.uid);
+      let revision = saveChoice.revision;
+      let state = source === 'local' ? saveChoice.local : saveChoice.cloud;
+      // 양쪽 원본은 기기 복구 사본과 서버 백업에 보관됩니다. 선택 이후
+      // 다른 기기가 저장했다면 서버 리비전 검사가 덮어쓰기를 거부합니다.
+      if (source === 'local') {
+        const saved = await saveGameToCloud(saveChoice.uid, state, revision, 'backup-recovery');
+        revision = saved.revision;
+        state = saved.gameState;
+      }
+      acceptCloudSave(saveChoice.uid, state, revision);
+      setSaveChoice(null);
+      setRestoreAttempt(attempt => attempt + 1);
+    } catch (error) {
+      setCloudSaveIssue('저장본을 적용하지 못했습니다. 두 진행도는 보관되어 있습니다. 다시 확인해주세요.');
+      if (error instanceof GameStateRevisionConflictError) setRestoreAttempt(attempt => attempt + 1);
+    } finally { setIsChoosingSave(false); }
+  };
+
+  // 기기에는 2초 간격으로 기록하고, 서버에는 중요한 변화 또는 60초 주기로 저장합니다.
+  // 통신이 느릴 때는 요청을 쌓지 않고 다음 차례에 최신 상태 한 건만 전송합니다.
   useEffect(() => {
-    const saveInterval = setInterval(async () => {
-      const currentState = gameStateRef.current;
-      if (!currentState) return;
-      if (isDuplicateTabPaused || isLocalGameSaveSuppressed() || serverMutationInProgressRef.current) return;
-      if (localHydratedScopeRef.current !== (localSaveScope ?? 'guest')) return;
-
-      const payload = JSON.stringify(currentState);
-
-      // Local save only when payload changes.
-      if (payload !== lastLocalSavePayloadRef.current) {
-        persistLocalGameState(currentState, localSaveScope);
-      }
-
-      // Cloud save only when payload changes.
-      if (!user || user.isAnonymous || !isCloudSyncReady || !achievementsLoaded || cloudHydratedUserIdRef.current !== user.uid) return;
-      if (payload === lastCloudSavePayloadRef.current) return;
+    const saveInterval = setInterval(() => {
+      const state = gameStateRef.current;
+      if (!state || authLoading || isAccountRestoring || !achievementsLoaded
+          || isDuplicateTabPaused || isLocalGameSaveSuppressed() || serverMutationInProgressRef.current
+          || localHydratedScopeRef.current !== (localSaveScope ?? 'guest')) return;
+      const payload = JSON.stringify(state);
       try {
-        await enqueueCloudSave(user.uid, currentState);
-      } catch (error: any) {
-        if (error.code !== 'unavailable') {
-          console.error("Cloud save failed:", error);
-        }
-      }
-    }, 15000);
-
+        if (payload !== lastLocalSavePayloadRef.current || localSaveIssue) persistLocalGameState(state, localSaveScope);
+      } catch { /* 기기 저장 오류가 나도 서버 저장을 시도해 진행도를 보호합니다. */ }
+      if (!user || user.isAnonymous || !isCloudSyncReady || cloudSaveBlockedRef.current
+          || cloudHydratedUserIdRef.current !== user.uid) return;
+      savePolicyRef.current.observe(state, Date.now());
+      if (!navigator.onLine || pendingCloudPayloadRef.current || payload === lastCloudSavePayloadRef.current
+          || !savePolicyRef.current.due(Date.now())) return;
+      void enqueueCloudSave(user.uid, state).catch(() => undefined);
+    }, 2000);
     return () => clearInterval(saveInterval);
-  }, [user, localSaveScope, isCloudSyncReady, achievementsLoaded, isDuplicateTabPaused, enqueueCloudSave, persistLocalGameState]);
+  }, [user?.uid, user?.isAnonymous, localSaveScope, authLoading, isAccountRestoring, localSaveIssue,
+      isCloudSyncReady, achievementsLoaded, isDuplicateTabPaused, enqueueCloudSave, persistLocalGameState]);
+
+  // 이미 불러온 계정은 연결 복구/앱 복귀 시 미전송 진행도를 전송합니다.
+  // 첫 실행에서 서버 확인에 실패했다면 먼저 계정 복구를 재시도합니다.
+  useEffect(() => {
+    const reconnect = () => {
+      if (!navigator.onLine || isDuplicateTabPaused || saveChoice || serverMutationInProgressRef.current) return;
+      if (isAccountRestoring) {
+        if (cloudSaveIssue) setRestoreAttempt(attempt => attempt + 1);
+        return;
+      }
+      if (!isCloudSyncReady || cloudSaveBlockedRef.current || pendingCloudPayloadRef.current) return;
+      void flushCurrentGameStateRef.current().catch(() => undefined);
+    };
+    const onVisible = () => { if (document.visibilityState === 'visible') reconnect(); };
+    window.addEventListener('online', reconnect);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.removeEventListener('online', reconnect);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [isAccountRestoring, cloudSaveIssue, isCloudSyncReady, isDuplicateTabPaused, saveChoice]);
 
   const handleSaveProfile = useCallback(async (nickname: string, photoURL: string | null) => {
     if (!user) return;
@@ -789,22 +839,37 @@ export const App: React.FC = () => {
     if (user && !user.isAnonymous) {
       // 로그인 상태: 클라우드에 즉시 초기화 상태 저장
       try {
+        serverMutationInProgressRef.current = true;
+        await flushCurrentGameState();
+        suppressLocalGameSave();
         const expectedRevision = cloudGameStateRevisionRef.current;
         if (expectedRevision === null) {
           throw new Error('Cloud reset was attempted before the account state was hydrated.');
         }
-        const nextRevision = await saveGameToCloud(user.uid, initialState, expectedRevision, 'explicit-reset');
-        cloudGameStateRevisionRef.current = nextRevision;
+        const saved = await saveGameToCloud(user.uid, initialState, expectedRevision, 'explicit-reset');
+        cloudGameStateRevisionRef.current = saved.revision;
+        Object.assign(initialState, saved.gameState);
       } catch (error) {
         console.error("Failed to reset cloud game state:", error);
-        if (!window.confirm("클라우드 초기화에 실패했습니다. 그래도 진행하시겠습니까? (다시 로드될 가능성이 있습니다)")) {
-          return false;
-        }
+        resumeLocalGameSave();
+        serverMutationInProgressRef.current = false;
+        setNotification({ message: '새 게임을 저장하지 못했습니다. 기존 진행도는 유지됩니다.', type: 'error' });
+        return false;
       }
     }
 
-    localStorage.setItem(getScopedSaveGameKey(localSaveScope), JSON.stringify(initialState));
-    localStorage.removeItem('zenPoints'); // legacy cleanup
+    suppressLocalGameSave();
+    try {
+      if (localSaveScope) acceptCloudSave(localSaveScope, initialState, cloudGameStateRevisionRef.current!);
+      else writeLocalSave(null, initialState, null);
+      localStorage.removeItem('zenPoints');
+    } catch {
+      resumeLocalGameSave();
+      serverMutationInProgressRef.current = false;
+      setNotification({ message: '기기 저장 공간을 확인해주세요. 저장 상태를 다시 확인합니다.', type: 'error' });
+      setRestoreAttempt(attempt => attempt + 1);
+      return false;
+    }
 
     // 리로드하여 전체 상태를 깨끗하게 반영
     window.location.reload();
@@ -846,12 +911,20 @@ export const App: React.FC = () => {
     if (options.markAsSynced) {
       const payload = JSON.stringify(mergedState);
       try {
-        localStorage.setItem(getScopedSaveGameKey(localSaveScope), payload);
+        if (localSaveScope && cloudGameStateRevisionRef.current !== null) {
+          acceptCloudSave(localSaveScope, mergedState, cloudGameStateRevisionRef.current);
+        }
         lastLocalSavePayloadRef.current = payload;
+        setLocalSavedAt(Date.now());
+        setLocalSaveIssue(false);
       } catch (error) {
+        setLocalSaveIssue(true);
         console.error("Failed to persist synced game state locally:", error);
       }
       lastCloudSavePayloadRef.current = payload;
+      savePolicyRef.current.confirmed(mergedState, Date.now());
+      setCloudSavedAt(Date.now());
+      setHasPendingCloudSave(false);
       gameStateRef.current = mergedState;
     }
 
@@ -879,7 +952,7 @@ export const App: React.FC = () => {
     if (!user || user.isAnonymous || !isCloudSyncReady || cloudHydratedUserIdRef.current !== user.uid || isDuplicateTabPaused) return;
 
     return listenToGameData(user.uid, (cloudState, revision) => {
-      if (serverMutationInProgressRef.current) return;
+      if (serverMutationInProgressRef.current || revision <= (cloudGameStateRevisionRef.current ?? -1)) return;
       const cloudPayload = JSON.stringify(cloudState);
       if (cloudPayload === lastCloudSavePayloadRef.current) {
         cloudGameStateRevisionRef.current = revision;
@@ -895,6 +968,14 @@ export const App: React.FC = () => {
         return;
       }
 
+      if (currentState && currentPayload !== lastCloudSavePayloadRef.current) {
+        try { persistLocalGameState(currentState, user.uid); } catch { return; }
+        localHydratedScopeRef.current = null;
+        setIsCloudSyncReady(false);
+        setIsAccountRestoring(true);
+        setSaveChoice({ uid: user.uid, local: currentState, cloud: cloudState, revision });
+        return;
+      }
       cloudGameStateRevisionRef.current = revision;
       handleLoadGame(cloudState, { silent: true, markAsSynced: true, replace: true });
     });
@@ -1277,6 +1358,13 @@ export const App: React.FC = () => {
     setNotification({ message: '이 탭에서 게임을 계속합니다.', type: 'success' });
   }, []);
 
+  const saveStatusLabel = localSaveIssue ? '기기 저장 오류'
+    : isAccountRestoring ? '저장 확인 중'
+    : isDuplicateTabPaused ? '저장 일시 중지'
+    : !localSaveScope ? (localSavedAt ? '기기에 저장됨' : '기기 저장 중')
+    : isCloudSaving ? '서버 저장 중'
+    : cloudSaveIssue || hasPendingCloudSave ? '동기화 대기' : '서버 저장 완료';
+
   return (
     <div className="relative w-full h-[100svh] bg-gray-900 overflow-hidden select-none flex flex-col">
       <main
@@ -1313,6 +1401,30 @@ export const App: React.FC = () => {
         </div>
       </main>
 
+      {(isAccountRestoring || saveChoice) && (
+        <div className="absolute inset-0 z-[70] flex items-center justify-center bg-slate-950/80 p-5 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="restore-title">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-6 text-slate-800 shadow-xl">
+            <h2 id="restore-title" className="text-lg font-semibold">{saveChoice ? '어떤 진행도로 이어갈까요?' : cloudSaveIssue ? '저장 확인이 필요해요' : '연못을 불러오고 있어요'}</h2>
+            {saveChoice ? <>
+              <p className="mt-3 text-sm leading-6 text-slate-500">기기와 클라우드에 서로 다른 진행도가 있어요. 계속할 저장본을 선택해주세요. 선택 전의 저장본도 복구용으로 보관합니다.</p>
+              <div className="mt-5 grid gap-3">
+                {(['local', 'cloud'] as const).map(source => {
+                  const state = saveChoice[source];
+                  return <button key={source} type="button" disabled={isChoosingSave} onClick={() => void resolveSaveChoice(source)} className="rounded-xl border border-slate-200 p-4 text-left hover:border-orange-400 disabled:opacity-50">
+                    <span className="block font-semibold">{source === 'local' ? '이 기기의 진행도' : '클라우드 진행도'}</span>
+                    <span className="mt-1 block text-sm text-slate-500">코이 {Object.values(state.ponds).reduce((sum, pond) => sum + pond.kois.length, 0)}마리 · {state.zenPoints.toLocaleString()} ZP</span>
+                  </button>;
+                })}
+              </div>
+              {cloudSaveIssue && <p className="mt-3 text-sm text-amber-700" role="alert">{cloudSaveIssue}</p>}
+            </> : cloudSaveIssue ? <>
+              <p className="mt-3 text-sm leading-6 text-slate-500" role="alert">{cloudSaveIssue}</p>
+              <button type="button" onClick={retryAccountRestore} className="mt-5 w-full rounded-xl bg-orange-500 py-3 font-semibold text-white">다시 시도</button>
+            </> : <LoaderCircle className="mt-5 animate-spin text-orange-500" aria-label="불러오는 중" />}
+          </div>
+        </div>
+      )}
+
       {isDuplicateTabPaused && (
         <div
           className="absolute inset-0 z-[1200] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4"
@@ -1340,15 +1452,15 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      {cloudSaveIssue && user && !user.isAnonymous && (
+      {(cloudSaveIssue || localSaveIssue) && !isAccountRestoring && !saveChoice && (
         <div
           className="absolute top-[calc(5rem+env(safe-area-inset-top))] left-1/2 z-40 w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 rounded-xl border border-amber-300/60 bg-amber-50 px-4 py-3 text-center text-sm leading-5 text-amber-950 shadow-xl"
           role="alert"
         >
-          <p>{cloudSaveIssue}</p>
+          <p>{localSaveIssue ? '기기 임시 저장에 실패했습니다. 저장 공간을 확인하고 다시 시도해주세요.' : cloudSaveIssue}</p>
           <button
             type="button"
-            onClick={() => window.location.reload()}
+            onClick={retryAccountRestore}
             className="mt-2 rounded-lg bg-amber-700 px-3 py-1.5 text-xs font-bold text-white transition-colors hover:bg-amber-800"
           >
             다시 확인
@@ -1561,6 +1673,12 @@ export const App: React.FC = () => {
       }
       {/* Settings Modal */}
       <SaveLoadModal
+        saveStatusLabel={saveStatusLabel}
+        localSavedAt={localSavedAt}
+        cloudSavedAt={cloudSavedAt}
+        isCloudSaving={isCloudSaving}
+        onSaveNow={() => { void flushCurrentGameState().catch(() => undefined); }}
+        onCommunityClick={() => { setIsSaveLoadModalOpen(false); setIsCommunityOpen(true); }}
         isOpen={isSaveLoadModalOpen}
         onClose={() => setIsSaveLoadModalOpen(false)}
         onNewGame={handleNewGame}
@@ -1647,6 +1765,7 @@ export const App: React.FC = () => {
         onClose={() => setIsAuthModalOpen(false)}
       />
 
+      <CommunityModal isOpen={isCommunityOpen} onClose={() => setIsCommunityOpen(false)} />
       <SessionConflictModal
         isOpen={isConflictOpen}
         onResolve={() => {

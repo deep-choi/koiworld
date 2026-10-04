@@ -1,12 +1,13 @@
 {
   "name": "koiworld",
   "private": true,
-  "version": "1.0.4",
+  "version": "1.0.5",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
+    "test:save": "node --test tests/save.test.cjs",
     "audit:release": "npm audit --omit=dev",
     "preview": "vite preview",
     "cap:sync": "npm run build && cap sync",

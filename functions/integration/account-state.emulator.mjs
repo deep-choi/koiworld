@@ -12,9 +12,10 @@ import {
 } from 'firebase/firestore';
 import { connectFunctionsEmulator, getFunctions, httpsCallable } from 'firebase/functions';
 
-const projectId = process.env.GCLOUD_PROJECT || 'koi-garden-abcf5';
+const projectId = process.env.GCLOUD_PROJECT || 'demo-koiworld-save-review';
+if (!projectId.startsWith('demo-')) throw new Error('Integration tests require a demo Firebase project.');
 const parseHost = (value, fallbackPort) => {
-    const [host = '127.0.0.1', port = String(fallbackPort)] = String(value || '').split(':');
+    const [host = '127.0.0.1', port = String(fallbackPort)] = String(value || '127.0.0.1').split(':');
     return { host, port: Number(port) };
 };
 const authHost = parseHost(process.env.FIREBASE_AUTH_EMULATOR_HOST, 9099);
@@ -193,6 +194,19 @@ try {
         error => String(error?.code).includes('permission-denied'),
     );
 
+    stage = 'reject-corrupted-save';
+    const corruptState = { ...saved.gameState, ponds: { 'pond-1': { id: 'pond-1' } } };
+    await assert.rejects(saveGameState({ gameState: corruptState, expectedRevision: purchase.revision }),
+        error => String(error?.code).includes('invalid-argument'));
+
+    stage = 'recover-corrupted-primary';
+    await adminDb.collection('users').doc(uid).update({ gameState: corruptState });
+    const recovered = (await loadAccountState({})).data;
+    assert.equal(recovered.gameStateSource, 'backup');
+    assert.ok(Array.isArray(recovered.gameState.ponds['pond-1'].kois));
+    assert.equal(recovered.gameState.honorPoints, 8);
+    assert.equal(recovered.canInitializeGameState, false);
+
     stage = 'account-delete';
     const deleteAccountData = httpsCallable(functions, 'deleteAccountData');
     await deleteAccountData({});
@@ -204,6 +218,37 @@ try {
     assert.equal(userAfterDelete.exists, false);
     assert.equal(backupAfterDelete.empty, true);
     assert.equal(eventsAfterDelete.empty, true);
+
+    stage = 'retry-profile-only-account';
+    await adminDb.collection('users').doc(uid).set({ profile: { nickname: 'retry' } });
+    const emptyAccount = (await loadAccountState({})).data;
+    assert.equal(emptyAccount.canInitializeGameState, true);
+    assert.equal(emptyAccount.gameState, null);
+    const initialized = (await saveGameState({
+        gameState: { ...coreState, honorPoints: 2, achievementPoints: 100,
+            achievements: { unlockedIds: ['spot_count_4'], claimedIds: ['spot_count_4'] } },
+        expectedRevision: emptyAccount.gameStateRevision, reason: 'new-account',
+    })).data;
+    assert.equal(initialized.gameState.honorPoints, 2);
+    assert.equal(initialized.gameState.achievementPoints, 100);
+    assert.equal((await loadAccountState({})).data.canInitializeGameState, false);
+
+    stage = 'same-state-save-must-not-skip-daily-backup';
+    const userRef = adminDb.collection('users').doc(uid);
+    await userRef.update({ lastDailyBackupDate: '2000-01-01' });
+    const unchanged = (await saveGameState({
+        gameState: initialized.gameState, expectedRevision: initialized.revision, reason: 'auto',
+    })).data;
+    assert.equal((await userRef.get()).data().lastDailyBackupDate, '2000-01-01');
+    await saveGameState({
+        gameState: { ...unchanged.gameState, foodCount: unchanged.gameState.foodCount + 1 },
+        expectedRevision: unchanged.revision, reason: 'auto',
+    });
+    const daily = await userRef.collection('gameStateBackups').where('backupKind', '==', 'daily').get();
+    assert.equal(daily.size, 1);
+    assert.equal(daily.docs[0].data().gameState.foodCount, unchanged.gameState.foodCount);
+    assert.equal((await userRef.get()).data().lastDailyBackupDate, daily.docs[0].data().dayKey);
+    await deleteAccountData({});
     console.log('account-state emulator integration passed');
 } catch (error) {
     console.error(`account-state emulator integration failed at: ${stage}`, error);

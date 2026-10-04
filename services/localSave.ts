@@ -61,6 +61,8 @@ export function clearLocalGameSaves(): void {
 export function clearLocalGameSave(uid?: string | null): void {
     try {
         localStorage.removeItem(getScopedSaveGameKey(uid));
+        localStorage.removeItem(`${getScopedSaveGameKey(uid)}_journal_v1`);
+        localStorage.removeItem(`${getScopedSaveGameKey(uid)}_recovery`);
         localStorage.removeItem(MANUAL_SAVE_KEY);
     } catch {
         // ignore

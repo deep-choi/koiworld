@@ -34,6 +34,7 @@ export interface CloudUserSnapshot {
     gameState: SavedGameState | null;
     gameStateRevision: number;
     gameStateSource: GameStateSource;
+    canInitializeGameState: boolean;
     honorPoints: number;
     achievementPoints: number;
 }
@@ -169,6 +170,7 @@ export async function fetchUserSnapshot(userId: string): Promise<CloudUserSnapsh
         gameState?: SavedGameState | null;
         gameStateRevision?: number;
         gameStateSource?: GameStateSource;
+        canInitializeGameState?: boolean;
         nickname?: string | null;
         photoURL?: string | null;
         activeDeviceId?: string | null;
@@ -181,6 +183,7 @@ export async function fetchUserSnapshot(userId: string): Promise<CloudUserSnapsh
 
     return {
         userId,
+        canInitializeGameState: result.data.canInitializeGameState === true,
         nickname: result.data.nickname ?? null,
         photoURL: normalizePhotoURL(result.data.photoURL),
         activeDeviceId: result.data.activeDeviceId ?? null,
@@ -276,7 +279,7 @@ export async function saveGameState(
     gameState: SavedGameState,
     expectedRevision: number,
     reason: 'auto' | 'new-account' | 'backup-recovery' | 'explicit-reset' = 'auto',
-): Promise<number> {
+): Promise<{ revision: number; gameState: SavedGameState }> {
     assertCurrentUser(userId);
     const normalizedGameState = normalizeSavedGameState(gameState);
     if (!normalizedGameState) {
@@ -292,6 +295,7 @@ export async function saveGameState(
         revision: number;
         savedAt: number;
         protocolVersion: number;
+        gameState: SavedGameState;
     }>(functions, 'saveGameState');
 
     try {
@@ -303,7 +307,9 @@ export async function saveGameState(
                 ? window.localStorage.getItem('koiworld_device_id')
                 : null,
         });
-        return normalizeGameStateRevision(result.data.revision);
+        const savedState = normalizeSavedGameState(result.data.gameState);
+        if (!savedState) throw new Error('The server returned an invalid save acknowledgement.');
+        return { revision: normalizeGameStateRevision(result.data.revision), gameState: savedState };
     } catch (error) {
         const code = typeof error === 'object' && error && 'code' in error
             ? String((error as { code?: string }).code ?? '')

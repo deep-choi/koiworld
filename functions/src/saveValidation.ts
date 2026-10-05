@@ -5,6 +5,8 @@ const record = (value: unknown): value is Data =>
     !!value && typeof value === 'object' && !Array.isArray(value);
 const number = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
 const optionalNumber = (value: unknown) => value === undefined || value === null || number(value);
+// Two-allele trait genes: missing, or how many of the two alleles carry the trait.
+const alleleCount = (value: unknown) => value === undefined || (Number.isInteger(value) && (value as number) >= 0 && (value as number) <= 2);
 const colors = new Set(['검정', '빨강', '노랑', '하양', '주황', '크림']);
 
 export function isValidGameStateCore(value: unknown): boolean {
@@ -31,6 +33,8 @@ export function isValidGameStateCore(value: unknown): boolean {
                 || !Array.isArray(g.spots) || !optionalNumber(g.lightness) || !optionalNumber(g.saturation)) return false;
             if (!g.spots.every((s: unknown) => record(s) && number(s.x) && number(s.y) && number(s.size)
                 && colors.has(s.color) && ['circle', 'hexagon', 'polygon', 'oval_h'].includes(s.shape))) return false;
+            if (!['motoguroGenes', 'hirenagaGenes', 'koromoGenes', 'tanchoGenes', 'doitsuGenes'].every(key => alleleCount(g[key]))
+                || !(g.ginrin === undefined || (number(g.ginrin) && g.ginrin >= 0 && g.ginrin <= 100))) return false;
             if (g.spotPhenotypeGenes !== undefined) {
                 const cs = g.spotPhenotypeGenes?.CS;
                 if (!record(cs) || !record(cs.allele1) || !record(cs.allele2)

@@ -1,6 +1,6 @@
-import { GeneType, Koi, SpotPhenotype } from '../types';
-import { GENE_COLOR_MAP, getPhenotype, getDisplayColor, calculateSpotPhenotype, getSpotColorWithSaturation } from './genetics';
-import type { KoiColors, RenderSpot } from './koiRenderer';
+import { GeneType, Koi, SpotPhenotype, SpotShape } from '../types';
+import { GENE_COLOR_MAP, getPhenotype, getDisplayColor, calculateSpotPhenotype, getSpotColorWithSaturation, getKoiTraits } from './genetics';
+import type { KoiColors, MotoguroColors, RenderSpot } from './koiRenderer';
 
 export interface KoiRenderStyle {
     colors: KoiColors;
@@ -16,6 +16,11 @@ const parseHsla = (color: string): { h: number, s: number, l: number } => {
     if (!match) return { h: 0, s: 0, l: 50 };
     return { h: parseFloat(match[1]), s: parseFloat(match[2]), l: parseFloat(match[3]) };
 };
+
+// Hirenaga fin and tail length for 0, 1 and 2 copies.
+const HIRENAGA_FIN_LENGTH = [1, 1.3, 1.6];
+// Tancho crown spot, in spot coordinates (see Spot).
+const TANCHO_SPOT = { x: 50, y: 5, size: 62 };
 
 /** Fin and shading colours derived from the expressed body colour. */
 const buildColors = (phenotype: GeneType, body: string): KoiColors => {
@@ -56,6 +61,18 @@ const buildColors = (phenotype: GeneType, body: string): KoiColors => {
     };
 };
 
+/** Koromo net: the spot colour darkened, or lightened on spots too dark to show a darker line. */
+const buildKoromoNet = (spotColor: string): string => {
+    const { h, s, l } = parseHsla(spotColor);
+    return l < 35 ? hsla(h, s * 0.4, l + 28, 0.55) : hsla(h, s, l - 30, 0.6);
+};
+
+/** Fade from the fin root outward in the motoguro colour (an hsl spot colour). */
+const buildMotoguroColors = (color: string): MotoguroColors => {
+    const { h, s, l } = parseHsla(color);
+    return { root: hsla(h, s, l, 0.92), mid: hsla(h, s, l, 0.75), edge: hsla(h, s, l, 0) };
+};
+
 /** Everything KoiRenderer needs to draw one koi, computed once from its genetics. */
 export const buildKoiRenderStyle = (koi: Koi): KoiRenderStyle => {
     const { genetics } = koi;
@@ -63,14 +80,29 @@ export const buildKoiRenderStyle = (koi: Koi): KoiRenderStyle => {
     const body = getDisplayColor(basePhenotype, genetics.lightness ?? 50, genetics.saturation ?? 50);
     const phenotype = calculateSpotPhenotype(genetics.spotPhenotypeGenes, koi);
     const colorSaturation = phenotype?.colorSaturation ?? 0.5;
+    const traits = getKoiTraits(genetics);
+    // Trait colours use the spots' saturation at their middle lightness.
+    const traitColor = (gene: GeneType) => getSpotColorWithSaturation(GENE_COLOR_MAP[gene], colorSaturation, 1);
 
-    const spots: RenderSpot[] = genetics.spots.map((spot, idx) => ({
-        x: spot.x,
-        y: spot.y,
-        size: spot.size,
-        shape: spot.shape,
-        color: getSpotColorWithSaturation(GENE_COLOR_MAP[spot.color], colorSaturation, idx),
-    }));
+    // Tancho: the crown spot is the only pattern left on the body.
+    const spots: RenderSpot[] = traits.tancho
+        ? [{ ...TANCHO_SPOT, shape: SpotShape.CIRCLE, color: traitColor(traits.tancho) }]
+        : genetics.spots.map((spot, idx) => ({
+            x: spot.x,
+            y: spot.y,
+            size: spot.size,
+            shape: spot.shape,
+            color: getSpotColorWithSaturation(GENE_COLOR_MAP[spot.color], colorSaturation, idx),
+        }));
+    if (traits.koromo) {
+        for (const spot of spots) spot.koromo = buildKoromoNet(spot.color);
+    }
 
-    return { colors: buildColors(basePhenotype, body), spots, phenotype };
+    const colors = buildColors(basePhenotype, body);
+    if (traits.motoguro) colors.motoguro = buildMotoguroColors(traitColor(traits.motoguro));
+    if (traits.hirenaga) colors.finLength = HIRENAGA_FIN_LENGTH[traits.hirenaga];
+    if (traits.ginrin) colors.ginrin = traits.ginrin / 100;
+    if (traits.doitsu) colors.doitsu = true;
+
+    return { colors, spots, phenotype };
 };

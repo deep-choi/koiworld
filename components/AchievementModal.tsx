@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { X, Check, Lock, Star } from 'lucide-react';
 import { Achievement } from '../types';
 
@@ -9,7 +9,7 @@ interface AchievementModalProps {
     unlockedIds: string[];
     claimedIds: string[];
     totalPoints: number;
-    onClaim: (id: string, reward: Achievement['reward']) => void;
+    onClaim: (id: string) => Promise<void>;
 }
 
 const TABS = [
@@ -29,8 +29,29 @@ export const AchievementModal: React.FC<AchievementModalProps> = ({
     onClaim
 }) => {
     const [activeTab, setActiveTab] = useState('novice');
+    const [pendingClaimIds, setPendingClaimIds] = useState<string[]>([]);
+    const pendingClaimIdsRef = useRef(new Set<string>());
+
+    const handleClaim = async (id: string) => {
+        if (pendingClaimIdsRef.current.has(id) || claimedIds.includes(id)) return;
+        pendingClaimIdsRef.current.add(id);
+        setPendingClaimIds([...pendingClaimIdsRef.current]);
+        try {
+            await onClaim(id);
+        } finally {
+            // 성공하면 서버에서 확정된 claimedIds가 표시를 이어받고,
+            // 실패하면 임시 완료 표시와 포인트를 함께 되돌립니다.
+            pendingClaimIdsRef.current.delete(id);
+            setPendingClaimIds([...pendingClaimIdsRef.current]);
+        }
+    };
 
     if (!isOpen) return null;
+
+    const displayedClaimedIds = [...claimedIds, ...pendingClaimIds];
+    const displayedPoints = totalPoints + achievements.reduce((sum, achievement) =>
+        sum + (pendingClaimIds.includes(achievement.id) && !claimedIds.includes(achievement.id)
+            ? achievement.reward.achievementPoints : 0), 0);
 
     const filteredAchievements = achievements.filter(ach =>
         activeTab === 'all' || ach.tier === activeTab
@@ -39,8 +60,8 @@ export const AchievementModal: React.FC<AchievementModalProps> = ({
     const sortedAchievements = [...filteredAchievements].sort((a, b) => {
         const aUnlocked = unlockedIds.includes(a.id);
         const bUnlocked = unlockedIds.includes(b.id);
-        const aClaimed = claimedIds.includes(a.id);
-        const bClaimed = claimedIds.includes(b.id);
+        const aClaimed = displayedClaimedIds.includes(a.id);
+        const bClaimed = displayedClaimedIds.includes(b.id);
 
         // Priority 1: Unlocked & Unclaimed (Active Rewards)
         if (aUnlocked && !aClaimed && (!bUnlocked || bClaimed)) return -1;
@@ -78,7 +99,7 @@ export const AchievementModal: React.FC<AchievementModalProps> = ({
                         </span>
                         <div className="flex items-center gap-2 text-sm text-[#f97316] font-medium">
                             <Star className="w-4 h-4 fill-current" />
-                            <span>{totalPoints.toLocaleString()} Pts</span>
+                            <span>{displayedPoints.toLocaleString()} Pts</span>
                         </div>
                     </div>
 
@@ -106,7 +127,7 @@ export const AchievementModal: React.FC<AchievementModalProps> = ({
                     <div className="grid grid-cols-1 gap-3">
                         {sortedAchievements.map((ach) => {
                             const isUnlocked = unlockedIds.includes(ach.id);
-                            const isClaimed = claimedIds.includes(ach.id);
+                            const isClaimed = displayedClaimedIds.includes(ach.id);
                             const isHidden = ach.isHidden && !isUnlocked;
 
                             return (
@@ -167,7 +188,7 @@ export const AchievementModal: React.FC<AchievementModalProps> = ({
                                                     </button>
                                                 ) : (
                                                     <button
-                                                        onClick={() => onClaim(ach.id, ach.reward)}
+                                                        onClick={() => { void handleClaim(ach.id); }}
                                                         className="h-8 px-3 bg-[#f97316] hover:brightness-95 text-white text-xs font-medium rounded transition-colors flex items-center justify-center gap-1 whitespace-nowrap"
                                                         aria-label={`${ach.title} 보상 받기`}
                                                     >

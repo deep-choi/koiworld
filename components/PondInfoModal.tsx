@@ -99,6 +99,18 @@ interface PondInfoModalProps {
 
 type SortOption = 'default' | 'spots_desc' | 'body_lightness_desc' | 'body_saturation_desc' | 'spot_saturation_desc';
 
+const SORT_CHIPS: { option: SortOption, label: string, ariaLabel: string }[] = [
+  { option: 'spots_desc', label: '점 개수', ariaLabel: '점 개수 많은 순으로 정렬' },
+  { option: 'body_lightness_desc', label: '몸 명도 순', ariaLabel: '몸 명도 높은 순으로 정렬' },
+  { option: 'body_saturation_desc', label: '몸 채도 순', ariaLabel: '몸 채도 높은 순으로 정렬' },
+  { option: 'spot_saturation_desc', label: '점 채도 순', ariaLabel: '점 채도 높은 순으로 정렬' },
+];
+
+// Select-all and sort chips: filled orange while in effect, grey otherwise.
+const chipClass = (active: boolean) => `px-3 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${active
+  ? 'bg-[#f97316] text-white'
+  : 'bg-slate-50 text-slate-500 hover:bg-slate-100 hover:text-slate-700'}`;
+
 export const PondInfoModal: React.FC<PondInfoModalProps> = ({
   onClose,
   ponds,
@@ -111,6 +123,7 @@ export const PondInfoModal: React.FC<PondInfoModalProps> = ({
 }) => {
   const [sortOption, setSortOption] = useState<SortOption>('default');
   const [selectedKoiIds, setSelectedKoiIds] = useState<Set<string>>(new Set());
+  const allSelected = koiList.length > 0 && selectedKoiIds.size === koiList.length;
 
   const sortedPonds = useMemo(() => {
     return Object.values(ponds).sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }));
@@ -213,33 +226,22 @@ export const PondInfoModal: React.FC<PondInfoModalProps> = ({
             <span className="text-xs text-slate-400">코이를 선택해 관리하세요</span>
           </div>
 
-          {/* Sort Controls */}
+          {/* Sort Controls: the chip that is in effect is filled orange */}
           <div className="flex gap-2 mb-3 overflow-x-auto flex-shrink-0 no-scrollbar">
             <button
-              onClick={() => {
-                if (selectedKoiIds.size === koiList.length) {
-                  setSelectedKoiIds(new Set());
-                } else {
-                  setSelectedKoiIds(new Set(koiList.map(k => k.id)));
-                }
-              }}
-              className="px-3 py-2 rounded-lg text-sm font-medium transition-colors bg-[#f97316] text-white whitespace-nowrap"
-              aria-label={selectedKoiIds.size === koiList.length ? '선택한 코이 전체 해제' : '코이 전체 선택'}
+              onClick={() => setSelectedKoiIds(allSelected ? new Set() : new Set(koiList.map(k => k.id)))}
+              aria-pressed={allSelected}
+              className={chipClass(allSelected)}
+              aria-label={allSelected ? '선택한 코이 전체 해제' : '코이 전체 선택'}
             >
-              {selectedKoiIds.size === koiList.length ? '전체 해제' : '전체 선택'}
+              {allSelected ? '전체 해제' : '전체 선택'}
             </button>
-            <button onClick={() => handleSort('spots_desc')} aria-label="점 개수 많은 순으로 정렬" aria-pressed={sortOption === 'spots_desc'} className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${sortOption === 'spots_desc' ? 'bg-orange-50 text-slate-900' : 'bg-slate-50 text-slate-500 hover:bg-slate-100 hover:text-slate-700'}`}>
-              점 개수
-            </button>
-            <button onClick={() => handleSort('body_lightness_desc')} aria-label="몸 명도 높은 순으로 정렬" aria-pressed={sortOption === 'body_lightness_desc'} className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${sortOption === 'body_lightness_desc' ? 'bg-orange-50 text-slate-900' : 'bg-slate-50 text-slate-500 hover:bg-slate-100 hover:text-slate-700'}`}>
-              몸 명도 순
-            </button>
-            <button onClick={() => handleSort('body_saturation_desc')} aria-label="몸 채도 높은 순으로 정렬" aria-pressed={sortOption === 'body_saturation_desc'} className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${sortOption === 'body_saturation_desc' ? 'bg-orange-50 text-slate-900' : 'bg-slate-50 text-slate-500 hover:bg-slate-100 hover:text-slate-700'}`}>
-              몸 채도 순
-            </button>
-            <button onClick={() => handleSort('spot_saturation_desc')} aria-label="점 채도 높은 순으로 정렬" aria-pressed={sortOption === 'spot_saturation_desc'} className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${sortOption === 'spot_saturation_desc' ? 'bg-orange-50 text-slate-900' : 'bg-slate-50 text-slate-500 hover:bg-slate-100 hover:text-slate-700'}`}>
-              점 채도 순
-            </button>
+            {SORT_CHIPS.map(chip => (
+              <button key={chip.option} onClick={() => handleSort(chip.option)} aria-label={chip.ariaLabel}
+                aria-pressed={sortOption === chip.option} className={chipClass(sortOption === chip.option)}>
+                {chip.label}
+              </button>
+            ))}
           </div>
 
           {/* Koi List */}

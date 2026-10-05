@@ -15,9 +15,9 @@ interface ShopModalProps {
 }
 
 const FOOD_PACK_PRICE = 200;
-const FOOD_LARGE_PACK_PRICE = 1000;
+const FOOD_LARGE_PACK_PRICE = 800; // 20% bulk discount
 const CORN_PACK_PRICE = 1000;
-const CORN_LARGE_PACK_PRICE = 5000;
+const CORN_LARGE_PACK_PRICE = 4000; // 20% bulk discount
 const TROPHY_PRICE = 100000;
 
 const ShopItem: React.FC<{
@@ -137,7 +137,7 @@ export const ShopModal: React.FC<ShopModalProps> = ({ onClose, zenPoints, onBuyF
                     <ShopItem
                         icon={<CornIcon size={32} className="text-orange-600" />}
                         title="프리미엄 옥수수 (50개)"
-                        description="일반 먹이보다 3배 효과! 코이가 빠르게 성장합니다."
+                        description="일반 먹이보다 2배 효과! 코이가 빠르게 성장합니다."
                         price={CORN_PACK_PRICE}
                         onBuy={(q) => onBuyCorn(q)}
                         canAfford={(q) => zenPoints >= CORN_PACK_PRICE * q}

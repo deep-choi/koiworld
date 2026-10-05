@@ -28,7 +28,7 @@ export const GENE_RARITY: Record<GeneType, number> = {
     [GeneType.CREAM]: 1, // Basic Type (Most Common, was 6)
 };
 
-const KOI_SELL_PRICE_MULTIPLIER = 1.5;
+const KOI_SELL_PRICE_MULTIPLIER = 2.0;
 
 // Determines the expressed phenotype
 const getRandomTraitWithRarity = <T extends string | number | symbol>(allTraits: T[], rarityMap: Record<T, number>): T => {
@@ -159,6 +159,18 @@ export const calculateKoiValue = (koi: Koi): number => {
     const spotSatDiff = Math.abs(spotSaturationPercent - 50);
     value += spotSatDiff * 3;
 
+    // 7.5 Trait genes: traits that show are worth the most, hidden recessive carriers a little.
+    const traits = getKoiTraits(genetics);
+    if (traits.motoguro) value += 40;
+    value += [0, 40, 100][traits.hirenaga];
+    if (traits.koromo) value += 120;
+    if (traits.doitsu) value += 120;
+    if (traits.tancho) value += 250;
+    value += traits.ginrin * 0.8;
+    for (const trait of ['koromoGenes', 'tanchoGenes', 'doitsuGenes'] as const) {
+        if (getTraitCopies(genetics, trait) === 1) value += 15;
+    }
+
     // 8. Multiplier for growth stage
     if (growthStage === GrowthStage.ADULT) {
         value *= 1.0;
@@ -214,6 +226,89 @@ const createNewRandomSpot = (preferredColor?: GeneType): Spot => {
         size: Math.random() * (max - min) + min,
         color: color,
         shape: shape,
+    };
+};
+
+// Two-allele traits: each parent passes one of its two alleles, and a breeding mutation turns one
+// plain allele into the trait allele.
+export type AlleleTrait = 'motoguroGenes' | 'hirenagaGenes' | 'koromoGenes' | 'tanchoGenes' | 'doitsuGenes';
+const ALLELE_TRAIT_MUTATION_CHANCE: Record<AlleleTrait, number> = {
+    motoguroGenes: 0.02,
+    hirenagaGenes: 0.02,
+    koromoGenes: 0.015,
+    tanchoGenes: 0.005,
+    doitsuGenes: 0.015,
+};
+
+export const getTraitCopies = (genetics: KoiGenetics, trait: AlleleTrait): number =>
+    Math.max(0, Math.min(2, Math.round(genetics[trait] ?? 0)));
+
+const breedAlleleTrait = (genetics1: KoiGenetics, genetics2: KoiGenetics, trait: AlleleTrait): number => {
+    const gamete = (genetics: KoiGenetics) => Math.random() < getTraitCopies(genetics, trait) / 2 ? 1 : 0;
+    let copies = gamete(genetics1) + gamete(genetics2);
+    if (Math.random() < ALLELE_TRAIT_MUTATION_CHANCE[trait]) copies = Math.min(2, copies + 1);
+    return copies;
+};
+
+// Ginrin blends like lightness; a rarer jump mutation lets it appear in lines that have none.
+const GINRIN_JUMP_CHANCE = 0.02;
+const GINRIN_JUMP_AMOUNT = 30;
+export const GINRIN_VISIBLE_FROM = 10;
+
+export const getGinrin = (genetics: KoiGenetics): number => Math.max(0, Math.min(100, Math.round(genetics.ginrin ?? 0)));
+
+const breedGinrin = (genetics1: KoiGenetics, genetics2: KoiGenetics): number => {
+    let value = (getGinrin(genetics1) + getGinrin(genetics2)) / 2;
+    if (Math.random() < LIGHTNESS_MUTATION_CHANCE) value += (Math.random() - 0.5) * 2 * LIGHTNESS_MUTATION_AMOUNT;
+    if (Math.random() < GINRIN_JUMP_CHANCE) value += GINRIN_JUMP_AMOUNT;
+    return Math.max(0, Math.min(100, Math.round(value)));
+};
+
+export const hasMotoguroGene = (genetics: KoiGenetics): boolean => getTraitCopies(genetics, 'motoguroGenes') > 0;
+
+/** The spot colour that appears most often (ties go to the larger total spot size); null without spots. */
+export const getDominantSpotColor = (genetics: KoiGenetics): GeneType | null => {
+    const tally = new Map<GeneType, { count: number, size: number }>();
+    for (const spot of genetics.spots) {
+        const entry = tally.get(spot.color) ?? { count: 0, size: 0 };
+        entry.count++;
+        entry.size += spot.size;
+        tally.set(spot.color, entry);
+    }
+    let best: GeneType | null = null;
+    let bestEntry = { count: 0, size: 0 };
+    for (const [color, entry] of tally) {
+        if (entry.count > bestEntry.count || (entry.count === bestEntry.count && entry.size > bestEntry.size)) {
+            best = color;
+            bestEntry = entry;
+        }
+    }
+    return best;
+};
+
+/** Colour of the motoguro fin roots; null when the koi has no motoguro allele or no spots. */
+export const getMotoguroColor = (genetics: KoiGenetics): GeneType | null =>
+    hasMotoguroGene(genetics) ? getDominantSpotColor(genetics) : null;
+
+/** What the trait genes show on this koi (the genes themselves are in KoiGenetics). */
+export interface KoiTraits {
+    motoguro: GeneType | null;   // fin-root colour, null when not shown
+    hirenaga: number;            // 0 normal, 1 long, 2 very long fins
+    koromo: boolean;             // scale net over the patterns
+    tancho: GeneType | null;     // colour of the single crown spot that replaces every pattern, null when not shown
+    ginrin: number;              // 0-100, 0 below GINRIN_VISIBLE_FROM
+    doitsu: boolean;             // hexagonal scale rows instead of small scales
+}
+
+export const getKoiTraits = (genetics: KoiGenetics): KoiTraits => {
+    const ginrin = getGinrin(genetics);
+    return {
+        motoguro: getMotoguroColor(genetics),
+        hirenaga: getTraitCopies(genetics, 'hirenagaGenes'),
+        koromo: getTraitCopies(genetics, 'koromoGenes') === 2 && genetics.spots.length > 0,
+        tancho: getTraitCopies(genetics, 'tanchoGenes') === 2 ? getDominantSpotColor(genetics) : null,
+        ginrin: ginrin >= GINRIN_VISIBLE_FROM ? ginrin : 0,
+        doitsu: getTraitCopies(genetics, 'doitsuGenes') === 2,
     };
 };
 
@@ -393,6 +488,15 @@ export const breedKoi = (genetics1: KoiGenetics, genetics2: KoiGenetics): { gene
         childSpots.push(createNewRandomSpot(nextColor));
     }
 
+    // 4. Breed the trait genes (only stored when present, to keep saves small)
+    const traits: Partial<KoiGenetics> = {};
+    for (const trait of ['motoguroGenes', 'hirenagaGenes', 'koromoGenes', 'tanchoGenes', 'doitsuGenes'] as const) {
+        const copies = breedAlleleTrait(genetics1, genetics2, trait);
+        if (copies > 0) traits[trait] = copies;
+    }
+    const childGinrin = breedGinrin(genetics1, genetics2);
+    if (childGinrin > 0) traits.ginrin = childGinrin;
+
     return {
         genetics: {
             baseColorGenes: childGenes,
@@ -400,6 +504,7 @@ export const breedKoi = (genetics1: KoiGenetics, genetics2: KoiGenetics): { gene
             lightness: childLightness,
             saturation: childSaturation,
             spotPhenotypeGenes: childSpotPhenotypeGenes,
+            ...traits,
         },
         mutations
     };

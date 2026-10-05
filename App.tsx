@@ -6,7 +6,7 @@ import { ShopModal } from './components/ShopModal';
 import { PondInfoModal } from './components/PondInfoModal';
 import { SaveLoadModal } from './components/SaveLoadModal';
 import { AccountModal } from './components/AccountModal';
-import { CommunityModal } from './components/CommunityModal';
+import { CommunityModal, type CommunitySection } from './components/CommunityModal';
 // SettingsModal removed
 
 
@@ -51,9 +51,9 @@ const CORN_PACK_PRICE = 1000;
 const CORN_PACK_AMOUNT = 50;
 const CORN_FEED_AMOUNT = 2;
 const CLEANING_COST = 500;
-const FOOD_LARGE_PACK_PRICE = 1000;
+const FOOD_LARGE_PACK_PRICE = 800; // 20% bulk discount
 const FOOD_LARGE_PACK_AMOUNT = 250;
-const CORN_LARGE_PACK_PRICE = 5000;
+const CORN_LARGE_PACK_PRICE = 4000; // 20% bulk discount
 const CORN_LARGE_PACK_AMOUNT = 250;
 
 const createInitialGameState = (): SavedGameState => ({
@@ -137,6 +137,7 @@ export const App: React.FC = () => {
   const [isRankingModalOpen, setIsRankingModalOpen] = useState(false);
   const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
   const [isCommunityOpen, setIsCommunityOpen] = useState(false);
+  const [communitySection, setCommunitySection] = useState<CommunitySection>('news');
 
   // --- New Feature States ---
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
@@ -156,8 +157,6 @@ export const App: React.FC = () => {
   const [hasPendingCloudSave, setHasPendingCloudSave] = useState(false);
   const [isAccountRestoring, setIsAccountRestoring] = useState(true);
   const [restoreAttempt, setRestoreAttempt] = useState(0);
-  const [saveChoice, setSaveChoice] = useState<{ uid: string; local: SavedGameState; cloud: SavedGameState; revision: number } | null>(null);
-  const [isChoosingSave, setIsChoosingSave] = useState(false);
   const [isDuplicateTabPaused, setIsDuplicateTabPaused] = useState(false);
 
   // Achievement System
@@ -185,6 +184,8 @@ export const App: React.FC = () => {
   const lastAchievementCheckKeyRef = useRef('');
   const achievementGeneticsSignatureCacheRef = useRef(new WeakMap<Koi['genetics'], string>());
   const flushCurrentGameStateRef = useRef<() => Promise<void>>(async () => undefined);
+  const achievementClaimQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const pendingAchievementClaimsRef = useRef(0);
 
   // Show achievement unlock notification
   useEffect(() => {
@@ -234,25 +235,43 @@ export const App: React.FC = () => {
   }, [koiList, achievementScope, achievementsLoaded, checkAchievements]);
 
   const handleClaimReward = async (id: string) => {
-    try {
-      if (user && !user.isAnonymous) {
-        serverMutationInProgressRef.current = true;
-        await flushCurrentGameStateRef.current();
+    const achievement = achievements.find(item => item.id === id);
+    if (!achievement || !achievementsLoaded || !unlockedIds.includes(id) || claimedIds.includes(id)) return;
+    const isAccountClaim = !!user && !user.isAnonymous;
+    if (isAccountClaim && (!isCloudSyncReady || isAccountRestoring || isDuplicateTabPaused
+        || cloudHydratedUserIdRef.current !== user.uid || cloudSaveBlockedRef.current
+        || (serverMutationInProgressRef.current && pendingAchievementClaimsRef.current === 0))) return;
+
+    const generation = saveGenerationRef.current;
+    pendingAchievementClaimsRef.current += 1;
+    if (isAccountClaim) serverMutationInProgressRef.current = true;
+    setNotification({
+      message: `보상 획득! 업적 포인트 ${achievement.reward.achievementPoints}점`,
+      type: 'success',
+    });
+    audioManager.playSFX('coin');
+
+    // 화면은 즉시 응답하고 서버 요청은 순서대로 처리합니다. 연속해서 보상을
+    // 눌러도 앞선 요청이 끝나기 전에 자동 저장이 다시 시작되지 않습니다.
+    const request = achievementClaimQueueRef.current.catch(() => undefined).then(async () => {
+      try {
+        if (generation !== saveGenerationRef.current) return;
+        if (isAccountClaim) await flushCurrentGameStateRef.current();
+        if (generation !== saveGenerationRef.current) return;
+        await claimReward(id);
+      } catch (error) {
+        if (generation !== saveGenerationRef.current) return;
+        console.error('Achievement reward claim failed:', error);
+        setNotification({ message: '보상을 저장하지 못해 완료 표시를 되돌렸어요. 연결을 확인하고 다시 받아주세요.', type: 'error' });
+      } finally {
+        pendingAchievementClaimsRef.current -= 1;
+        if (pendingAchievementClaimsRef.current === 0 && generation === saveGenerationRef.current) {
+          serverMutationInProgressRef.current = false;
+        }
       }
-      const reward = await claimReward(id, (rewardContent) => {
-        setNotification({
-          message: `보상 획득! 업적 포인트 ${rewardContent.achievementPoints}점`,
-          type: 'success'
-        });
-        audioManager.playSFX('coin');
-      });
-      if (!reward) return;
-    } catch (error) {
-      console.error('Achievement reward claim failed:', error);
-      setNotification({ message: '업적 보상을 서버에서 확인하지 못했습니다. 저장 상태를 확인한 뒤 다시 시도해주세요.', type: 'error' });
-    } finally {
-      serverMutationInProgressRef.current = false;
-    }
+    });
+    achievementClaimQueueRef.current = request;
+    await request;
   };
   const feedingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const feedingDelayTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -524,8 +543,10 @@ export const App: React.FC = () => {
           setHasPendingCloudSave(true);
           if (error instanceof GameStateRevisionConflictError) {
             cloudSaveBlockedRef.current = true;
+            localHydratedScopeRef.current = null;
             setIsCloudSyncReady(false);
-            setCloudSaveIssue('다른 기기의 저장본이 확인되었습니다. 이 기기의 진행도도 보관하고 있어요. 다시 확인을 눌러 이어갈 저장본을 선택해주세요.');
+            setIsAccountRestoring(true);
+            setRestoreAttempt(attempt => attempt + 1);
           } else {
             setCloudSaveIssue('클라우드 저장이 완료되지 않았습니다. 네트워크를 확인하면 자동으로 다시 시도합니다. 로그아웃 전에는 반드시 저장 상태를 확인해주세요.');
           }
@@ -609,7 +630,6 @@ export const App: React.FC = () => {
     saveGenerationRef.current += 1;
     const initSession = async () => {
       setIsAccountRestoring(true);
-      setSaveChoice(null);
       setCloudSaveIssue(null);
       setLocalSaveIssue(false);
       setLocalSavedAt(null);
@@ -651,9 +671,9 @@ export const App: React.FC = () => {
         } else if (existing.gameData) {
           revision = existing.gameDataRevision;
           const source = chooseSaveSource(local, existing.gameData, revision);
-          if (source === 'choose') {
-            setSaveChoice({ uid: user.uid, local: local!.gameState, cloud: existing.gameData, revision });
-            return;
+          if (source === 'cloud' && local?.dirty) {
+            // 오래된 기기 기록은 복구용으로만 남기고 클라우드를 적용합니다.
+            try { archiveLocalSave(user.uid); } catch { /* 클라우드 복구는 계속합니다. */ }
           }
           state = source === 'local' ? local!.gameState : existing.gameData;
           if (source === 'local') {
@@ -669,7 +689,8 @@ export const App: React.FC = () => {
         }
         if (cancelled) return;
         // 프로필 연결이 실패해도 완료된 게임 저장은 다음 시도에서 복구할 수 있습니다.
-        acceptCloudSave(user.uid, state, revision);
+        try { acceptCloudSave(user.uid, state, revision); }
+        catch { setLocalSaveIssue(true); }
         const [nickname] = await Promise.all([
           ensureUserProfileNickname(user.uid, user.displayName, user.email, user.photoURL),
           startSession(user.uid),
@@ -685,6 +706,10 @@ export const App: React.FC = () => {
         setIsAccountRestoring(false);
       } catch (error) {
         if (!cancelled) {
+          if (error instanceof GameStateRevisionConflictError) {
+            setRestoreAttempt(attempt => attempt + 1);
+            return;
+          }
           console.error('Account restore failed:', error);
           setCloudSaveIssue('저장 데이터를 확인하지 못했습니다. 진행 상황을 안전하게 불러온 뒤 계속할 수 있어요. 인터넷 연결을 확인하고 다시 시도해주세요.');
         }
@@ -709,29 +734,6 @@ export const App: React.FC = () => {
       try { persistLocalGameState(gameStateRef.current, localSaveScope); } catch { return; }
     }
     setRestoreAttempt(attempt => attempt + 1);
-  };
-
-  const resolveSaveChoice = async (source: 'local' | 'cloud') => {
-    if (!saveChoice || isChoosingSave || saveChoice.uid !== user?.uid) return;
-    setIsChoosingSave(true);
-    try {
-      archiveLocalSave(saveChoice.uid);
-      let revision = saveChoice.revision;
-      let state = source === 'local' ? saveChoice.local : saveChoice.cloud;
-      // 양쪽 원본은 기기 복구 사본과 서버 백업에 보관됩니다. 선택 이후
-      // 다른 기기가 저장했다면 서버 리비전 검사가 덮어쓰기를 거부합니다.
-      if (source === 'local') {
-        const saved = await saveGameToCloud(saveChoice.uid, state, revision, 'backup-recovery');
-        revision = saved.revision;
-        state = saved.gameState;
-      }
-      acceptCloudSave(saveChoice.uid, state, revision);
-      setSaveChoice(null);
-      setRestoreAttempt(attempt => attempt + 1);
-    } catch (error) {
-      setCloudSaveIssue('저장본을 적용하지 못했습니다. 두 진행도는 보관되어 있습니다. 다시 확인해주세요.');
-      if (error instanceof GameStateRevisionConflictError) setRestoreAttempt(attempt => attempt + 1);
-    } finally { setIsChoosingSave(false); }
   };
 
   // 기기에는 2초 간격으로 기록하고, 서버에는 중요한 변화 또는 60초 주기로 저장합니다.
@@ -761,7 +763,7 @@ export const App: React.FC = () => {
   // 첫 실행에서 서버 확인에 실패했다면 먼저 계정 복구를 재시도합니다.
   useEffect(() => {
     const reconnect = () => {
-      if (!navigator.onLine || isDuplicateTabPaused || saveChoice || serverMutationInProgressRef.current) return;
+      if (!navigator.onLine || isDuplicateTabPaused || serverMutationInProgressRef.current) return;
       if (isAccountRestoring) {
         if (cloudSaveIssue) setRestoreAttempt(attempt => attempt + 1);
         return;
@@ -776,7 +778,7 @@ export const App: React.FC = () => {
       window.removeEventListener('online', reconnect);
       document.removeEventListener('visibilitychange', onVisible);
     };
-  }, [isAccountRestoring, cloudSaveIssue, isCloudSyncReady, isDuplicateTabPaused, saveChoice]);
+  }, [isAccountRestoring, cloudSaveIssue, isCloudSyncReady, isDuplicateTabPaused]);
 
   const handleSaveProfile = useCallback(async (nickname: string, photoURL: string | null) => {
     if (!user) return;
@@ -969,12 +971,10 @@ export const App: React.FC = () => {
       }
 
       if (currentState && currentPayload !== lastCloudSavePayloadRef.current) {
-        try { persistLocalGameState(currentState, user.uid); } catch { return; }
-        localHydratedScopeRef.current = null;
-        setIsCloudSyncReady(false);
-        setIsAccountRestoring(true);
-        setSaveChoice({ uid: user.uid, local: currentState, cloud: cloudState, revision });
-        return;
+        try {
+          persistLocalGameState(currentState, user.uid);
+          archiveLocalSave(user.uid);
+        } catch { /* 기기 저장 실패가 클라우드 적용을 막지 않도록 합니다. */ }
       }
       cloudGameStateRevisionRef.current = revision;
       handleLoadGame(cloudState, { silent: true, markAsSynced: true, replace: true });
@@ -1358,13 +1358,6 @@ export const App: React.FC = () => {
     setNotification({ message: '이 탭에서 게임을 계속합니다.', type: 'success' });
   }, []);
 
-  const saveStatusLabel = localSaveIssue ? '기기 저장 오류'
-    : isAccountRestoring ? '저장 확인 중'
-    : isDuplicateTabPaused ? '저장 일시 중지'
-    : !localSaveScope ? (localSavedAt ? '기기에 저장됨' : '기기 저장 중')
-    : isCloudSaving ? '서버 저장 중'
-    : cloudSaveIssue || hasPendingCloudSave ? '동기화 대기' : '서버 저장 완료';
-
   return (
     <div className="relative w-full h-[100svh] bg-gray-900 overflow-hidden select-none flex flex-col">
       <main
@@ -1401,26 +1394,14 @@ export const App: React.FC = () => {
         </div>
       </main>
 
-      {(isAccountRestoring || saveChoice) && (
+      {isAccountRestoring && (
         <div className="absolute inset-0 z-[70] flex items-center justify-center bg-slate-950/80 p-5 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="restore-title">
-          <div className="w-full max-w-sm rounded-2xl bg-white p-6 text-slate-800 shadow-xl">
-            <h2 id="restore-title" className="text-lg font-semibold">{saveChoice ? '어떤 진행도로 이어갈까요?' : cloudSaveIssue ? '저장 확인이 필요해요' : '연못을 불러오고 있어요'}</h2>
-            {saveChoice ? <>
-              <p className="mt-3 text-sm leading-6 text-slate-500">기기와 클라우드에 서로 다른 진행도가 있어요. 계속할 저장본을 선택해주세요. 선택 전의 저장본도 복구용으로 보관합니다.</p>
-              <div className="mt-5 grid gap-3">
-                {(['local', 'cloud'] as const).map(source => {
-                  const state = saveChoice[source];
-                  return <button key={source} type="button" disabled={isChoosingSave} onClick={() => void resolveSaveChoice(source)} className="rounded-xl border border-slate-200 p-4 text-left hover:border-orange-400 disabled:opacity-50">
-                    <span className="block font-semibold">{source === 'local' ? '이 기기의 진행도' : '클라우드 진행도'}</span>
-                    <span className="mt-1 block text-sm text-slate-500">코이 {Object.values(state.ponds).reduce((sum, pond) => sum + pond.kois.length, 0)}마리 · {state.zenPoints.toLocaleString()} ZP</span>
-                  </button>;
-                })}
-              </div>
-              {cloudSaveIssue && <p className="mt-3 text-sm text-amber-700" role="alert">{cloudSaveIssue}</p>}
-            </> : cloudSaveIssue ? <>
+          <div className="w-full max-w-sm rounded-2xl bg-white px-6 py-7 text-center text-slate-800 shadow-xl">
+            <h2 id="restore-title" className="text-lg font-semibold">{cloudSaveIssue ? '저장 확인이 필요해요' : '연못을 불러오고 있어요'}</h2>
+            {cloudSaveIssue ? <>
               <p className="mt-3 text-sm leading-6 text-slate-500" role="alert">{cloudSaveIssue}</p>
               <button type="button" onClick={retryAccountRestore} className="mt-5 w-full rounded-xl bg-orange-500 py-3 font-semibold text-white">다시 시도</button>
-            </> : <LoaderCircle className="mt-5 animate-spin text-orange-500" aria-label="불러오는 중" />}
+            </> : <LoaderCircle className="mx-auto mt-5 h-7 w-7 animate-spin text-orange-500" aria-label="불러오는 중" />}
           </div>
         </div>
       )}
@@ -1452,7 +1433,7 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      {(cloudSaveIssue || localSaveIssue) && !isAccountRestoring && !saveChoice && (
+      {(cloudSaveIssue || localSaveIssue) && !isAccountRestoring && (
         <div
           className="absolute top-[calc(5rem+env(safe-area-inset-top))] left-1/2 z-40 w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 rounded-xl border border-amber-300/60 bg-amber-50 px-4 py-3 text-center text-sm leading-5 text-amber-950 shadow-xl"
           role="alert"
@@ -1673,12 +1654,7 @@ export const App: React.FC = () => {
       }
       {/* Settings Modal */}
       <SaveLoadModal
-        saveStatusLabel={saveStatusLabel}
-        localSavedAt={localSavedAt}
-        cloudSavedAt={cloudSavedAt}
-        isCloudSaving={isCloudSaving}
-        onSaveNow={() => { void flushCurrentGameState().catch(() => undefined); }}
-        onCommunityClick={() => { setIsSaveLoadModalOpen(false); setIsCommunityOpen(true); }}
+        onCommunityClick={(section) => { setIsSaveLoadModalOpen(false); setCommunitySection(section); setIsCommunityOpen(true); }}
         isOpen={isSaveLoadModalOpen}
         onClose={() => setIsSaveLoadModalOpen(false)}
         onNewGame={handleNewGame}
@@ -1765,7 +1741,7 @@ export const App: React.FC = () => {
         onClose={() => setIsAuthModalOpen(false)}
       />
 
-      <CommunityModal isOpen={isCommunityOpen} onClose={() => setIsCommunityOpen(false)} />
+      <CommunityModal isOpen={isCommunityOpen} section={communitySection} onClose={() => setIsCommunityOpen(false)} onBack={() => { setIsCommunityOpen(false); setIsSaveLoadModalOpen(true); }} />
       <SessionConflictModal
         isOpen={isConflictOpen}
         onResolve={() => {
@@ -1834,6 +1810,7 @@ export const App: React.FC = () => {
       />
 
       <AchievementModal
+        key={achievementScope}
         isOpen={isAchievementModalOpen}
         onClose={() => setIsAchievementModalOpen(false)}
         achievements={achievements}

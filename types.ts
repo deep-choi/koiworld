@@ -73,6 +73,21 @@ export interface KoiGenetics {
   saturation: number; // For standard color variation (0-100), represents HSL saturation. 50 is standard.
 
   spotPhenotypeGenes?: SpotPhenotypeGenes;
+  // Two-allele traits: copies (0-2) of the trait allele; missing means 0.
+  // Motoguro (dominant): pectoral, pelvic and tail fin roots in the most common spot colour; hidden without spots.
+  motoguroGenes?: number;
+  // Hirenaga (incomplete dominant): long, flowing fins and tail; one copy longer, two copies much longer.
+  hirenagaGenes?: number;
+  // Koromo (recessive, needs both): a darker scale net over every pattern; hidden without spots.
+  koromoGenes?: number;
+  // Tancho (recessive, needs both): every pattern gives way to one round spot on the crown, in the most
+  // common spot colour; hidden without spots. The spot genes stay and pass on as usual.
+  tanchoGenes?: number;
+  // Ginrin (0-100, blends like lightness): share of scales that sparkle; missing means 0.
+  ginrin?: number;
+  // Doitsu (recessive, needs both): no small scales, one row of interlocking hexagonal scales on each
+  // side of the dorsal fin, in a see-through grey that reads a shade darker than the body.
+  doitsuGenes?: number;
 }
 
 export interface Koi {

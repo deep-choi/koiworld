@@ -14,10 +14,10 @@ interface IconProps {
 
 const MaskIcon = ({ mask, size = 24, className = "" }: IconProps & { mask: string }) => (
     <div
-        className={`bg-current ${className}`}
+        // Size goes through a class (not inline width/height) so responsive classes like sm:w-[26px] can override it.
+        className={`bg-current w-[var(--icon-size)] h-[var(--icon-size)] ${className}`}
         style={{
-            width: size,
-            height: size,
+            '--icon-size': `${size}px`,
             maskImage: mask,
             maskSize: "contain",
             maskRepeat: "no-repeat",
@@ -26,7 +26,7 @@ const MaskIcon = ({ mask, size = 24, className = "" }: IconProps & { mask: strin
             WebkitMaskSize: "contain",
             WebkitMaskRepeat: "no-repeat",
             WebkitMaskPosition: "center",
-        }}
+        } as React.CSSProperties}
     />
 );
 

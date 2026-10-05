@@ -178,8 +178,8 @@ export const useKoiPond = (initialState?: UseKoiPondInitialState) => {
                 const activePond = prev[activePondId];
                 if (!activePond) return prev;
 
-                // degrade water quality: 0.002 per koi per second (Slower)
-                const qualityLoss = Math.min(activePond.kois.length * 0.002, 0.5);
+                // degrade water quality: 0.001 per koi per second (halved so cleaning is needed half as often)
+                const qualityLoss = Math.min(activePond.kois.length * 0.001, 0.5);
                 const newWaterQuality = Math.max(0, (activePond.waterQuality ?? 100) - qualityLoss);
 
                 // degrade stamina based on water quality

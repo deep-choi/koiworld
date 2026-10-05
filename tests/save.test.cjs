@@ -30,9 +30,9 @@ test('reopening restores unsent local progress from the same cloud revision', ()
     assert.equal(journal.chooseSaveSource(pending, state(), 5), 'local');
     assert.equal(pending.gameState.zenPoints, 5000);
 });
-test('a newer remote save requires an explicit choice and retains the local original', () => {
+test('a newer remote save is used automatically and retains the local recovery copy', () => {
     journal.writeLocalSave('u', state(5000), 5);
-    assert.equal(journal.chooseSaveSource(journal.readLocalSave('u'), state(3000), 6), 'choose');
+    assert.equal(journal.chooseSaveSource(journal.readLocalSave('u'), state(3000), 6), 'cloud');
     journal.archiveLocalSave('u');
     journal.acceptCloudSave('u', state(3000), 6);
     assert.equal(JSON.parse(localStorage.getItem(`${getScopedSaveGameKey('u')}_recovery`)).gameState.zenPoints, 5000);
@@ -48,9 +48,9 @@ test('late acknowledgement never marks newer local play as already uploaded', ()
     journal.acknowledgeLocalSave('u', state(5000), 7);
     assert.equal(journal.readLocalSave('u').dirty, false);
 });
-test('legacy unversioned saves cannot silently replace or be replaced by a different cloud save', () => {
+test('legacy unversioned saves cannot replace the cloud save', () => {
     localStorage.setItem(getScopedSaveGameKey('u'), JSON.stringify(state(7000)));
-    assert.equal(journal.chooseSaveSource(journal.readLocalSave('u'), state(), 2), 'choose');
+    assert.equal(journal.chooseSaveSource(journal.readLocalSave('u'), state(), 2), 'cloud');
 });
 test('storage failure is reported and leaves the existing save intact', () => {
     journal.writeLocalSave('u', state(), 4);
@@ -70,7 +70,7 @@ test('rollback to 1.0.4 can read the plain save and old-client changes invalidat
     const restored = journal.readLocalSave('u');
     assert.equal(restored.gameState.zenPoints, 4000);
     assert.equal(restored.baseRevision, null);
-    assert.equal(journal.chooseSaveSource(restored, state(), 5), 'choose');
+    assert.equal(journal.chooseSaveSource(restored, state(), 5), 'cloud');
 });
 
 test('interrupted metadata write retains newest progress and never assumes it was uploaded', () => {
@@ -151,10 +151,11 @@ test('valid legacy koi are upgraded without changing extreme genetic traits', ()
 
 // 실제 App의 계정 복구 함수를 실행하고 외부 통신 및 화면 갱신만 대체합니다.
 const app = ts.createSourceFile('App.tsx', fs.readFileSync(require.resolve('../App.tsx'), 'utf8'), 99, true, ts.ScriptKind.TSX);
-let initializer, enqueueInitializer;
+let initializer, enqueueInitializer, cloudUpdateInitializer;
 function walk(node) {
     if (ts.isVariableDeclaration(node) && node.name.getText(app) === 'initSession') initializer = node.initializer.getText(app);
     if (ts.isVariableDeclaration(node) && node.name.getText(app) === 'enqueueCloudSave') enqueueInitializer = node.initializer.arguments[0].getText(app);
+    if (ts.isCallExpression(node) && node.expression.getText(app) === 'listenToGameData') cloudUpdateInitializer = node.arguments[1].getText(app);
     ts.forEachChild(node, walk);
 }
 walk(app);
@@ -168,11 +169,12 @@ function sessionContext(overrides = {}) {
         savePolicyRef: { current: new SavePolicy() }, SavePolicy,
         setLocalSaveIssue: () => {}, setLocalSavedAt: () => {}, setCloudSavedAt: () => {},
         setIsCloudSaving: () => {}, setHasPendingCloudSave: () => {},
-        setIsAccountRestoring: () => {}, setSaveChoice: () => {}, setCloudSaveIssue: () => {},
+        setIsAccountRestoring: () => {}, setRestoreAttempt: () => {}, setCloudSaveIssue: () => {},
         setIsCloudSyncReady: () => {}, suppressLocalGameSave: () => {}, resumeLocalGameSave: () => {},
         loadGameState: () => state(), createInitialGameState: () => state(), handleLoadGame: () => {},
         ensureUserProfileNickname: async () => 'user', startSession: async () => {},
         setUserNickname: () => {}, setUserPhotoURL: () => {}, setNotification: () => {},
+        GameStateRevisionConflictError: class extends Error {},
         console: { error: () => {} }, ...overrides,
     };
 }
@@ -311,4 +313,101 @@ test('a server-confirmed profile-only account retries initialization; a damaged 
     await restore(context); assert.equal(writes, 1);
     context.loadUserDataOnce = async () => ({ gameData: null, gameDataRevision: 4, canInitializeGameState: false });
     await restore(context); assert.equal(writes, 1);
+});
+
+test('startup applies a newer cloud revision without uploading the stale device save', async () => {
+    journal.writeLocalSave('u', state(5000), 5);
+    let displayed, writes = 0, blocked = true;
+    const context = sessionContext({
+        loadUserDataOnce: async () => ({ gameData: state(3000), gameDataRevision: 6 }),
+        saveGameToCloud: async () => { writes++; throw new Error('unexpected upload'); },
+        handleLoadGame: restored => displayed = restored,
+        setIsAccountRestoring: value => blocked = value,
+    });
+    await restore(context);
+    assert.equal(displayed.zenPoints, 3000);
+    assert.equal(writes, 0);
+    assert.equal(blocked, false);
+    assert.equal(journal.readLocalSave('u').dirty, false);
+    assert.equal(JSON.parse(localStorage.getItem(`${getScopedSaveGameKey('u')}_recovery`)).gameState.zenPoints, 5000);
+});
+
+test('startup applies the cloud save when the device record has no trusted revision', async () => {
+    localStorage.setItem(getScopedSaveGameKey('u'), JSON.stringify(state(7000)));
+    let displayed;
+    await restore(sessionContext({
+        loadUserDataOnce: async () => ({ gameData: state(3000), gameDataRevision: 6 }),
+        handleLoadGame: restored => displayed = restored,
+    }));
+    assert.equal(displayed.zenPoints, 3000);
+    assert.equal(journal.readLocalSave('u').baseRevision, 6);
+});
+
+test('device storage failure does not block restoring the cloud save', async () => {
+    journal.writeLocalSave('u', state(5000), 5);
+    localStorage.setItem = () => { throw new Error('quota'); };
+    let displayed, blocked = true, localError = false;
+    await restore(sessionContext({
+        loadUserDataOnce: async () => ({ gameData: state(3000), gameDataRevision: 6 }),
+        handleLoadGame: restored => displayed = restored,
+        setIsAccountRestoring: value => blocked = value,
+        setLocalSaveIssue: value => localError = value,
+    }));
+    assert.equal(displayed.zenPoints, 3000);
+    assert.equal(blocked, false);
+    assert.equal(localError, true);
+});
+
+test('upload revision conflict pauses stale writes and automatically reloads the account', async () => {
+    let retries = 0, restoring = false;
+    const context = cloudContext({
+        localHydratedScopeRef: { current: 'u' },
+        setRestoreAttempt: update => retries = update(retries),
+        setIsAccountRestoring: value => restoring = value,
+    });
+    context.saveGameToCloud = async () => { throw new context.GameStateRevisionConflictError(); };
+    await assert.rejects(enqueue(context)('u', state(5000)));
+    assert.equal(context.cloudSaveBlockedRef.current, true);
+    assert.equal(context.localHydratedScopeRef.current, null);
+    assert.equal(restoring, true);
+    assert.equal(retries, 1);
+});
+
+test('a remote write during startup upload automatically retries and then restores the cloud', async () => {
+    journal.writeLocalSave('u', state(5000), 5);
+    let retries = 0, displayed;
+    const context = sessionContext({
+        loadUserDataOnce: async () => ({ gameData: state(3000), gameDataRevision: 5 }),
+        setRestoreAttempt: update => retries = update(retries),
+        handleLoadGame: restored => displayed = restored,
+    });
+    context.saveGameToCloud = async () => { throw new context.GameStateRevisionConflictError(); };
+    await restore(context);
+    assert.equal(retries, 1);
+    assert.equal(displayed, undefined);
+    context.loadUserDataOnce = async () => ({ gameData: state(4000), gameDataRevision: 6 });
+    await restore(context);
+    assert.equal(displayed.zenPoints, 4000);
+});
+
+test('live cloud updates replace pending device progress even if device storage fails', () => {
+    for (const failStorage of [false, true]) {
+        let displayed;
+        const context = cloudContext({
+            lastCloudSavePayloadRef: { current: JSON.stringify(state()) },
+            gameStateRef: { current: state(5000) },
+            serverMutationInProgressRef: { current: false },
+            persistLocalGameState: saved => {
+                if (failStorage) throw new Error('quota');
+                journal.writeLocalSave('u', saved, 5);
+            },
+            handleLoadGame: restored => displayed = restored,
+        });
+        const update = vm.runInNewContext(ts.transpileModule(`(${cloudUpdateInitializer})`, {
+            compilerOptions: { target: ts.ScriptTarget.ES2022 },
+        }).outputText, context);
+        update(state(3000), 6);
+        assert.equal(displayed.zenPoints, 3000);
+        assert.equal(context.cloudGameStateRevisionRef.current, 6);
+    }
 });

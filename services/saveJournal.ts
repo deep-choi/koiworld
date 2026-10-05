@@ -42,7 +42,7 @@ export function readLocalSave(uid?: string | null): LocalSaveRecord | null {
 function storeRecord(uid: string | null | undefined, record: LocalSaveRecord): void {
     const key = getScopedSaveGameKey(uid);
     // 본문 저장이 먼저입니다. 후속 메타데이터 저장 실패 시에도 최신 진행도는 남고,
-    // 다음 실행에서는 기준 리비전 미확인 상태로 안전하게 복구 선택을 요청합니다.
+    // 다음 실행에서는 기준 리비전 미확인 상태로 클라우드 저장본을 사용합니다.
     localStorage.setItem(key, JSON.stringify(record.gameState));
     localStorage.setItem(`${key}_journal_v1`, JSON.stringify(record));
 }
@@ -80,7 +80,8 @@ export function archiveLocalSave(uid: string): void {
     if (record) localStorage.setItem(`${getScopedSaveGameKey(uid)}_recovery`, JSON.stringify(record));
 }
 
-export function chooseSaveSource(local: LocalSaveRecord | null, cloud: SavedGameState, revision: number): 'cloud' | 'local' | 'choose' {
+/** Local records are only an upload queue based on the current cloud revision. */
+export function chooseSaveSource(local: LocalSaveRecord | null, cloud: SavedGameState, revision: number): 'cloud' | 'local' {
     if (!local || !local.dirty || JSON.stringify(local.gameState) === JSON.stringify(cloud)) return 'cloud';
-    return local.baseRevision === revision ? 'local' : 'choose';
+    return local.baseRevision === revision ? 'local' : 'cloud';
 }

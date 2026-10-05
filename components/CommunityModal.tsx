@@ -1,22 +1,51 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ChevronRight, ExternalLink, Megaphone, MessageCircle, NotebookText, Sparkles, X } from 'lucide-react';
-import { COMMUNITY_LINKS, NEWS, communityUrl } from '../config/community';
+import { MENU_ICON, MENU_ICON_SIZE, MENU_LABEL, MENU_LIST, MENU_ROW, MENU_TRAILING, MODAL_BACK, MODAL_CLOSE, MODAL_TITLE } from './menuStyles';
+import { COMMUNITY_LINKS, communityUrl } from '../config/community';
+import { KIND_LABEL, NewsDetail, NewsEditor, NewsList, uploadBundledPosts, useNews } from './NewsBoard';
+import type { NewsDraft } from '../services/news';
+import type { NewsKind, NewsPost } from '../utils/newsPosts';
 
-export function CommunityModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
-    const [view, setView] = useState<'menu' | 'notice' | 'update'>('menu');
+export type CommunitySection = 'news' | 'community';
+
+const TITLES = { news: '소식', community: '커뮤니티', notice: '공지사항', update: '업데이트' } as const;
+
+// Inside 공지사항 / 업데이트: the post list, one post, or the editor (admins only).
+type BoardScreen =
+    | { type: 'list' }
+    | { type: 'post'; post: NewsPost }
+    | { type: 'edit'; draft: NewsDraft & { onServer: boolean }; from?: NewsPost };
+
+const newDraft = (kind: NewsKind): NewsDraft & { onServer: boolean } =>
+    ({ kind, title: '', body: '', publishedAt: Date.now(), visible: true, pinned: false, onServer: false });
+
+const draftOf = (post: NewsPost): NewsDraft & { onServer: boolean } => ({
+    id: post.id, kind: post.kind, title: post.title, body: post.body,
+    publishedAt: post.publishedAt, visible: post.visible, pinned: post.pinned, onServer: !post.fromApp,
+});
+
+export function CommunityModal({ isOpen, onClose, onBack, section = 'news' }: { isOpen: boolean; onClose: () => void; onBack?: () => void; section?: CommunitySection }) {
+    const [view, setView] = useState<CommunitySection | NewsKind>(section);
+    const [screen, setScreen] = useState<BoardScreen>({ type: 'list' });
+    const [uploading, setUploading] = useState(false);
+    const news = useNews(isOpen);
     const panelRef = useRef<HTMLDivElement>(null);
     const closeRef = useRef(onClose);
     closeRef.current = onClose;
-    useEffect(() => { if (isOpen) panelRef.current?.focus(); }, [view, isOpen]);
+    const editingRef = useRef(false);
+    editingRef.current = screen.type === 'edit';
+    useEffect(() => { if (isOpen) panelRef.current?.focus(); }, [view, screen.type, isOpen]);
     useEffect(() => {
         if (!isOpen) return;
-        setView('menu');
+        setView(section);
+        setScreen({ type: 'list' });
         const previousFocus = document.activeElement as HTMLElement | null;
         panelRef.current?.focus();
         const handleKey = (event: KeyboardEvent) => {
-            if (event.key === 'Escape') closeRef.current();
+            // Escape never throws away a post being written.
+            if (event.key === 'Escape' && !editingRef.current) closeRef.current();
             if (event.key !== 'Tab') return;
-            const targets = panelRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), a[href]');
+            const targets = panelRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input, textarea');
             if (!targets?.length) return;
             const first = targets[0], last = targets[targets.length - 1];
             if (event.shiftKey && (document.activeElement === first || document.activeElement === panelRef.current)) {
@@ -27,40 +56,70 @@ export function CommunityModal({ isOpen, onClose }: { isOpen: boolean; onClose: 
         };
         document.addEventListener('keydown', handleKey);
         return () => { document.removeEventListener('keydown', handleKey); previousFocus?.focus(); };
-    }, [isOpen]);
+    }, [isOpen, section]);
     if (!isOpen) return null;
-    const row = 'flex w-full items-center gap-3 rounded-xl p-4 text-left transition-colors hover:bg-slate-50';
-    return <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
+
+    const onBoard = view === 'notice' || view === 'update';
+    const openBoard = (kind: NewsKind) => { setView(kind); setScreen({ type: 'list' }); };
+    const goBack = () => {
+        if (screen.type === 'edit') setScreen(screen.from ? { type: 'post', post: screen.from } : { type: 'list' });
+        else if (screen.type === 'post') setScreen({ type: 'list' });
+        else setView('news');
+    };
+    const title = onBoard && screen.type === 'edit' ? (screen.draft.id ? '글 수정' : '글쓰기') : TITLES[view];
+    const backToList = async () => {
+        setScreen({ type: 'list' });
+        await news.reload();
+    };
+    const uploadBundled = async () => {
+        setUploading(true);
+        try { await uploadBundledPosts(news.unpublished); } catch { /* the button stays, so it can be tried again */ }
+        setUploading(false);
+        await news.reload();
+    };
+
+    return <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4" onClick={() => { if (!editingRef.current) onClose(); }}>
         <div ref={panelRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="community-title" className="light-modal max-h-[85dvh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-5 text-slate-800 shadow-2xl outline-none" onClick={event => event.stopPropagation()}>
-            <div className="flex items-center gap-3">
-                {view !== 'menu' && <button type="button" onClick={() => setView('menu')} aria-label="소식 메뉴로 돌아가기" className="rounded-full p-2 hover:bg-slate-100"><ArrowLeft size={20} /></button>}
-                <h2 id="community-title" className="flex-1 text-xl font-semibold">{view === 'menu' ? '소식·커뮤니티' : view === 'notice' ? '공지사항' : '업데이트'}</h2>
-                <button type="button" onClick={onClose} aria-label="소식 닫기" className="rounded-full bg-slate-100 p-2 text-slate-500"><X size={18} /></button>
+            <div className="flex items-center gap-2">
+                {onBoard
+                    ? <button type="button" onClick={goBack} aria-label="뒤로 가기" className={MODAL_BACK}><ArrowLeft size={20} /></button>
+                    : onBack && <button type="button" onClick={onBack} aria-label="설정으로 돌아가기" className={MODAL_BACK}><ArrowLeft size={20} /></button>}
+                <h2 id="community-title" className={MODAL_TITLE}>{title}</h2>
+                <button type="button" onClick={onClose} aria-label={`${title} 닫기`} className={MODAL_CLOSE}><X size={18} /></button>
             </div>
-            {view === 'menu' ? <>
-                <p className="mb-4 mt-2 text-sm text-slate-500">연못의 새 소식과 함께하는 이야기</p>
-                <div className="divide-y divide-slate-100">
-                    <button type="button" className={row} onClick={() => setView('notice')}><Megaphone className="text-orange-500" size={22} /><span className="flex-1 font-medium">공지사항</span><ChevronRight size={18} className="text-slate-400" /></button>
-                    <button type="button" className={row} onClick={() => setView('update')}><Sparkles className="text-amber-500" size={22} /><span className="flex-1 font-medium">업데이트</span><ChevronRight size={18} className="text-slate-400" /></button>
+            {view === 'news' ? <>
+                <p className="mb-4 mt-2 text-sm text-slate-500">연못의 새 소식</p>
+                <div className={MENU_LIST}>
+                    <button type="button" className={MENU_ROW} onClick={() => openBoard('notice')}><Megaphone className={MENU_ICON} size={MENU_ICON_SIZE} /><span className={MENU_LABEL}>공지사항</span><ChevronRight size={18} className={MENU_TRAILING} /></button>
+                    <button type="button" className={MENU_ROW} onClick={() => openBoard('update')}><Sparkles className={MENU_ICON} size={MENU_ICON_SIZE} /><span className={MENU_LABEL}>업데이트</span><ChevronRight size={18} className={MENU_TRAILING} /></button>
                 </div>
-                <p className="mb-1 mt-5 px-4 text-xs font-semibold text-slate-400">커뮤니티</p>
+                <p className="mt-6 text-center text-xs text-slate-400">Koiworld 1.0.6{news.isAdmin && ' · 관리자'}</p>
+            </> : view === 'community' ? <>
+                <p className="mb-4 mt-2 text-sm text-slate-500">함께하는 이야기</p>
+                <div className={MENU_LIST}>
                 {([
-                    { label: '디스코드', url: COMMUNITY_LINKS.discord, Icon: MessageCircle, color: 'text-indigo-500' },
-                    { label: '네이버 카페', url: COMMUNITY_LINKS.cafe, Icon: NotebookText, color: 'text-green-600' },
-                ]).map(({ label, url, Icon, color }) => {
+                    { label: '디스코드', url: COMMUNITY_LINKS.discord, Icon: MessageCircle },
+                    { label: '네이버 카페', url: COMMUNITY_LINKS.cafe, Icon: NotebookText },
+                ]).map(({ label, url, Icon }) => {
                     const href = communityUrl(url);
-                    const content = <><Icon className={color} size={22} /><span className="flex-1 font-medium">{label}</span>{href ? <ExternalLink size={16} className="text-slate-400" /> : <span className="text-xs text-slate-400">준비 중</span>}</>;
-                    return href ? <a key={label} className={row} href={href} target="_blank" rel="noopener noreferrer" aria-label={`${label} 새 창에서 열기`}>{content}</a>
-                        : <button key={label} type="button" className={`${row} cursor-default opacity-60`} disabled>{content}</button>;
+                    const content = <><Icon className={MENU_ICON} size={MENU_ICON_SIZE} /><span className={MENU_LABEL}>{label}</span>{href ? <ExternalLink size={16} className={MENU_TRAILING} /> : <span className={`text-xs ${MENU_TRAILING}`}>준비 중</span>}</>;
+                    return href ? <a key={label} className={MENU_ROW} href={href} target="_blank" rel="noopener noreferrer" aria-label={`${label} 새 창에서 열기`}>{content}</a>
+                        : <button key={label} type="button" className={MENU_ROW} disabled>{content}</button>;
                 })}
-                <p className="mt-6 text-center text-xs text-slate-400">Koiworld 1.0.5</p>
-            </> : <div className="mt-5 space-y-5">
-                {NEWS.filter(item => item.kind === view).length === 0 && <p className="py-10 text-center text-sm text-slate-500">아직 등록된 공지사항이 없어요.</p>}
-                {NEWS.filter(item => item.kind === view).map(item => <article key={item.id} className="rounded-xl bg-slate-50 p-4">
-                    <h3 className="font-semibold leading-6">{item.title}</h3>
-                    <div className="mt-3 space-y-3 text-sm leading-6 text-slate-600">{item.paragraphs.map(text => <p key={text}>{text}</p>)}</div>
-                </article>)}
-            </div>}
+                </div>
+                <p className="mt-6 text-center text-xs text-slate-400">Koiworld 1.0.6</p>
+            </> : screen.type === 'post'
+                ? <NewsDetail post={screen.post} isAdmin={news.isAdmin}
+                    onEdit={() => setScreen({ type: 'edit', draft: draftOf(screen.post), from: screen.post })} />
+                : screen.type === 'edit'
+                    ? <NewsEditor key={screen.draft.id ?? 'new'} initial={screen.draft}
+                        onCancel={goBack} onSaved={backToList} onDeleted={backToList} />
+                    : <NewsList kind={view} posts={news.posts} isAdmin={news.isAdmin} loading={news.loading || uploading}
+                        unpublished={uploading ? [] : news.unpublished}
+                        onOpen={post => setScreen({ type: 'post', post })}
+                        onWrite={() => setScreen({ type: 'edit', draft: newDraft(view) })}
+                        onUpload={uploadBundled} />}
+            {onBoard && screen.type === 'list' && <p className="mt-6 text-center text-xs text-slate-400">{KIND_LABEL[view]} · Koiworld 1.0.6</p>}
         </div>
     </div>;
 }

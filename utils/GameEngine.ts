@@ -2,6 +2,11 @@
 import { Koi, PondTheme, Decoration, DecorationType, SpotPhenotype, GrowthStage } from '../types';
 import { KoiRenderer, KoiColors, RenderSpot } from './koiRenderer';
 import { buildKoiRenderStyle } from './koiColors';
+import type { KoiGenetics } from '../types';
+
+/** Part of the colour cache key: the trait genes that change how a koi is drawn. */
+const traitGenesKey = (g: KoiGenetics) =>
+    `${g.motoguroGenes ?? 0}${g.hirenagaGenes ?? 0}${g.koromoGenes ?? 0}${g.tanchoGenes ?? 0}${g.doitsuGenes ?? 0}-${g.ginrin ?? 0}`;
 import { WaterEffects } from './WaterEffects';
 
 const NO_KOI_POSITIONS: { x: number, y: number, vx: number, vy: number }[] = [];
@@ -276,7 +281,7 @@ export class GameEngine {
 
                 // Pre-calculate colors
                 const style = buildKoiRenderStyle(koiData);
-                const geneticsHash = `${koiData.genetics.baseColorGenes.join('')}-${koiData.genetics.lightness}-${koiData.genetics.saturation}-${koiData.genetics.spots.length}`;
+                const geneticsHash = `${koiData.genetics.baseColorGenes.join('')}-${koiData.genetics.lightness}-${koiData.genetics.saturation}-${koiData.genetics.spots.length}-${traitGenesKey(koiData.genetics)}`;
 
                 this.kois.set(koiData.id, {
                     id: koiData.id,
@@ -300,7 +305,7 @@ export class GameEngine {
                 const entity = this.kois.get(koiData.id)!;
 
                 // 유전자 해시 비교 - 변경 시에만 색상 재계산 (성능 최적화)
-                const geneticsHash = `${koiData.genetics.baseColorGenes.join('')}-${koiData.genetics.lightness}-${koiData.genetics.saturation}-${koiData.genetics.spots.length}`;
+                const geneticsHash = `${koiData.genetics.baseColorGenes.join('')}-${koiData.genetics.lightness}-${koiData.genetics.saturation}-${koiData.genetics.spots.length}-${traitGenesKey(koiData.genetics)}`;
 
                 if (entity.geneticsHash !== geneticsHash) {
                     // 유전자가 변경되었을 때만 색상 재계산

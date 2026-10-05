@@ -1,44 +1,42 @@
 import React, { useEffect, useState } from 'react';
-import { Music, Speaker, X, Megaphone, ChevronRight } from 'lucide-react';
+import { Music, Speaker, X, Megaphone, MessageCircle, Volume2, RotateCcw, ArrowLeft, ChevronRight } from 'lucide-react';
+import { MENU_ICON, MENU_ICON_SIZE, MENU_LABEL, MENU_LIST, MENU_ROW, MENU_TRAILING, MODAL_BACK, MODAL_CLOSE, MODAL_TITLE } from './menuStyles';
 import { audioManager } from '../utils/audio';
-import { useAuth } from '../contexts/AuthContext';
-import { broadcastForceClear, resumeLocalGameSave, suppressLocalGameSave } from '../services/localSave';
+import type { CommunitySection } from './CommunityModal';
 
 interface SaveLoadModalProps {
     isOpen: boolean;
     onClose: () => void;
     onNewGame: () => Promise<boolean>;
-    onCommunityClick: () => void;
-    saveStatusLabel: string;
-    localSavedAt: number | null;
-    cloudSavedAt: number | null;
-    isCloudSaving: boolean;
-    onSaveNow: () => void;
+    onCommunityClick: (section: CommunitySection) => void;
     isNight: boolean;
     onToggleDayNight: () => void;
 }
+
+type SettingsView = 'menu' | 'sound' | 'new';
+
+const VIEW_TITLES: Record<SettingsView, string> = {
+    menu: '설정',
+    sound: '사운드',
+    new: '새 게임',
+};
 
 export const SaveLoadModal: React.FC<SaveLoadModalProps> = ({
     isOpen,
     onClose,
     onNewGame,
     onCommunityClick,
-    saveStatusLabel,
-    localSavedAt,
-    cloudSavedAt,
-    isCloudSaving,
-    onSaveNow,
     isNight,
     onToggleDayNight,
 }) => {
-    const [activeTab, setActiveTab] = useState<'settings' | 'new'>('settings');
+    const [view, setView] = useState<SettingsView>('menu');
     const [bgmVolume, setBgmVolume] = useState(0.3);
     const [sfxVolume, setSfxVolume] = useState(0.5);
     const [isStartingNewGame, setIsStartingNewGame] = useState(false);
-    const { user } = useAuth();
 
     useEffect(() => {
         if (!isOpen) return;
+        setView('menu');
         const vols = audioManager.getVolumes();
         setBgmVolume(vols.bgm);
         setSfxVolume(vols.sfx);
@@ -79,63 +77,52 @@ export const SaveLoadModal: React.FC<SaveLoadModalProps> = ({
 
     if (!isOpen) return null;
 
+    const menuItems = [
+        { label: '소식', Icon: Megaphone, onClick: () => onCommunityClick('news') },
+        { label: '커뮤니티', Icon: MessageCircle, onClick: () => onCommunityClick('community') },
+        { label: '사운드', Icon: Volume2, onClick: () => setView('sound') },
+        { label: '새 게임', Icon: RotateCcw, onClick: () => setView('new') },
+    ];
+
     return (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={onClose}>
             <div className="light-modal bg-white rounded-2xl max-w-md w-full max-h-[90dvh] overflow-y-auto border border-slate-200 shadow-2xl" onClick={e => e.stopPropagation()}>
                 {/* 헤더 */}
-                <div className="flex justify-between items-center px-5 pt-5">
-                    <h2 className="text-xl font-medium text-slate-900">
-                        설정
+                <div className="flex items-center gap-2 px-5 pt-5">
+                    {view !== 'menu' && (
+                        <button onClick={() => setView('menu')} className={MODAL_BACK} aria-label="설정 메뉴로 돌아가기" type="button">
+                            <ArrowLeft size={20} />
+                        </button>
+                    )}
+                    <h2 className={MODAL_TITLE}>
+                        {VIEW_TITLES[view]}
                     </h2>
-                    <button onClick={onClose} className="w-8 h-8 rounded-full bg-slate-100 text-slate-400 hover:bg-slate-200 hover:text-slate-600 transition-colors flex items-center justify-center" aria-label="설정 닫기">
+                    <button onClick={onClose} className={MODAL_CLOSE} aria-label="설정 닫기" type="button">
                         <X size={18} />
                     </button>
                 </div>
 
-                <button type="button" onClick={onCommunityClick} className="mx-5 mt-5 flex w-[calc(100%-2.5rem)] items-center gap-3 rounded-xl bg-orange-50 px-4 py-3 text-left text-orange-800 hover:bg-orange-100">
-                    <Megaphone size={20} />
-                    <span className="flex-1 text-sm font-semibold">소식·커뮤니티</span>
-                    <ChevronRight size={18} />
-                </button>
-                <div className="mx-5 mt-4 rounded-xl border border-slate-200 p-4 text-sm text-slate-600">
-                    <div className="flex items-center justify-between gap-2">
-                        <p className="font-semibold text-slate-800" role="status">{saveStatusLabel}</p>
-                        <button type="button" onClick={onSaveNow} disabled={isCloudSaving} className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-semibold disabled:opacity-50">
-                            {isCloudSaving ? '저장 중…' : '지금 저장'}
-                        </button>
-                    </div>
-                    <p className="mt-2 text-xs">기기 저장: {localSavedAt ? new Date(localSavedAt).toLocaleTimeString('ko-KR') : '확인 중'}</p>
-                    {user && !user.isAnonymous ? <>
-                        <p className="mt-1 text-xs">서버 저장 확인: {cloudSavedAt ? new Date(cloudSavedAt).toLocaleTimeString('ko-KR') : '대기 중'}</p>
-                        <p className="mt-2 text-xs leading-5">연결이 끊기면 이 기기에 보관하고, 연결되면 자동으로 동기화해요. 앱 삭제나 휴대폰 교체 전에는 서버 저장을 완료해주세요.</p>
-                    </> : <p className="mt-2 text-xs leading-5">현재 진행도는 이 기기에만 저장돼요. 로그인하면 계정에 저장해 재설치나 휴대폰 교체 후 이어갈 수 있어요.</p>}
-                </div>
-                {/* 탭 */}
-                <div className="flex gap-2 px-5 pt-4">
-                    <button
-                        className={`flex-1 py-3 px-2 rounded-xl text-sm font-medium transition-colors whitespace-nowrap ${activeTab === 'settings' ? 'bg-orange-500 text-white' : 'bg-slate-50 text-slate-500 hover:bg-slate-100'}`}
-                        onClick={() => setActiveTab('settings')}
-                        type="button"
-                        aria-label="사운드 탭 열기"
-                        aria-pressed={activeTab === 'settings'}
-                    >
-                        사운드
-                    </button>
-                    <button
-                        className={`flex-1 py-3 px-2 rounded-xl text-sm font-medium transition-colors whitespace-nowrap ${activeTab === 'new' ? 'bg-orange-500 text-white' : 'bg-slate-50 text-slate-500 hover:bg-slate-100'}`}
-                        onClick={() => setActiveTab('new')}
-                        type="button"
-                        aria-label="새 게임 탭 열기"
-                        aria-pressed={activeTab === 'new'}
-                    >
-                        새 게임
-                    </button>
-                </div>
-
                 {/* 내용 */}
-                <div className="px-5 pb-9 pt-5">
-                    {activeTab === 'settings' && (
-                        <div className="space-y-6">
+                <div className="px-5 pb-6 pt-5">
+                    {view === 'menu' && (
+                        <div className={MENU_LIST}>
+                            {menuItems.map(({ label, Icon, onClick }) => (
+                                <button
+                                    key={label}
+                                    type="button"
+                                    onClick={onClick}
+                                    className={MENU_ROW}
+                                >
+                                    <Icon size={MENU_ICON_SIZE} className={MENU_ICON} />
+                                    <span className={MENU_LABEL}>{label}</span>
+                                    <ChevronRight size={18} className={MENU_TRAILING} />
+                                </button>
+                            ))}
+                        </div>
+                    )}
+
+                    {view === 'sound' && (
+                        <div className="space-y-6 pb-3">
                             {/* 배경 음악 */}
                             <div className="space-y-2">
                                 <div className="flex justify-between items-center text-slate-600">
@@ -171,12 +158,10 @@ export const SaveLoadModal: React.FC<SaveLoadModalProps> = ({
                                     className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-purple-500"
                                 />
                             </div>
-
-
                         </div>
                     )}
 
-                    {activeTab === 'new' && (
+                    {view === 'new' && (
                         <div className="flex flex-col py-3 text-center space-y-6">
                             <div>
                                 <h3 className="text-xl font-medium text-slate-900 mb-2">새 게임 시작</h3>

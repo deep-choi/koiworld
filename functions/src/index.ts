@@ -8,6 +8,8 @@ import type { Request, Response } from 'express';
 import {
     PROGRESSION_PROTOCOL_VERSION,
     achievementReward,
+    isTraitAchievementId,
+    traitAchievementMet,
     asRecord,
     calculateAchievementPoints,
     currentAchievementIds,
@@ -626,6 +628,10 @@ const achievementConditionMet = (achievementId: string, gameState: GameState): b
                 && spots.length >= 16
                 && spots.every(spot => asRecord(spot).color === color);
         });
+    }
+
+    if (isTraitAchievementId(achievementId)) {
+        return hasKoi(koi => traitAchievementMet(achievementId, koi.genetics));
     }
 
     return false;

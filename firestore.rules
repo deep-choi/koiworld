@@ -93,5 +93,36 @@ service cloud.firestore {
     match /rankingEvents/{eventId} {
       allow read, write: if false;
     }
+
+    // Admins are added by hand in the Firebase console: a document admins/{uid}.
+    function isAdmin() {
+      return signedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    match /admins/{userId} {
+      allow read: if isOwner(userId);
+      allow write: if false;
+    }
+
+    function validNewsPost() {
+      let post = request.resource.data;
+      return post.keys().hasOnly(['kind', 'title', 'body', 'publishedAt', 'visible', 'pinned', 'updatedAt', 'authorUid'])
+        && post.keys().hasAll(['kind', 'title', 'body', 'publishedAt', 'visible', 'pinned', 'updatedAt', 'authorUid'])
+        && post.kind in ['notice', 'update']
+        && post.title is string && post.title.size() > 0 && post.title.size() <= 100
+        && post.body is string && post.body.size() > 0 && post.body.size() <= 10000
+        && post.publishedAt is timestamp
+        && post.visible is bool
+        && post.pinned is bool
+        && post.updatedAt == request.time
+        && post.authorUid == request.auth.uid;
+    }
+
+    // Notices and updates: everyone reads published posts, only admins see drafts and write.
+    match /news/{postId} {
+      allow read: if resource.data.visible == true || isAdmin();
+      allow create, update: if isAdmin() && validNewsPost();
+      allow delete: if isAdmin();
+    }
   }
 }

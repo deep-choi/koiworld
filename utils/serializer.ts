@@ -25,8 +25,11 @@ const round = (num: number, precision: number = 1) => {
 // Spot: [x, y, size, colorIdx, shapeIdx]
 type MinifiedSpot = [number, number, number, number, number];
 
-// Genetics: [ [baseGenes...], [spots...], lightness, saturation ]
-type MinifiedGenetics = [number[], MinifiedSpot[], number, number];
+// Genetics: [ [baseGenes...], [spots...], lightness, saturation, ...traits ]
+// traits follow TRAIT_KEYS; trailing zeros are left off, so older codes (four entries) still read the same.
+type MinifiedGenetics = [number[], MinifiedSpot[], number, number, ...number[]];
+const TRAIT_KEYS = ['motoguroGenes', 'hirenagaGenes', 'koromoGenes', 'tanchoGenes', 'ginrin', 'doitsuGenes'] as const;
+const TRAIT_MAX: Record<typeof TRAIT_KEYS[number], number> = { motoguroGenes: 2, hirenagaGenes: 2, koromoGenes: 2, tanchoGenes: 2, ginrin: 100, doitsuGenes: 2 };
 
 // Koi: [id, name, genetics, age, growthStageIdx, timesFed, x, y] (Last 2: pos)
 type MinifiedKoi = [string, string, MinifiedGenetics, number, number, number, number, number];
@@ -58,8 +61,10 @@ export const compressGameStateAsync = async (state: SavedGameState): Promise<str
                 minSpots,
                 koi.genetics.lightness,
                 koi.genetics.saturation
-
             ];
+            const traits = TRAIT_KEYS.map(key => koi.genetics[key] ?? 0);
+            while (traits.length && !traits[traits.length - 1]) traits.pop();
+            minGenetics.push(...traits);
 
             const stageIdx = ['fry', 'juvenile', 'adult'].indexOf(koi.growthStage);
 
@@ -159,7 +164,12 @@ export const decompressGameStateAsync = async (code: string): Promise<SavedGameS
 
             const kois: Koi[] = minKois.map(mk => {
                 const [kid, kname, mGen, kAge, kStageIdx, kFed, kx, ky] = mk;
-                const [mGenes, mSpots, kLight, kSaturation] = mGen;
+                const [mGenes, mSpots, kLight, kSaturation, ...mTraits] = mGen;
+                const traits: Partial<KoiGenetics> = {};
+                TRAIT_KEYS.forEach((key, i) => {
+                    const value = Math.max(0, Math.min(TRAIT_MAX[key], Math.round(mTraits[i] ?? 0)));
+                    if (value) traits[key] = value;
+                });
 
                 const baseColorGenes = mGenes.map(idx => GENE_MAP[idx] || GeneType.CREAM);
                 const spots: Spot[] = mSpots.map(s => ({
@@ -180,7 +190,8 @@ export const decompressGameStateAsync = async (code: string): Promise<SavedGameS
                         baseColorGenes,
                         spots,
                         lightness: kLight,
-                        saturation: (kSaturation !== undefined && kSaturation > 1) ? kSaturation : 50
+                        saturation: (kSaturation !== undefined && kSaturation > 1) ? kSaturation : 50,
+                        ...traits,
                     },
                     position: { x: kx, y: ky },
                     velocity: { vx: 0, vy: 0 },

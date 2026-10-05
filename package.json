@@ -1,14 +1,17 @@
 {
   "name": "koiworld",
   "private": true,
-  "version": "1.0.5",
+  "version": "1.0.6",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
     "test:save": "node --test tests/save.test.cjs",
+    "test:achievements": "node --test tests/achievement.test.cjs",
     "test:rendering": "node --test tests/koi-renderer.test.cjs",
+    "test:genetics": "node --test tests/motoguro.test.cjs tests/traits.test.cjs",
+    "test:news": "node --test tests/news.test.cjs",
     "audit:release": "npm audit --omit=dev",
     "preview": "vite preview",
     "cap:sync": "npm run build && cap sync",

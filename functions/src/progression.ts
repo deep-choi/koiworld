@@ -36,6 +36,32 @@ export const uniqueStrings = (value: unknown): string[] => {
     return Array.from(new Set(value.filter((item): item is string => typeof item === 'string')));
 };
 
+// Trait achievements (mirrors utils/achievements.ts and the expression rules in utils/genetics.ts):
+// each is met by one koi whose genetics show the trait.
+const traitCopies = (genetics: Record<string, unknown>, key: string): number => {
+    const value = genetics[key];
+    return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.min(2, Math.round(value))) : 0;
+};
+const hasSpots = (genetics: Record<string, unknown>) => Array.isArray(genetics.spots) && genetics.spots.length > 0;
+const ginrinValue = (genetics: Record<string, unknown>) =>
+    typeof genetics.ginrin === 'number' && Number.isFinite(genetics.ginrin) ? genetics.ginrin : 0;
+const TRAIT_ACHIEVEMENTS: Record<string, { points: number, met: (genetics: Record<string, unknown>) => boolean }> = {
+    trait_motoguro: { points: 200, met: g => traitCopies(g, 'motoguroGenes') >= 1 && hasSpots(g) },
+    trait_hirenaga: { points: 200, met: g => traitCopies(g, 'hirenagaGenes') >= 1 },
+    trait_hirenaga_full: { points: 300, met: g => traitCopies(g, 'hirenagaGenes') === 2 },
+    trait_ginrin: { points: 200, met: g => ginrinValue(g) >= 10 },
+    trait_ginrin_100: { points: 300, met: g => ginrinValue(g) >= 100 },
+    trait_koromo: { points: 300, met: g => traitCopies(g, 'koromoGenes') === 2 && hasSpots(g) },
+    trait_doitsu: { points: 300, met: g => traitCopies(g, 'doitsuGenes') === 2 },
+    trait_tancho: { points: 500, met: g => traitCopies(g, 'tanchoGenes') === 2 && hasSpots(g) },
+};
+
+export const isTraitAchievementId = (achievementId: string): boolean => Object.hasOwn(TRAIT_ACHIEVEMENTS, achievementId);
+
+/** Whether one koi's genetics meet a trait achievement. */
+export const traitAchievementMet = (achievementId: string, genetics: unknown): boolean =>
+    isTraitAchievementId(achievementId) && TRAIT_ACHIEVEMENTS[achievementId].met(asRecord(genetics));
+
 export const achievementReward = (achievementId: string): { points: number } | null => {
     const spotCountRewards: Record<number, { points: number }> = {
         4: { points: 100 },
@@ -56,6 +82,7 @@ export const achievementReward = (achievementId: string): { points: number } | n
         return { points: 400 };
     }
     if (/^legend_spot_(주황|노랑|하양|검정)$/.test(achievementId)) return { points: 500 };
+    if (isTraitAchievementId(achievementId)) return { points: TRAIT_ACHIEVEMENTS[achievementId].points };
     return null;
 };
 
@@ -90,7 +117,8 @@ export const isCurrentAchievementId = (achievementId: string): boolean =>
     || achievementId === 'special_five_color'
     || /^color_(빨강|주황|노랑|크림|검정)_basic$/.test(achievementId)
     || /^(saturation_100|saturation_0|lightness_100|lightness_0)$/.test(achievementId)
-    || /^legend_spot_(주황|노랑|하양|검정)$/.test(achievementId);
+    || /^legend_spot_(주황|노랑|하양|검정)$/.test(achievementId)
+    || isTraitAchievementId(achievementId);
 
 export const currentAchievementIds = (value: unknown): string[] =>
     normalizeAchievementIds(value).filter(isCurrentAchievementId);

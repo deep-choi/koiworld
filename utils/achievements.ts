@@ -1,5 +1,5 @@
 import { Achievement, Koi, GeneType } from '../types';
-import { GENE_COLOR_MAP, getPhenotype } from './genetics';
+import { GENE_COLOR_MAP, getPhenotype, getKoiTraits, getTraitCopies, getGinrin } from './genetics';
 
 export const ACHIEVEMENTS: Achievement[] = [];
 
@@ -219,6 +219,62 @@ SPOT_ACHIEVEMENT_COLORS.forEach(color => {
             // All spots must match the target color
             return spots.every(s => s.color === color.type);
         }
+    });
+});
+
+// ==========================================
+// 6. TRAIT ACHIEVEMENTS (bred traits, checked the same way on the server)
+// ==========================================
+const TRAIT_ACHIEVEMENT_LIST: Array<Pick<Achievement, 'id' | 'title' | 'description' | 'tier' | 'condition'> & { points: number }> = [
+    {
+        id: 'trait_motoguro', title: '모토구로', tier: 'intermediate', points: 200,
+        description: '지느러미 뿌리가 무늬 색으로 물든 모토구로 코이를 획득하세요.',
+        condition: (koi: Koi) => getKoiTraits(koi.genetics).motoguro !== null,
+    },
+    {
+        id: 'trait_hirenaga', title: '긴 지느러미', tier: 'intermediate', points: 200,
+        description: '지느러미가 길게 늘어진 히레나가 코이를 획득하세요.',
+        condition: (koi: Koi) => getTraitCopies(koi.genetics, 'hirenagaGenes') >= 1,
+    },
+    {
+        id: 'trait_hirenaga_full', title: '나비 잉어', tier: 'advanced', points: 300,
+        description: '히레나가 유전자를 2개 가진, 지느러미가 아주 긴 코이를 획득하세요.',
+        condition: (koi: Koi) => getTraitCopies(koi.genetics, 'hirenagaGenes') === 2,
+    },
+    {
+        id: 'trait_ginrin', title: '은빛 비늘', tier: 'intermediate', points: 200,
+        description: '긴린 수치가 10 이상인 코이를 획득하세요.',
+        condition: (koi: Koi) => getGinrin(koi.genetics) >= 10,
+    },
+    {
+        id: 'trait_ginrin_100', title: '완전한 은린', tier: 'advanced', points: 300,
+        description: '긴린 수치가 100인 코이를 획득하세요.',
+        condition: (koi: Koi) => getGinrin(koi.genetics) >= 100,
+    },
+    {
+        id: 'trait_koromo', title: '고로모', tier: 'advanced', points: 300,
+        description: '무늬 위에 비늘 그물이 덮인 고로모 코이를 획득하세요.',
+        condition: (koi: Koi) => getKoiTraits(koi.genetics).koromo,
+    },
+    {
+        id: 'trait_doitsu', title: '도이츠', tier: 'advanced', points: 300,
+        description: '등줄기를 따라 육각 비늘이 붙은 도이츠 코이를 획득하세요.',
+        condition: (koi: Koi) => getKoiTraits(koi.genetics).doitsu,
+    },
+    {
+        id: 'trait_tancho', title: '탄초', tier: 'legend', points: 500,
+        description: '정수리에 둥근 점 하나만 남은 탄초 코이를 획득하세요.',
+        condition: (koi: Koi) => getKoiTraits(koi.genetics).tancho !== null,
+    },
+];
+
+TRAIT_ACHIEVEMENT_LIST.forEach(({ points, ...achievement }) => {
+    ACHIEVEMENTS.push({
+        ...achievement,
+        icon: achievement.tier === 'advanced' || achievement.tier === 'legend' ? 'trophy' : 'medal',
+        displayColor: getTierColor(achievement.tier, '#ffd700'),
+        category: 'mutation',
+        reward: { achievementPoints: points },
     });
 });
 

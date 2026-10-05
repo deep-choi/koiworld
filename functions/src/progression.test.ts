@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { reconcileProgression } from './progression.js';
+import { achievementReward, isCurrentAchievementId, reconcileProgression, traitAchievementMet } from './progression.js';
 
 test('reconciles scattered claims once and preserves the highest trophy total', () => {
     const result = reconcileProgression({
@@ -74,4 +74,22 @@ test('migrates legacy achievement IDs and preserves points without a stored clai
     });
     assert.equal(withoutIds.legacyAchievementPointsBase, 950);
     assert.equal(withoutIds.achievementPoints, 950);
+});
+
+test('trait achievements follow how each trait shows on a koi', () => {
+    const spots = [{ x: 1, y: 1, size: 40, color: '빨강', shape: 'circle' }];
+    assert.equal(traitAchievementMet('trait_motoguro', { motoguroGenes: 1, spots }), true);
+    assert.equal(traitAchievementMet('trait_motoguro', { motoguroGenes: 1, spots: [] }), false);
+    assert.equal(traitAchievementMet('trait_hirenaga', { hirenagaGenes: 1 }), true);
+    assert.equal(traitAchievementMet('trait_hirenaga_full', { hirenagaGenes: 1 }), false);
+    assert.equal(traitAchievementMet('trait_ginrin', { ginrin: 10 }), true);
+    assert.equal(traitAchievementMet('trait_ginrin_100', { ginrin: 99 }), false);
+    assert.equal(traitAchievementMet('trait_koromo', { koromoGenes: 1, spots }), false);
+    assert.equal(traitAchievementMet('trait_koromo', { koromoGenes: 2, spots }), true);
+    assert.equal(traitAchievementMet('trait_doitsu', { doitsuGenes: 2 }), true);
+    assert.equal(traitAchievementMet('trait_tancho', { tanchoGenes: 2, spots: [] }), false);
+    assert.equal(traitAchievementMet('trait_tancho', { tanchoGenes: 2, spots }), true);
+    assert.deepEqual(achievementReward('trait_tancho'), { points: 500 });
+    assert.equal(isCurrentAchievementId('trait_doitsu'), true);
+    assert.equal(traitAchievementMet('spot_count_4', { spots }), false);
 });

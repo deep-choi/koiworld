@@ -60,6 +60,8 @@ export const useAchievements = (
     const [loadedScope, setLoadedScope] = useState<string | null>(null);
     const stateRef = useRef<AchievementState>(state);
     const storageScopeRef = useRef(scope);
+    const currentScopeRef = useRef(scope);
+    currentScopeRef.current = scope;
     stateRef.current = state;
 
     const isLoaded = loadedScope === scope && (!userId || initialData !== null);
@@ -158,10 +160,13 @@ export const useAchievements = (
 
         if (userId) {
             const result = await claimAchievementOnServer(achievementId);
+            // 요청 중 계정이 바뀌었다면 이전 계정의 응답을 현재 화면에 적용하지 않습니다.
+            if (currentScopeRef.current !== scope) return null;
+            const latestState = stateRef.current;
             const nextState: AchievementState = {
-                ...currentState,
-                unlockedIds: uniqueIds([...currentState.unlockedIds, ...result.unlockedIds]),
-                claimedIds: uniqueIds([...currentState.claimedIds, ...result.claimedIds]),
+                ...latestState,
+                unlockedIds: uniqueIds([...latestState.unlockedIds, ...result.unlockedIds]),
+                claimedIds: uniqueIds([...latestState.claimedIds, ...result.claimedIds]),
                 totalPoints: result.achievementPoints,
                 lastChecked: Date.now(),
             };

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Koi, PondTheme } from '../types';
 import { X, DollarSign } from 'lucide-react';
-import { calculateKoiValue, GENE_COLOR_MAP, calculateSpotPhenotype } from '../utils/genetics';
+import { calculateKoiValue, GENE_COLOR_MAP, calculateSpotPhenotype, getKoiTraits, getTraitCopies, getGinrin } from '../utils/genetics';
 import { SingleKoiCanvas } from './SingleKoiCanvas';
 
 interface KoiDetailModalProps {
@@ -34,6 +34,36 @@ export const KoiDetailModal: React.FC<KoiDetailModalProps> = ({ koi, onClose, on
     const displayPhenotype = calculateSpotPhenotype(koi.genetics.spotPhenotypeGenes);
     const stamina = Math.round(koi.stamina ?? 0);
     const spotCount = koi.genetics.spots.length;
+    const traits = getKoiTraits(koi.genetics);
+    const copies = (trait: Parameters<typeof getTraitCopies>[1]) => getTraitCopies(koi.genetics, trait);
+    const hiddenWithoutSpots = '숨김 (무늬 없음)';
+    // Genes the koi carries, with what they show; traits it does not carry are left out.
+    const traitRows = [
+        copies('motoguroGenes') > 0 && {
+            name: '모토구로', genes: `유전자 ${copies('motoguroGenes')}개`, dot: traits.motoguro,
+            shown: traits.motoguro ? `${traits.motoguro} 지느러미` : hiddenWithoutSpots,
+        },
+        copies('hirenagaGenes') > 0 && {
+            name: '히레나가', genes: `유전자 ${copies('hirenagaGenes')}개`,
+            shown: traits.hirenaga === 2 ? '아주 긴 지느러미' : '긴 지느러미',
+        },
+        copies('koromoGenes') > 0 && {
+            name: '고로모', genes: `유전자 ${copies('koromoGenes')}개`,
+            shown: traits.koromo ? '무늬 그물' : copies('koromoGenes') < 2 ? '보인자' : hiddenWithoutSpots,
+        },
+        copies('tanchoGenes') > 0 && {
+            name: '탄초', genes: `유전자 ${copies('tanchoGenes')}개`, dot: traits.tancho,
+            shown: traits.tancho ? `${traits.tancho} 정수리 점` : copies('tanchoGenes') < 2 ? '보인자' : hiddenWithoutSpots,
+        },
+        copies('doitsuGenes') > 0 && {
+            name: '도이츠', genes: `유전자 ${copies('doitsuGenes')}개`,
+            shown: traits.doitsu ? '육각 비늘' : '보인자',
+        },
+        getGinrin(koi.genetics) > 0 && {
+            name: '긴린', genes: `수치 ${getGinrin(koi.genetics)}`,
+            shown: traits.ginrin ? '반짝이는 비늘' : '아직 안 보임',
+        },
+    ].filter(Boolean) as { name: string, genes: string, shown: string, dot?: keyof typeof GENE_COLOR_MAP | null }[];
 
     const handleSell = () => {
         if (!canSell) return;
@@ -91,6 +121,25 @@ export const KoiDetailModal: React.FC<KoiDetailModalProps> = ({ koi, onClose, on
                                 </span>
                             ))}
                         </div>
+                        {traitRows.length > 0 && (
+                            <div className="mt-2 grid gap-1.5">
+                                {traitRows.map(row => (
+                                    <div key={row.name} className="flex items-center justify-between gap-2 rounded-lg bg-white border border-slate-200 px-2 py-1.5 text-xs">
+                                        <span className="flex items-center gap-1.5 text-slate-700 min-w-0">
+                                            {row.dot !== undefined && (
+                                                <span
+                                                    className="w-2 h-2 rounded-full inline-block border border-slate-300 shrink-0"
+                                                    style={{ backgroundColor: row.dot ? GENE_COLOR_MAP[row.dot] : 'transparent' }}
+                                                ></span>
+                                            )}
+                                            <span className="font-semibold">{row.name}</span>
+                                            <span className="text-slate-400">{row.genes}</span>
+                                        </span>
+                                        <strong className="text-orange-600 text-right">{row.shown}</strong>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                         <div className="mt-3 grid grid-cols-2 gap-2">
                             <div className="rounded-lg bg-white border border-slate-200 p-2">
                                 <span className="block text-[10px] text-slate-400 mb-1">몸 색상</span>

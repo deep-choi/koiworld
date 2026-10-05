@@ -20,13 +20,13 @@ interface ControlBarProps {
 // Updated getButtonClass: Removed scale, shadow-lg, and glow effects
 const getButtonClass = (isActive: boolean) =>
   `p-3 sm:p-4 rounded-full border backdrop-blur-md transition-all duration-200 flex items-center justify-center relative ${isActive
-    ? 'bg-orange-600 border-orange-400 text-white' // Active: distinct but flat
+    ? 'bg-amber-500 border-amber-300 text-white' // Active: distinct but flat
     : 'bg-white/10 border-white/20 text-white hover:bg-white/20' // Inactive: translucent HUD
   }`;
 
 const getPopupButtonClass = (isActive = false) =>
   `p-3 sm:p-4 rounded-full transition-all duration-200 flex items-center justify-center relative ${isActive
-    ? 'bg-orange-500/70 text-white'
+    ? 'bg-amber-400/70 text-white'
     : 'text-white hover:bg-white/20'
   }`;
 
@@ -83,21 +83,21 @@ export const ControlBar: React.FC<ControlBarProps> = ({
       {isMainMenuOpen && (
         <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 flex flex-row gap-1 bg-white/10 p-2 rounded-[9999px] border border-white/20 backdrop-blur-md whitespace-nowrap shadow-lg">
           <button onClick={() => handleSubMenuClick(onShopClick)} className={getPopupButtonClass()} aria-label="상점 열기">
-            <Store size={24} className="sm:w-[26px] sm:h-[26px]" />
+            <Store size={22} className="sm:w-[24px] sm:h-[24px]" />
           </button>
           <button onClick={() => handleSubMenuClick(onRankingClick)} className={getPopupButtonClass()} aria-label="랭킹 열기">
-            <Trophy size={24} className="sm:w-[26px] sm:h-[26px]" />
+            <Trophy size={22} className="sm:w-[24px] sm:h-[24px]" />
           </button>
           <button onClick={() => handleSubMenuClick(onAchievementClick)} className={getPopupButtonClass()} aria-label={hasUnclaimedAchievements ? '업적 열기, 받을 보상 있음' : '업적 열기'}>
             <div className="relative">
-              <Medal size={24} className="sm:w-[26px] sm:h-[26px]" />
+              <Medal size={22} className="sm:w-[24px] sm:h-[24px]" />
               {hasUnclaimedAchievements && (
                 <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 rounded-full border border-white/30 animate-pulse" />
               )}
             </div>
           </button>
           <button onClick={() => handleSubMenuClick(onThemeClick)} className={getPopupButtonClass()} aria-label="테마 선택 열기">
-            <Palette size={24} className="sm:w-[26px] sm:h-[26px]" />
+            <Palette size={22} className="sm:w-[24px] sm:h-[24px]" />
           </button>
         </div>
       )}
@@ -127,8 +127,8 @@ export const ControlBar: React.FC<ControlBarProps> = ({
               aria-label={`기본 사료 선택, 보유 ${foodCount}개`}
               aria-pressed={isFeedModeActive && selectedFoodType === 'normal'}
             >
-              <FeedIcon size={24} className="sm:w-[26px] sm:h-[26px]" />
-              <span className="absolute -top-1 -right-1 bg-gray-900 text-orange-300 border border-white/40 text-[10px] sm:text-[11px] font-bold rounded-full w-5 h-5 flex items-center justify-center shadow-sm">{foodCount}</span>
+              <FeedIcon size={22} className="sm:w-[24px] sm:h-[24px]" />
+              <span className="absolute -top-1 -right-1 bg-white/90 text-slate-700 text-[10px] sm:text-[11px] font-semibold rounded-full min-w-[20px] h-5 px-1 flex items-center justify-center tabular-nums shadow-sm">{foodCount}</span>
             </button>
             <button
               onClick={() => handleItemClick('corn')}
@@ -136,8 +136,8 @@ export const ControlBar: React.FC<ControlBarProps> = ({
               aria-label={`프리미엄 옥수수 선택, 보유 ${cornCount}개`}
               aria-pressed={isFeedModeActive && selectedFoodType === 'corn'}
             >
-              <CornIcon size={24} className="sm:w-[26px] sm:h-[26px]" />
-              <span className="absolute -top-1 -right-1 bg-gray-900 text-orange-300 border border-white/40 text-[10px] sm:text-[11px] font-bold rounded-full w-5 h-5 flex items-center justify-center shadow-sm">{cornCount}</span>
+              <CornIcon size={22} className="sm:w-[24px] sm:h-[24px]" />
+              <span className="absolute -top-1 -right-1 bg-white/90 text-slate-700 text-[10px] sm:text-[11px] font-semibold rounded-full min-w-[20px] h-5 px-1 flex items-center justify-center tabular-nums shadow-sm">{cornCount}</span>
             </button>
           </div>
         )}
@@ -148,8 +148,8 @@ export const ControlBar: React.FC<ControlBarProps> = ({
           aria-expanded={isInventoryOpen}
           aria-haspopup="menu"
         >
-          {selectedFoodType === 'corn' ? <CornIcon size={24} /> : <FeedIcon size={24} />}
-          <span className="absolute -top-1 -right-1 bg-gray-900 text-orange-300 border border-white/40 text-[10px] sm:text-[11px] font-bold rounded-full w-5 h-5 flex items-center justify-center shadow-sm">
+          {selectedFoodType === 'corn' ? <CornIcon size={24} className="sm:w-[26px] sm:h-[26px]" /> : <FeedIcon size={24} className="sm:w-[26px] sm:h-[26px]" />}
+          <span className="absolute -top-1 -right-1 bg-white/90 text-slate-700 text-[10px] sm:text-[11px] font-semibold rounded-full min-w-[20px] h-5 px-1 flex items-center justify-center tabular-nums shadow-sm">
             {selectedItemCount}
           </span>
         </button>

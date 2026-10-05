@@ -1,6 +1,6 @@
 import React from 'react';
 import { Koi } from '../types';
-import { getPhenotype, getDisplayColor, GENE_COLOR_MAP, calculateSpotPhenotype } from '../utils/genetics';
+import { getPhenotype, getDisplayColor, GENE_COLOR_MAP, calculateSpotPhenotype, getKoiTraits } from '../utils/genetics';
 
 interface KoiCSSPreviewProps {
     koi: Koi;
@@ -11,6 +11,9 @@ export const KoiCSSPreview: React.FC<KoiCSSPreviewProps> = ({ koi, className = "
     const phenotype = getPhenotype(koi.genetics.baseColorGenes);
     const bodyColor = getDisplayColor(phenotype as any, koi.genetics.lightness, koi.genetics.saturation);
     const spotPhenotype = calculateSpotPhenotype(koi.genetics.spotPhenotypeGenes, koi);
+    // Tancho shows one crown spot in place of every pattern, as in the pond.
+    const tancho = getKoiTraits(koi.genetics).tancho;
+    const spots = tancho ? [{ x: 50, y: 22, size: 45, color: tancho }] : koi.genetics.spots;
 
     return (
         <div className={`relative flex items-center justify-center overflow-hidden rounded-full ${className}`}>
@@ -20,7 +23,7 @@ export const KoiCSSPreview: React.FC<KoiCSSPreviewProps> = ({ koi, className = "
                 style={{ backgroundColor: bodyColor }}
             >
                 {/* Spots */}
-                {koi.genetics.spots.map((spot, i) => {
+                {spots.map((spot, i) => {
                     const size = spot.size;
 
                     return (

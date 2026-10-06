@@ -101,7 +101,7 @@ export const buildKoiRenderStyle = (koi: Koi): KoiRenderStyle => {
     const colors = buildColors(basePhenotype, body);
     if (traits.motoguro) colors.motoguro = buildMotoguroColors(traitColor(traits.motoguro));
     if (traits.hirenaga) colors.finLength = HIRENAGA_FIN_LENGTH[traits.hirenaga];
-    if (traits.ginrin) colors.ginrin = traits.ginrin / 100;
+    if (traits.ginrin) colors.ginrin = traits.ginrin / 2; // 1개: 비늘 30%, 2개: 60%가 은빛
     if (traits.doitsu) colors.doitsu = true;
 
     return { colors, spots, phenotype };

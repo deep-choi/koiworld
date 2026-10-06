@@ -18,7 +18,7 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({ onClose, zenPoints, curr
 
     return (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={onClose}>
-            <div className="light-modal bg-white p-5 rounded-2xl max-w-sm w-full max-h-[85svh] overflow-y-auto border border-slate-200 shadow-2xl light-scrollbar" onClick={e => e.stopPropagation()}>
+            <div className="light-modal bg-white p-5 rounded-2xl max-w-sm w-full max-h-[88svh] overflow-y-auto border border-slate-200 shadow-2xl light-scrollbar" onClick={e => e.stopPropagation()}>
                 <div className="mb-5 pb-4 border-b border-slate-100">
                     <div className="flex justify-between items-center">
                         <h2 className="text-xl font-medium text-slate-900">배경 테마 변경</h2>

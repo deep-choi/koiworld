@@ -10,15 +10,14 @@ import { CommunityModal, type CommunitySection } from './components/CommunityMod
 // SettingsModal removed
 
 
-import { breedKoi, calculateKoiValue, createFixedSpotPhenotypeGenes } from './utils/genetics';
+import { breedKoi, calculateKoiValue, createFixedSpotPhenotypeGenes, getKoiDisplayName } from './utils/genetics';
 import { useKoiPond, createInitialPonds } from './hooks/useKoiPond';
 import { Koi, GeneType, KoiGenetics, GrowthStage, Ponds, Decoration, DecorationType, PondTheme, SavedGameState } from './types';
-import { Wheat, DollarSign, ShoppingCart, Dna, Settings, User, X, LoaderCircle } from 'lucide-react';
+import { Wheat, DollarSign, ShoppingCart, Dna, Settings, User, X, LoaderCircle, ChevronLeft, ChevronRight, Droplet, ArrowRightLeft } from 'lucide-react';
 import { audioManager } from './utils/audio';
 import { ThemeModal } from './components/ThemeModal';
 import { CleanConfirmModal } from './components/CleanConfirmModal';
 import { SpotGeneticsDebugPanel } from './components/debug/SpotGeneticsDebugPanel';
-import { KoiCSSPreview } from './components/KoiCSSPreview';
 
 // --- New Feature Imports ---
 import { useAuth } from './contexts/AuthContext';
@@ -1039,6 +1038,8 @@ export const App: React.FC = () => {
       removeKoi(koi.id);
     });
     setZenPoints(prev => prev + totalValue);
+    // 팔린 코이는 선택에서도 빼야 연못 화면의 교배·판매·이동 버튼이 사라집니다.
+    setBreedingSelection([]);
     audioManager.playSFX('coin');
   }, [removeKoi, setZenPoints, koiList.length]);
 
@@ -1086,7 +1087,7 @@ export const App: React.FC = () => {
       const newKoi: Koi = {
         id: crypto.randomUUID(),
         name: `코이`,
-        description: `${parent1.name}와 ${parent2.name}의 자손`,
+        description: `${getKoiDisplayName(parent1)}와 ${getKoiDisplayName(parent2)}의 자손`,
         genetics: breedResult.genetics,
         position: { x: Math.random() * 80 + 10, y: Math.random() * 80 + 10 },
         velocity: { vx: (Math.random() - 0.5) * 0.2, vy: (Math.random() - 0.5) * 0.2 },
@@ -1113,6 +1114,43 @@ export const App: React.FC = () => {
     setBreedingSelection([]);
   };
 
+  // 연못 ID를 번호 순서(pond-1, pond-2, ...)로 정렬한 목록. 좌우 버튼 이동 순서로 씁니다.
+  const sortedPondIds = useMemo(
+    () => Object.keys(ponds).sort((a, b) => a.localeCompare(b, undefined, { numeric: true })),
+    [ponds]
+  );
+
+  // 좌우 버튼으로 이전/다음 연못으로 이동합니다. 끝에 닿으면 반대편 처음 연못으로 돌아갑니다.
+  const switchPondBy = (offset: number) => {
+    if (sortedPondIds.length < 2) return;
+    const currentIndex = Math.max(0, sortedPondIds.indexOf(activePondId));
+    const nextIndex = (currentIndex + offset + sortedPondIds.length) % sortedPondIds.length;
+    audioManager.playSFX('click');
+    // 교배용으로 고른 코이는 이전 연못의 코이이므로 함께 비웁니다.
+    setBreedingSelection([]);
+    setActivePondId(sortedPondIds[nextIndex]);
+  };
+
+  // 연못 화면 하단의 '이동'을 눌렀을 때 옮길 연못을 고르는 패널을 보여줄지 여부
+  const [isPondMovePickerOpen, setIsPondMovePickerOpen] = useState(false);
+  useEffect(() => {
+    if (breedingSelection.length === 0) setIsPondMovePickerOpen(false);
+  }, [breedingSelection.length]);
+
+  // 고른 코이를 다른 연못으로 옮깁니다. 연못 화면과 연못 현황이 함께 씁니다.
+  // moveKoi는 자리가 부족하면 아무것도 하지 않으므로, 성공 알림을 띄우기 전에 같은 조건을 확인합니다.
+  const handleMoveKois = (kois: Koi[], targetPondId: string): boolean => {
+    const targetPond = ponds[targetPondId];
+    if (!targetPond || targetPond.kois.length + kois.length > 30) {
+      setNotification({ message: '옮길 연못에 자리가 부족합니다. (최대 30마리)', type: 'error' });
+      return false;
+    }
+    moveKoi(kois.map(k => k.id), targetPondId);
+    setBreedingSelection([]);
+    setNotification({ message: `${targetPond.name}에 코이 ${kois.length}마리를 옮겼어요.`, type: 'success' });
+    return true;
+  };
+
   const handleBuyPondExpansion = () => {
     const cost = 20000;
     if (zenPoints < cost) return;
@@ -1120,6 +1158,8 @@ export const App: React.FC = () => {
     audioManager.playSFX('purchase');
     addPond();
     setIsShopModalOpen(false);
+    // 새 연못으로 자동 이동하지 않으므로, 연못이 생겼다는 것과 코이를 옮기는 방법을 알려줍니다.
+    setNotification({ message: '새 연못이 생겼어요! 연못 현황에서 코이를 옮길 수 있어요.', type: 'success' });
   }
 
   const handleBuyFood = (quantity: number) => {
@@ -1433,12 +1473,14 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      {(cloudSaveIssue || localSaveIssue) && !isAccountRestoring && (
+      {/* 클라우드 저장 실패는 화면에 띄우지 않습니다. 기기에 먼저 저장되고, 인터넷이 돌아오면 자동으로 다시 올리며,
+          로그아웃은 클라우드 저장이 끝나야만 진행됩니다. 기기 저장 공간 부족은 자동으로 풀리지 않아 계속 알립니다. */}
+      {localSaveIssue && !isAccountRestoring && (
         <div
           className="absolute top-[calc(5rem+env(safe-area-inset-top))] left-1/2 z-40 w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 rounded-xl border border-amber-300/60 bg-amber-50 px-4 py-3 text-center text-sm leading-5 text-amber-950 shadow-xl"
           role="alert"
         >
-          <p>{localSaveIssue ? '기기 임시 저장에 실패했습니다. 저장 공간을 확인하고 다시 시도해주세요.' : cloudSaveIssue}</p>
+          <p>기기 임시 저장에 실패했습니다. 저장 공간을 확인하고 다시 시도해주세요.</p>
           <button
             type="button"
             onClick={retryAccountRestore}
@@ -1463,25 +1505,66 @@ export const App: React.FC = () => {
         )
       }
 
-      <div className="absolute top-[calc(1rem+env(safe-area-inset-top))] left-4 z-20 flex flex-col gap-2">
-        <div className="bg-white/10 backdrop-blur-sm p-3 rounded-lg border border-white/10 min-w-[140px]">
-          <p className="text-lg font-bold text-orange-300">{zenPoints.toLocaleString()} ZP</p>
+      {/* 왼쪽 위 상태 카드: 현재 연못과 수질을 한 장에 모아 보여줍니다.
+          ZP는 상점 상단에서 확인할 수 있어 여기서는 생략합니다. */}
+      <div className="absolute top-[calc(1rem+env(safe-area-inset-top))] left-4 z-20 w-[164px] bg-white/10 backdrop-blur-sm rounded-xl border border-white/10 text-white overflow-hidden">
+        {/* 윗줄: 현재 연못 이름과 마릿수. 이름을 누르면 연못 현황이 열리고,
+            연못이 2개 이상이면 양옆 화살표로 이전/다음 연못으로 바로 넘어갈 수 있습니다. */}
+        <div className="flex items-stretch">
+          {sortedPondIds.length > 1 && (
+            <button
+              onClick={() => switchPondBy(-1)}
+              className="flex-shrink-0 px-1.5 text-white/60 hover:text-white hover:bg-white/10 transition-colors"
+              aria-label="이전 연못으로 이동"
+            >
+              <ChevronLeft size={16} />
+            </button>
+          )}
+          <button
+            onClick={() => {
+              audioManager.playSFX('click');
+              setIsPondInfoModalOpen(true);
+            }}
+            className={`flex-1 min-w-0 flex items-baseline gap-1 pt-2.5 pb-2 hover:bg-white/10 transition-colors ${sortedPondIds.length > 1 ? 'justify-center px-1' : 'px-3'}`}
+            aria-label={`현재 ${activePond?.name ?? '연못'}, 코이 ${koiList.length}마리. 연못 현황 열기`}
+          >
+            <span className="text-sm font-bold truncate">{activePond?.name ?? '연못'}</span>
+            <span className="text-xs text-white/60 whitespace-nowrap">· {koiList.length}마리</span>
+          </button>
+          {sortedPondIds.length > 1 && (
+            <button
+              onClick={() => switchPondBy(1)}
+              className="flex-shrink-0 px-1.5 text-white/60 hover:text-white hover:bg-white/10 transition-colors"
+              aria-label="다음 연못으로 이동"
+            >
+              <ChevronRight size={16} />
+            </button>
+          )}
         </div>
 
-        {/* Water Quality Indicator - Interactive */}
-        <div className="bg-white/10 backdrop-blur-sm p-3 rounded-lg border border-white/10 flex items-center gap-2 min-w-[140px]">
-          <div className="flex flex-col items-start leading-none">
-            <span className="text-[10px] text-white/70">수질</span>
-            <span className={`text-sm font-bold ${waterQuality < 50 ? 'text-red-400' : 'text-white'}`}>
-              {Math.round(waterQuality)}%
-            </span>
+        {/* 아랫줄: 수질 막대와 청소 버튼. 70% 이하부터 코이 체력이 줄기 시작하므로 그때부터 색을 바꿔 경고합니다. */}
+        <div className="flex items-center gap-2 px-3 pb-2.5">
+          <Droplet size={13} className="flex-shrink-0 text-white/60" aria-hidden="true" />
+          <div className="flex-1 min-w-0">
+            <div className="flex items-baseline justify-between leading-none">
+              <span className="text-[10px] text-white/60">수질</span>
+              <span className={`text-xs font-bold ${waterQuality < 50 ? 'text-red-400' : waterQuality <= 70 ? 'text-amber-300' : 'text-white'}`}>
+                {Math.round(waterQuality)}%
+              </span>
+            </div>
+            <div className="mt-1 h-1 rounded-full bg-white/15 overflow-hidden" aria-hidden="true">
+              <div
+                className={`h-full rounded-full ${waterQuality < 50 ? 'bg-red-400' : waterQuality <= 70 ? 'bg-amber-300' : 'bg-sky-300'}`}
+                style={{ width: `${Math.max(0, Math.min(100, waterQuality))}%` }}
+              />
+            </div>
           </div>
           <button
             onClick={handleCleanPond}
-            className="ml-auto text-xs bg-orange-600 hover:bg-orange-500 text-white font-bold px-2 py-1 rounded transition-colors"
+            className="flex-shrink-0 text-[11px] bg-orange-600 hover:bg-orange-500 text-white font-bold px-2 py-1 rounded-md transition-colors"
             aria-label="연못 청소하기"
           >
-            + 청소
+            청소
           </button>
         </div>
       </div>
@@ -1528,45 +1611,79 @@ export const App: React.FC = () => {
       </div>
 
       {
-        breedingSelection.length > 0 && (
+        // 지금 연못에 실제로 있는 코이를 골랐을 때만 버튼을 띄웁니다. (팔리거나 옮겨진 코이 ID가 남아 있어도 숨김)
+        selectedKoisForBreeding.length > 0 && (
           <div className="absolute bottom-[calc(8rem+env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 z-30 flex flex-col items-center gap-3 w-full max-w-xs px-4">
 
-            {/* Selection Indicators */}
-            <div className="flex items-center gap-2 bg-white/10 backdrop-blur-md border border-white/10 rounded-full p-2 shadow-lg">
-              {selectedKoisForBreeding.map(k => {
-                return (
-                  <KoiCSSPreview
-                    key={k.id}
-                    koi={k}
-                    className="w-10 h-10 border border-white/70 shadow-sm"
-                  />
-                )
-              })}
-            </div>
-
+            {isPondMovePickerOpen ? (
+              // 이동할 연못 고르기: 다른 연못마다 버튼 하나. 자리가 부족하면 비활성화합니다.
+              <div className="w-full rounded-xl bg-white border border-slate-200 p-3 shadow-lg text-slate-700">
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <span className="text-sm"><strong className="text-[#f97316]">{selectedKoisForBreeding.length}마리</strong>를 어느 연못으로 옮길까요?</span>
+                  <button
+                    onClick={() => setIsPondMovePickerOpen(false)}
+                    className="text-xs text-slate-500 hover:text-slate-800 px-2 py-1 rounded-md hover:bg-slate-100 transition-colors whitespace-nowrap"
+                  >
+                    취소
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {sortedPondIds.filter(id => id !== activePondId).map(id => {
+                    const pond = ponds[id];
+                    const hasRoom = pond.kois.length + selectedKoisForBreeding.length <= 30;
+                    return (
+                      <button
+                        key={id}
+                        onClick={() => handleMoveKois(selectedKoisForBreeding, id)}
+                        disabled={!hasRoom}
+                        className="h-10 px-3 flex items-center justify-between gap-2 rounded-lg bg-white border border-slate-200 hover:border-orange-400 hover:bg-orange-50/50 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-slate-200 disabled:hover:bg-white transition-colors text-sm"
+                        aria-label={hasRoom
+                          ? `${pond.name}에 옮기기 (현재 ${pond.kois.length}마리)`
+                          : `${pond.name}은 자리가 부족해 옮길 수 없음 (현재 ${pond.kois.length}마리)`}
+                      >
+                        <span className="font-bold text-[#f97316] truncate">{pond.name}</span>
+                        <span className={`text-xs whitespace-nowrap ${hasRoom ? 'text-slate-500' : 'text-rose-500'}`}>{hasRoom ? `${pond.kois.length}/30` : '자리 부족'}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : (
             <div className="flex flex-col gap-2 w-full">
-              {/* Breed Button - Only if exactly 2 selected */}
-              {breedingSelection.length === 2 && (
-                <button
-                  onClick={handleMultiParentBreed}
-                  disabled={!canBreed}
-                  className="w-full h-10 flex items-center justify-center gap-2 bg-purple-600 text-white font-bold py-0 px-4 rounded-xl shadow-lg transition-all hover:bg-purple-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-sm"
-                  aria-label={`${selectedKoisForBreeding.length}마리 코이 교배하기`}
-                >
-                  <Dna size={18} />
-                  교배 ({BREEDING_COST} ZP)
-                </button>
-              )}
+              {/* 교배: 성체 2마리를 골랐을 때만 누를 수 있습니다. */}
+              <button
+                onClick={handleMultiParentBreed}
+                disabled={!canBreed}
+                className="w-full h-10 flex items-center justify-center gap-2 bg-[#f97316] text-white font-bold py-0 px-4 rounded-xl shadow-lg transition-all hover:bg-orange-600 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed text-sm"
+                aria-label={`${selectedKoisForBreeding.length}마리 코이 교배하기`}
+              >
+                <Dna size={18} />
+                교배 ({BREEDING_COST} ZP)
+              </button>
 
-              {/* Sell Button - Always visible if selection > 0 */}
               <button
                 onClick={() => handleSellSelected(selectedKoisForBreeding)}
-                className="w-full h-10 flex items-center justify-center gap-2 bg-red-600 text-white font-bold py-0 px-4 rounded-xl shadow-lg transition-all hover:bg-red-500 text-sm"
+                className="w-full h-10 flex items-center justify-center gap-2 bg-rose-500 text-white font-bold py-0 px-4 rounded-xl shadow-lg transition-all hover:bg-rose-600 text-sm"
                 aria-label={`${selectedKoisForBreeding.length}마리 코이 판매하기`}
               >
                 <DollarSign size={18} />
                 판매 (+{totalSellValue} ZP)
               </button>
+
+              {/* 이동: 다른 연못을 고르는 패널을 엽니다. */}
+              {sortedPondIds.length > 1 && (
+                <button
+                  onClick={() => {
+                    audioManager.playSFX('click');
+                    setIsPondMovePickerOpen(true);
+                  }}
+                  className="w-full h-10 flex items-center justify-center gap-2 bg-white border border-slate-300 text-slate-700 font-bold py-0 px-4 rounded-xl shadow-lg transition-all hover:bg-slate-100 hover:border-slate-400 text-sm"
+                  aria-label={`${selectedKoisForBreeding.length}마리 코이를 다른 연못으로 옮기기`}
+                >
+                  <ArrowRightLeft size={18} />
+                  이동
+                </button>
+              )}
 
               {/* Warning Message for disabled breeding - Below Sell Button */}
               {breedingSelection.length === 2 && !canBreed && (
@@ -1579,6 +1696,7 @@ export const App: React.FC = () => {
                 </div>
               )}
             </div>
+            )}
           </div>
         )
       }
@@ -1681,17 +1799,17 @@ export const App: React.FC = () => {
           koiList={koiList}
           onSell={handleSellSelected}
           onBreed={handleBreedKois}
+          selectedIds={breedingSelection}
+          onSelectionChange={setBreedingSelection}
           onMove={(kois, targetPondId) => {
-            moveKoi(kois.map(k => k.id), targetPondId);
-            setIsPondInfoModalOpen(false);
-            setNotification({ message: '코이들이 새로운 연못으로 이사했습니다!', type: 'success' });
+            if (handleMoveKois(kois, targetPondId)) setIsPondInfoModalOpen(false);
           }}
         />
       }
       {
         isInfoModalOpen && (
           <div className="absolute inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={() => setIsInfoModalOpen(false)}>
-            <div className="bg-gray-800 p-6 rounded-lg max-w-2xl w-full max-h-[85vh] overflow-y-auto border border-gray-700 shadow-xl custom-scrollbar glass-panel" onClick={e => e.stopPropagation()}>
+            <div className="bg-gray-800 p-6 rounded-lg max-w-2xl w-full max-h-[88svh] overflow-y-auto border border-gray-700 shadow-xl custom-scrollbar glass-panel" onClick={e => e.stopPropagation()}>
               <div className="flex justify-between items-center mb-4">
                 <h2 className="text-2xl font-bold text-orange-300">Koiworld</h2>
                 <button onClick={() => setIsInfoModalOpen(false)} className="text-gray-400 hover:text-white" aria-label="게임 정보 닫기"><X /></button>
@@ -1719,7 +1837,7 @@ export const App: React.FC = () => {
                       <span className="text-orange-400 font-bold block mb-1">🎨 색상 발현 규칙</span>
                       특정 색상이 눈에 보이려면, 그 색상의 유전자를 <strong className="text-white">최소 2개 이상</strong> 가지고 있어야 합니다.
                       <br />
-                      <span className="text-xs text-gray-500 mt-1 block">예: [빨강, 빨강] → 빨강 발현 / [빨강, 검정] → 크림색(기본)</span>
+                      <span className="text-xs text-gray-500 mt-1 block">예: 진홍/진홍 → 진홍 발현 / 진홍/칠흑 → 순백(기본)</span>
                     </p>
 
                     <p>

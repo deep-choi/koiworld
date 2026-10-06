@@ -1,3 +1,4 @@
+import { migrateLegacyGinrin } from './genetics';
 import { SavedGameState, Ponds, PondData, Koi, KoiGenetics, Spot, GeneType, SpotShape, PondTheme, GrowthStage } from '../types';
 
 // Dictionaries for mapping Enums to Integers
@@ -28,8 +29,10 @@ type MinifiedSpot = [number, number, number, number, number];
 // Genetics: [ [baseGenes...], [spots...], lightness, saturation, ...traits ]
 // traits follow TRAIT_KEYS; trailing zeros are left off, so older codes (four entries) still read the same.
 type MinifiedGenetics = [number[], MinifiedSpot[], number, number, ...number[]];
-const TRAIT_KEYS = ['motoguroGenes', 'hirenagaGenes', 'koromoGenes', 'tanchoGenes', 'ginrin', 'doitsuGenes'] as const;
-const TRAIT_MAX: Record<typeof TRAIT_KEYS[number], number> = { motoguroGenes: 2, hirenagaGenes: 2, koromoGenes: 2, tanchoGenes: 2, ginrin: 100, doitsuGenes: 2 };
+// 'ginrin' is the 1.0.6 blended value (0-100); it stays in its slot so those codes still decode, and is
+// migrated to ginrinGenes on load. New codes leave it 0 and write ginrinGenes in the last slot.
+const TRAIT_KEYS = ['motoguroGenes', 'hirenagaGenes', 'koromoGenes', 'tanchoGenes', 'ginrin', 'doitsuGenes', 'ginrinGenes'] as const;
+const TRAIT_MAX: Record<typeof TRAIT_KEYS[number], number> = { motoguroGenes: 2, hirenagaGenes: 2, koromoGenes: 2, tanchoGenes: 2, ginrin: 100, doitsuGenes: 2, ginrinGenes: 2 };
 
 // Koi: [id, name, genetics, age, growthStageIdx, timesFed, x, y] (Last 2: pos)
 type MinifiedKoi = [string, string, MinifiedGenetics, number, number, number, number, number];
@@ -186,13 +189,13 @@ export const decompressGameStateAsync = async (code: string): Promise<SavedGameS
                     id: kid,
                     name: kname,
                     description: '', // Re-generate or leave empty
-                    genetics: {
+                    genetics: migrateLegacyGinrin({
                         baseColorGenes,
                         spots,
                         lightness: kLight,
                         saturation: (kSaturation !== undefined && kSaturation > 1) ? kSaturation : 50,
                         ...traits,
-                    },
+                    }),
                     position: { x: kx, y: ky },
                     velocity: { vx: 0, vy: 0 },
                     age: kAge,

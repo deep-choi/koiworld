@@ -152,12 +152,7 @@ export const calculateKoiValue = (koi: Koi): number => {
     const spotColorValue = genetics.spots.reduce((sum, spot) => sum + (GENE_RARITY[spot.color] || 1), 0);
     value += spotTierBonus + spotColorValue;
 
-    // 7. Value from intrinsic spot saturation extremes.
-    // calculateSpotPhenotype returns 0-1, so convert to 0-100 before scoring.
-    const spotPheno = calculateSpotPhenotype(genetics.spotPhenotypeGenes);
-    const spotSaturationPercent = spotPheno.colorSaturation * 100;
-    const spotSatDiff = Math.abs(spotSaturationPercent - 50);
-    value += spotSatDiff * 3;
+    // 7. 점 채도는 화면에 보여주지 않는 값이라 판매가에도 반영하지 않습니다. (라인브리딩 대상이 되지 않도록)
 
     // 7.5 Trait genes: traits that show are worth the most, hidden recessive carriers a little.
     const traits = getKoiTraits(genetics);
@@ -166,7 +161,7 @@ export const calculateKoiValue = (koi: Koi): number => {
     if (traits.koromo) value += 120;
     if (traits.doitsu) value += 120;
     if (traits.tancho) value += 250;
-    value += traits.ginrin * 0.8;
+    value += [0, 40, 100][traits.ginrin];
     for (const trait of ['koromoGenes', 'tanchoGenes', 'doitsuGenes'] as const) {
         if (getTraitCopies(genetics, trait) === 1) value += 15;
     }
@@ -231,37 +226,45 @@ const createNewRandomSpot = (preferredColor?: GeneType): Spot => {
 
 // Two-allele traits: each parent passes one of its two alleles, and a breeding mutation turns one
 // plain allele into the trait allele.
-export type AlleleTrait = 'motoguroGenes' | 'hirenagaGenes' | 'koromoGenes' | 'tanchoGenes' | 'doitsuGenes';
+export type AlleleTrait = 'motoguroGenes' | 'hirenagaGenes' | 'ginrinGenes' | 'koromoGenes' | 'tanchoGenes' | 'doitsuGenes';
+export const ALLELE_TRAITS: AlleleTrait[] = ['motoguroGenes', 'hirenagaGenes', 'ginrinGenes', 'koromoGenes', 'tanchoGenes', 'doitsuGenes'];
 const ALLELE_TRAIT_MUTATION_CHANCE: Record<AlleleTrait, number> = {
     motoguroGenes: 0.02,
     hirenagaGenes: 0.02,
+    ginrinGenes: 0.02,
     koromoGenes: 0.015,
     tanchoGenes: 0.005,
     doitsuGenes: 0.015,
 };
 
-export const getTraitCopies = (genetics: KoiGenetics, trait: AlleleTrait): number =>
-    Math.max(0, Math.min(2, Math.round(genetics[trait] ?? 0)));
+/**
+ * 예전 긴린은 0~100 수치였습니다. 대립유전자로 바뀌면서 수치의 절반을 기준으로 개수로 옮깁니다.
+ * 0 → 0개, 1~49 → 1개, 50~100 → 2개. (functions/src/progression.ts에도 같은 규칙이 있습니다.)
+ */
+export const legacyGinrinToCopies = (value: unknown): number =>
+    typeof value === 'number' && Number.isFinite(value) && value > 0 ? (value >= 50 ? 2 : 1) : 0;
+
+export const getTraitCopies = (genetics: KoiGenetics, trait: AlleleTrait): number => {
+    // 아직 옮기지 않은 예전 저장본도 같은 개수로 읽히도록, ginrinGenes가 없으면 예전 수치에서 계산합니다.
+    const raw = trait === 'ginrinGenes' && genetics.ginrinGenes === undefined
+        ? legacyGinrinToCopies(genetics.ginrin)
+        : genetics[trait] ?? 0;
+    return Math.max(0, Math.min(2, Math.round(raw)));
+};
+
+/** 예전 긴린 수치(ginrin)를 유전자 개수(ginrinGenes)로 옮기고 예전 필드는 지웁니다. */
+export const migrateLegacyGinrin = (genetics: KoiGenetics): KoiGenetics => {
+    if (genetics.ginrin === undefined) return genetics;
+    const { ginrin: _legacy, ...rest } = genetics;
+    const copies = getTraitCopies(genetics, 'ginrinGenes');
+    return copies > 0 ? { ...rest, ginrinGenes: copies } : rest;
+};
 
 const breedAlleleTrait = (genetics1: KoiGenetics, genetics2: KoiGenetics, trait: AlleleTrait): number => {
     const gamete = (genetics: KoiGenetics) => Math.random() < getTraitCopies(genetics, trait) / 2 ? 1 : 0;
     let copies = gamete(genetics1) + gamete(genetics2);
     if (Math.random() < ALLELE_TRAIT_MUTATION_CHANCE[trait]) copies = Math.min(2, copies + 1);
     return copies;
-};
-
-// Ginrin blends like lightness; a rarer jump mutation lets it appear in lines that have none.
-const GINRIN_JUMP_CHANCE = 0.02;
-const GINRIN_JUMP_AMOUNT = 30;
-export const GINRIN_VISIBLE_FROM = 10;
-
-export const getGinrin = (genetics: KoiGenetics): number => Math.max(0, Math.min(100, Math.round(genetics.ginrin ?? 0)));
-
-const breedGinrin = (genetics1: KoiGenetics, genetics2: KoiGenetics): number => {
-    let value = (getGinrin(genetics1) + getGinrin(genetics2)) / 2;
-    if (Math.random() < LIGHTNESS_MUTATION_CHANCE) value += (Math.random() - 0.5) * 2 * LIGHTNESS_MUTATION_AMOUNT;
-    if (Math.random() < GINRIN_JUMP_CHANCE) value += GINRIN_JUMP_AMOUNT;
-    return Math.max(0, Math.min(100, Math.round(value)));
 };
 
 export const hasMotoguroGene = (genetics: KoiGenetics): boolean => getTraitCopies(genetics, 'motoguroGenes') > 0;
@@ -296,21 +299,86 @@ export interface KoiTraits {
     hirenaga: number;            // 0 normal, 1 long, 2 very long fins
     koromo: boolean;             // scale net over the patterns
     tancho: GeneType | null;     // colour of the single crown spot that replaces every pattern, null when not shown
-    ginrin: number;              // 0-100, 0 below GINRIN_VISIBLE_FROM
+    ginrin: number;              // 0 none, 1 some sparkling scales, 2 many (incomplete dominant)
     doitsu: boolean;             // hexagonal scale rows instead of small scales
 }
 
 export const getKoiTraits = (genetics: KoiGenetics): KoiTraits => {
-    const ginrin = getGinrin(genetics);
     return {
         motoguro: getMotoguroColor(genetics),
         hirenaga: getTraitCopies(genetics, 'hirenagaGenes'),
         koromo: getTraitCopies(genetics, 'koromoGenes') === 2 && genetics.spots.length > 0,
         tancho: getTraitCopies(genetics, 'tanchoGenes') === 2 ? getDominantSpotColor(genetics) : null,
-        ginrin: ginrin >= GINRIN_VISIBLE_FROM ? ginrin : 0,
+        ginrin: getTraitCopies(genetics, 'ginrinGenes'),
         doitsu: getTraitCopies(genetics, 'doitsuGenes') === 2,
     };
 };
+
+/**
+ * 화면에 보여주는 몸 색 유전자 이름. 코이 이름(예: 진홍잉어)과 유전자형 표기(예: 진홍/진홍/긴린)에 씁니다.
+ * 저장 데이터와 점 색은 원래 유전자 이름(빨강, 검정…)을 그대로 씁니다.
+ * 하양은 몸 색으로 드러나지 않고 예전 저장본에만 남아 있어 '하양'으로 둡니다.
+ */
+const BODY_COLOR_NAMES: Record<GeneType, string> = {
+    [GeneType.CREAM]: '순백',
+    [GeneType.YELLOW]: '황금',
+    [GeneType.ORANGE]: '주황',
+    [GeneType.RED]: '진홍',
+    [GeneType.BLACK]: '칠흑',
+    [GeneType.WHITE]: '하양',
+};
+export const getBodyColorName = (gene: GeneType): string => BODY_COLOR_NAMES[gene] ?? gene;
+
+// 목록에 쓰는 유전자형 표기 순서와 이름
+const GENOTYPE_TRAIT_NAMES: [AlleleTrait, string][] = [
+    ['motoguroGenes', '모토구로'],
+    ['hirenagaGenes', '히레나가'],
+    ['ginrinGenes', '긴린'],
+    ['koromoGenes', '고로모'],
+    ['tanchoGenes', '탄초'],
+    ['doitsuGenes', '도이츠'],
+];
+
+/**
+ * 유전자형을 기본 색 유전자처럼 나열합니다. 형질 유전자는 가진 개수만큼 이름을 붙입니다.
+ * 예) 크림/크림 + 고로모 1개 → ['순백', '순백', '고로모'], 2개 → ['순백', '순백', '고로모', '고로모']
+ */
+export const getGenotypeLabels = (genetics: KoiGenetics): string[] => {
+    const labels: string[] = genetics.baseColorGenes.map(getBodyColorName);
+    for (const [trait, name] of GENOTYPE_TRAIT_NAMES) {
+        for (let i = 0; i < getTraitCopies(genetics, trait); i++) labels.push(name);
+    }
+    return labels;
+};
+
+/**
+ * 몸에 드러난 유전자로 짓는 코이 이름. `[1개짜리 수식어] [몸 색] [형질 이름]잉어` 순서로 붙여 씁니다.
+ * 예) 크림/크림 → 순백잉어, 크림/크림/긴린 → 은빛 순백잉어, 크림/크림/긴린/긴린 → 순백 긴린잉어
+ * - 불완전 우성(긴린·히레나가)은 1개면 앞에 수식어, 2개면 형질 이름이 붙습니다.
+ * - 모토구로(우성)는 드러나면, 고로모·탄초·도이츠(열성)는 2개가 모여 드러날 때만 형질 이름이 붙습니다.
+ * - 보인자이거나 무늬가 없어 숨은 형질은 이름에 넣지 않습니다. (유전자형 표기에는 그대로 보입니다.)
+ */
+export const getKoiBreedName = (genetics: KoiGenetics): string => {
+    const traits = getKoiTraits(genetics);
+    const modifiers: string[] = [];
+    if (traits.ginrin === 1) modifiers.push('은빛');
+    if (traits.hirenaga === 1) modifiers.push('긴지느러미');
+    const traitNames: string[] = [];
+    if (traits.doitsu) traitNames.push('도이츠');
+    if (traits.ginrin === 2) traitNames.push('긴린');
+    if (traits.hirenaga === 2) traitNames.push('히레나가');
+    if (traits.motoguro) traitNames.push('모토구로');
+    if (traits.koromo) traitNames.push('고로모');
+    if (traits.tancho) traitNames.push('탄초');
+    return [...modifiers, getBodyColorName(getPhenotype(genetics.baseColorGenes)), ...traitNames].join(' ') + '잉어';
+};
+
+/** 새로 태어나거나 산 코이에 저장되는 기본 이름. 이 이름이면 화면에는 유전자로 지은 이름을 보여줍니다. */
+export const DEFAULT_KOI_NAME = '코이';
+
+/** 화면에 보여줄 코이 이름: 따로 지어 준 이름이 있으면 그 이름, 없으면 유전자로 지은 이름. */
+export const getKoiDisplayName = (koi: Koi): string =>
+    koi.name && koi.name !== DEFAULT_KOI_NAME ? koi.name : getKoiBreedName(koi.genetics);
 
 const GENE_EXPANSION_CHANCE = 0;
 const GENE_DELETION_CHANCE = 0.02;
@@ -490,12 +558,10 @@ export const breedKoi = (genetics1: KoiGenetics, genetics2: KoiGenetics): { gene
 
     // 4. Breed the trait genes (only stored when present, to keep saves small)
     const traits: Partial<KoiGenetics> = {};
-    for (const trait of ['motoguroGenes', 'hirenagaGenes', 'koromoGenes', 'tanchoGenes', 'doitsuGenes'] as const) {
+    for (const trait of ALLELE_TRAITS) {
         const copies = breedAlleleTrait(genetics1, genetics2, trait);
         if (copies > 0) traits[trait] = copies;
     }
-    const childGinrin = breedGinrin(genetics1, genetics2);
-    if (childGinrin > 0) traits.ginrin = childGinrin;
 
     return {
         genetics: {

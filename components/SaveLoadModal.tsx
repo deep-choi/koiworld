@@ -86,7 +86,7 @@ export const SaveLoadModal: React.FC<SaveLoadModalProps> = ({
 
     return (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={onClose}>
-            <div className="light-modal bg-white rounded-2xl max-w-md w-full max-h-[90dvh] overflow-y-auto border border-slate-200 shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="light-modal bg-white rounded-2xl max-w-md w-full max-h-[88svh] overflow-y-auto border border-slate-200 shadow-2xl" onClick={e => e.stopPropagation()}>
                 {/* 헤더 */}
                 <div className="flex items-center gap-2 px-5 pt-5">
                     {view !== 'menu' && (

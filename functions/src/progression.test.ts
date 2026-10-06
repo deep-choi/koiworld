@@ -82,8 +82,13 @@ test('trait achievements follow how each trait shows on a koi', () => {
     assert.equal(traitAchievementMet('trait_motoguro', { motoguroGenes: 1, spots: [] }), false);
     assert.equal(traitAchievementMet('trait_hirenaga', { hirenagaGenes: 1 }), true);
     assert.equal(traitAchievementMet('trait_hirenaga_full', { hirenagaGenes: 1 }), false);
-    assert.equal(traitAchievementMet('trait_ginrin', { ginrin: 10 }), true);
-    assert.equal(traitAchievementMet('trait_ginrin_100', { ginrin: 99 }), false);
+    assert.equal(traitAchievementMet('trait_ginrin', { ginrinGenes: 1 }), true);
+    assert.equal(traitAchievementMet('trait_ginrin_100', { ginrinGenes: 1 }), false);
+    assert.equal(traitAchievementMet('trait_ginrin_100', { ginrinGenes: 2 }), true);
+    // 1.0.6 saves: 1-49 counts as one copy, 50-100 as two.
+    assert.equal(traitAchievementMet('trait_ginrin', { ginrin: 5 }), true);
+    assert.equal(traitAchievementMet('trait_ginrin_100', { ginrin: 49 }), false);
+    assert.equal(traitAchievementMet('trait_ginrin_100', { ginrin: 50 }), true);
     assert.equal(traitAchievementMet('trait_koromo', { koromoGenes: 1, spots }), false);
     assert.equal(traitAchievementMet('trait_koromo', { koromoGenes: 2, spots }), true);
     assert.equal(traitAchievementMet('trait_doitsu', { doitsuGenes: 2 }), true);

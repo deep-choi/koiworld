@@ -43,14 +43,19 @@ const traitCopies = (genetics: Record<string, unknown>, key: string): number => 
     return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.min(2, Math.round(value))) : 0;
 };
 const hasSpots = (genetics: Record<string, unknown>) => Array.isArray(genetics.spots) && genetics.spots.length > 0;
-const ginrinValue = (genetics: Record<string, unknown>) =>
-    typeof genetics.ginrin === 'number' && Number.isFinite(genetics.ginrin) ? genetics.ginrin : 0;
+// Ginrin copies; saves from 1.0.6 hold a 0-100 value instead, read with the client's rule
+// (legacyGinrinToCopies in utils/genetics.ts): 1-49 is one copy, 50-100 two.
+const ginrinCopies = (genetics: Record<string, unknown>): number => {
+    if (genetics.ginrinGenes !== undefined) return traitCopies(genetics, 'ginrinGenes');
+    const legacy = genetics.ginrin;
+    return typeof legacy === 'number' && Number.isFinite(legacy) && legacy > 0 ? (legacy >= 50 ? 2 : 1) : 0;
+};
 const TRAIT_ACHIEVEMENTS: Record<string, { points: number, met: (genetics: Record<string, unknown>) => boolean }> = {
     trait_motoguro: { points: 200, met: g => traitCopies(g, 'motoguroGenes') >= 1 && hasSpots(g) },
     trait_hirenaga: { points: 200, met: g => traitCopies(g, 'hirenagaGenes') >= 1 },
     trait_hirenaga_full: { points: 300, met: g => traitCopies(g, 'hirenagaGenes') === 2 },
-    trait_ginrin: { points: 200, met: g => ginrinValue(g) >= 10 },
-    trait_ginrin_100: { points: 300, met: g => ginrinValue(g) >= 100 },
+    trait_ginrin: { points: 200, met: g => ginrinCopies(g) >= 1 },
+    trait_ginrin_100: { points: 300, met: g => ginrinCopies(g) === 2 },
     trait_koromo: { points: 300, met: g => traitCopies(g, 'koromoGenes') === 2 && hasSpots(g) },
     trait_doitsu: { points: 300, met: g => traitCopies(g, 'doitsuGenes') === 2 },
     trait_tancho: { points: 500, met: g => traitCopies(g, 'tanchoGenes') === 2 && hasSpots(g) },

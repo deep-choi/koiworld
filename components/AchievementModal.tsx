@@ -53,6 +53,11 @@ export const AchievementModal: React.FC<AchievementModalProps> = ({
         sum + (pendingClaimIds.includes(achievement.id) && !claimedIds.includes(achievement.id)
             ? achievement.reward.achievementPoints : 0), 0);
 
+    // 탭마다 받을 수 있는 보상(달성했지만 아직 안 받은 업적)이 있는지. 있으면 탭에 빨간 점을 띄웁니다.
+    const tiersWithRewards = new Set<string>(achievements
+        .filter(ach => unlockedIds.includes(ach.id) && !displayedClaimedIds.includes(ach.id))
+        .map(ach => ach.tier));
+
     const filteredAchievements = achievements.filter(ach =>
         activeTab === 'all' || ach.tier === activeTab
     );
@@ -80,7 +85,7 @@ export const AchievementModal: React.FC<AchievementModalProps> = ({
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-            <div className="light-modal bg-white border border-slate-200 rounded-2xl w-full max-w-md max-h-[85svh] flex flex-col shadow-2xl overflow-hidden">
+            <div className="light-modal bg-white border border-slate-200 rounded-2xl w-full max-w-md max-h-[88svh] flex flex-col shadow-2xl overflow-hidden">
                 {/* Header - Title, tabs, and score */}
                 <div className="px-5 pt-5 pb-3 bg-white shrink-0">
                     <div className="flex items-center justify-between mb-4">
@@ -112,14 +117,18 @@ export const AchievementModal: React.FC<AchievementModalProps> = ({
                             <button
                                 key={tab.id}
                                 onClick={() => setActiveTab(tab.id)}
-                                aria-label={`${tab.label} 업적 보기`}
+                                aria-label={`${tab.label} 업적 보기${tiersWithRewards.has(tab.id) ? ', 받을 보상 있음' : ''}`}
                                 aria-pressed={activeTab === tab.id}
-                                className={`px-3 py-2.5 rounded-lg font-medium transition-all whitespace-nowrap text-base ${tab.id === activeTab
+                                className={`relative px-3 py-2.5 rounded-lg font-medium transition-all whitespace-nowrap text-base ${tab.id === activeTab
                                     ? 'bg-[#f97316] text-white'
                                     : 'bg-white text-slate-500 hover:bg-slate-100 hover:text-slate-800'
                                     }`}
                             >
                                 {tab.label}
+                                {/* 하단 메뉴의 업적 버튼과 같은 모양의 빨간 점 */}
+                                {tiersWithRewards.has(tab.id) && (
+                                    <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 rounded-full border border-white animate-pulse" aria-hidden="true" />
+                                )}
                             </button>
                         ))}
                     </div>

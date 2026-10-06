@@ -411,3 +411,25 @@ test('live cloud updates replace pending device progress even if device storage 
         assert.equal(context.cloudGameStateRevisionRef.current, 6);
     }
 });
+
+test('saves with one pond get the second default pond; more ponds stay as they are', () => {
+    const loaded = state();
+    assert.deepEqual(Object.keys(loaded.ponds), ['pond-1', 'pond-2']);
+    assert.deepEqual(loaded.ponds['pond-2'], { id: 'pond-2', name: '연못 2', kois: [], decorations: [], theme: '기본 (맑은 물)', waterQuality: 100 });
+    assert.equal(loaded.activePondId, 'pond-1');
+    const threePonds = normalizeSavedGameState({ ...loaded, ponds: { ...loaded.ponds, 'pond-3': { ...loaded.ponds['pond-2'], id: 'pond-3', name: '연못 3' } } });
+    assert.deepEqual(Object.keys(threePonds.ponds), ['pond-1', 'pond-2', 'pond-3']);
+    assert.deepEqual(normalizeSavedGameState(loaded).ponds, loaded.ponds);
+});
+
+test('saves may hold up to four ponds; a fifth is rejected', () => {
+    const withPonds = count => {
+        const base = state();
+        const ponds = {};
+        for (let n = 1; n <= count; n++) ponds[`pond-${n}`] = { ...base.ponds['pond-1'], id: `pond-${n}`, name: `연못 ${n}`, kois: [] };
+        return { ...base, ponds };
+    };
+    assert.equal(isValidGameStateCore(withPonds(4)), true);
+    assert.equal(isValidGameStateCore(withPonds(5)), false);
+    assert.equal(normalizeSavedGameState(withPonds(5)), null);
+});

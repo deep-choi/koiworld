@@ -1,5 +1,5 @@
 import { Achievement, Koi, GeneType } from '../types';
-import { GENE_COLOR_MAP, getPhenotype, getKoiTraits, getTraitCopies, getGinrin } from './genetics';
+import { GENE_COLOR_MAP, getPhenotype, getKoiTraits, getTraitCopies, getBodyColorName } from './genetics';
 
 export const ACHIEVEMENTS: Achievement[] = [];
 
@@ -95,13 +95,9 @@ ACHIEVEMENTS.push(
 // ==========================================
 // 4. COLOR VARIATION ACHIEVEMENTS
 // ==========================================
-const COLORS = [
-    { type: GeneType.RED, name: '빨강', color: GENE_COLOR_MAP[GeneType.RED] },
-    { type: GeneType.ORANGE, name: '주황', color: GENE_COLOR_MAP[GeneType.ORANGE] },
-    { type: GeneType.YELLOW, name: '노랑', color: GENE_COLOR_MAP[GeneType.YELLOW] },
-    { type: GeneType.CREAM, name: '크림', color: GENE_COLOR_MAP[GeneType.CREAM] },
-    { type: GeneType.BLACK, name: '검정', color: GENE_COLOR_MAP[GeneType.BLACK] },
-];
+// 몸 색 이름은 코이 이름·유전자형 표기와 같은 이름(순백, 황금, 주황, 진홍, 칠흑)을 씁니다.
+const COLORS = [GeneType.RED, GeneType.ORANGE, GeneType.YELLOW, GeneType.CREAM, GeneType.BLACK]
+    .map(type => ({ type, name: getBodyColorName(type), color: GENE_COLOR_MAP[type] }));
 
 interface VariationConfig {
     id: string;
@@ -139,8 +135,8 @@ COLORS.forEach(color => {
 
         ACHIEVEMENTS.push({
             id: `color_${color.type}_${variant.id}`,
-            title: `${color.name} 코이`,
-            description: `${color.name} 색상의 코이를 획득하세요.`,
+            title: `${color.name}잉어`,
+            description: `몸 색이 ${color.name}인 코이를 획득하세요.`,
             icon: 'medal',
             tier,
             displayColor: getTierColor(tier, color.color),
@@ -243,13 +239,13 @@ const TRAIT_ACHIEVEMENT_LIST: Array<Pick<Achievement, 'id' | 'title' | 'descript
     },
     {
         id: 'trait_ginrin', title: '은빛 비늘', tier: 'intermediate', points: 200,
-        description: '긴린 수치가 10 이상인 코이를 획득하세요.',
-        condition: (koi: Koi) => getGinrin(koi.genetics) >= 10,
+        description: '긴린 유전자를 가진, 비늘이 반짝이는 코이를 획득하세요.',
+        condition: (koi: Koi) => getTraitCopies(koi.genetics, 'ginrinGenes') >= 1,
     },
     {
         id: 'trait_ginrin_100', title: '완전한 은린', tier: 'advanced', points: 300,
-        description: '긴린 수치가 100인 코이를 획득하세요.',
-        condition: (koi: Koi) => getGinrin(koi.genetics) >= 100,
+        description: '긴린 유전자를 2개 가진, 비늘이 아주 많이 반짝이는 코이를 획득하세요.',
+        condition: (koi: Koi) => getTraitCopies(koi.genetics, 'ginrinGenes') === 2,
     },
     {
         id: 'trait_koromo', title: '고로모', tier: 'advanced', points: 300,

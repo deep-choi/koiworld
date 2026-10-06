@@ -91,7 +91,7 @@ export const RankingModal: React.FC<RankingModalProps> = ({ isOpen, onClose, use
     return (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={onClose}>
             <div
-                className="light-modal bg-white rounded-2xl max-w-md w-full max-h-[85svh] flex flex-col border border-slate-200 shadow-2xl overflow-hidden animate-fade-in-up"
+                className="light-modal bg-white rounded-2xl max-w-md w-full max-h-[88svh] flex flex-col border border-slate-200 shadow-2xl overflow-hidden animate-fade-in-up"
                 onClick={e => e.stopPropagation()}
             >
                 {/* Header */}

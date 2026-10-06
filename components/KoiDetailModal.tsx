@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Koi, PondTheme } from '../types';
 import { X, DollarSign } from 'lucide-react';
-import { calculateKoiValue, GENE_COLOR_MAP, calculateSpotPhenotype, getKoiTraits, getTraitCopies, getGinrin } from '../utils/genetics';
+import { calculateKoiValue, GENE_COLOR_MAP, getKoiTraits, getTraitCopies, getKoiDisplayName, getBodyColorName } from '../utils/genetics';
 import { SingleKoiCanvas } from './SingleKoiCanvas';
 
 interface KoiDetailModalProps {
@@ -29,9 +29,8 @@ const getThemeBackground = (theme: PondTheme) => {
 
 export const KoiDetailModal: React.FC<KoiDetailModalProps> = ({ koi, onClose, onSell, totalKoiCount, theme, hideActions }) => {
     const sellValue = calculateKoiValue(koi);
+    const displayName = getKoiDisplayName(koi);
     const canSell = totalKoiCount > 2;
-    // For display in the modal, we want the "intrinsic" genetics (before environmental/growth modifiers)
-    const displayPhenotype = calculateSpotPhenotype(koi.genetics.spotPhenotypeGenes);
     const stamina = Math.round(koi.stamina ?? 0);
     const spotCount = koi.genetics.spots.length;
     const traits = getKoiTraits(koi.genetics);
@@ -47,6 +46,10 @@ export const KoiDetailModal: React.FC<KoiDetailModalProps> = ({ koi, onClose, on
             name: '히레나가', genes: `유전자 ${copies('hirenagaGenes')}개`,
             shown: traits.hirenaga === 2 ? '아주 긴 지느러미' : '긴 지느러미',
         },
+        copies('ginrinGenes') > 0 && {
+            name: '긴린', genes: `유전자 ${copies('ginrinGenes')}개`,
+            shown: traits.ginrin === 2 ? '많이 반짝이는 비늘' : '반짝이는 비늘',
+        },
         copies('koromoGenes') > 0 && {
             name: '고로모', genes: `유전자 ${copies('koromoGenes')}개`,
             shown: traits.koromo ? '무늬 그물' : copies('koromoGenes') < 2 ? '보인자' : hiddenWithoutSpots,
@@ -59,10 +62,6 @@ export const KoiDetailModal: React.FC<KoiDetailModalProps> = ({ koi, onClose, on
             name: '도이츠', genes: `유전자 ${copies('doitsuGenes')}개`,
             shown: traits.doitsu ? '육각 비늘' : '보인자',
         },
-        getGinrin(koi.genetics) > 0 && {
-            name: '긴린', genes: `수치 ${getGinrin(koi.genetics)}`,
-            shown: traits.ginrin ? '반짝이는 비늘' : '아직 안 보임',
-        },
     ].filter(Boolean) as { name: string, genes: string, shown: string, dot?: keyof typeof GENE_COLOR_MAP | null }[];
 
     const handleSell = () => {
@@ -73,15 +72,15 @@ export const KoiDetailModal: React.FC<KoiDetailModalProps> = ({ koi, onClose, on
 
     return (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[1300] p-4">
-            <div className="border border-white/40 rounded-2xl shadow-2xl p-5 w-full max-w-sm animate-fade-in-up relative max-h-[85svh] overflow-y-auto light-scrollbar" style={{ background: getThemeBackground(theme) }}>
-                <button onClick={onClose} className="absolute top-3 right-3 p-1.5 rounded-full text-white/75 hover:text-white hover:bg-white/15 transition-colors" aria-label={`${koi.name} 상세 정보 닫기`}>
+            <div className="border border-white/40 rounded-2xl shadow-2xl p-5 w-full max-w-sm animate-fade-in-up relative max-h-[88svh] overflow-y-auto light-scrollbar" style={{ background: getThemeBackground(theme) }}>
+                <button onClick={onClose} className="absolute top-3 right-3 p-1.5 rounded-full text-white/75 hover:text-white hover:bg-white/15 transition-colors" aria-label={`${displayName} 상세 정보 닫기`}>
                     <X size={24} />
                 </button>
 
                 <div className="space-y-4">
                     <div className="text-center">
                         <h2 className="text-xl font-bold text-white leading-tight">
-                            {koi.name}
+                            {displayName}
                         </h2>
                         <div className="flex items-center justify-center gap-2 mt-2">
                             <span className="text-xs font-bold bg-white/90 text-orange-700 border border-white px-3 py-1 rounded-full whitespace-nowrap">
@@ -114,10 +113,10 @@ export const KoiDetailModal: React.FC<KoiDetailModalProps> = ({ koi, onClose, on
                             {koi.genetics.baseColorGenes.map((gene, idx) => (
                                 <span key={idx}
                                     className="text-xs px-2 py-1 rounded-full border border-slate-200 bg-white text-slate-700 flex items-center gap-1"
-                                    title={gene}
+                                    title={getBodyColorName(gene)}
                                 >
                                     <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: GENE_COLOR_MAP[gene] }}></span>
-                                    {gene}
+                                    {getBodyColorName(gene)}
                                 </span>
                             ))}
                         </div>
@@ -158,10 +157,6 @@ export const KoiDetailModal: React.FC<KoiDetailModalProps> = ({ koi, onClose, on
                                     <span className="text-slate-500">점 개수</span>
                                     <strong className="text-orange-600">{spotCount}개</strong>
                                 </div>
-                                <div className="flex items-center justify-between text-xs mt-1">
-                                    <span className="text-slate-500">점 채도</span>
-                                    <strong className="text-orange-600">{(displayPhenotype.colorSaturation * 100).toFixed(0)}</strong>
-                                </div>
                             </div>
                         </div>
                     </div>
@@ -178,7 +173,7 @@ export const KoiDetailModal: React.FC<KoiDetailModalProps> = ({ koi, onClose, on
                                 className={`flex items-center justify-center w-full font-bold py-3 px-4 rounded-lg transition-colors text-base whitespace-nowrap ${canSell
                                     ? 'bg-red-500 hover:bg-red-600 text-white'
                                     : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`}
-                                aria-label={`${koi.name} 판매하기, ${sellValue} 젠 포인트`}
+                                aria-label={`${displayName} 판매하기, ${sellValue} 젠 포인트`}
                             >
                                 <DollarSign className="mr-2 h-5 w-5" />
                                 판매 ({sellValue} ZP)

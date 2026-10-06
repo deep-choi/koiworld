@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { MAX_POND_COUNT } from '../functions/src/saveValidation';
 import { X, ShoppingCart, Minus, Plus, Trophy } from 'lucide-react';
 import { CornIcon, FeedIcon } from './FoodIcons';
 
@@ -93,7 +94,7 @@ export const ShopModal: React.FC<ShopModalProps> = ({ onClose, zenPoints, onBuyF
     return (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-40 p-4">
             <div
-                className="light-modal bg-white border border-slate-200 rounded-2xl shadow-2xl p-5 w-full max-w-sm animate-fade-in-up max-h-[85svh] overflow-y-auto light-scrollbar"
+                className="light-modal bg-white border border-slate-200 rounded-2xl shadow-2xl p-5 w-full max-w-sm animate-fade-in-up max-h-[88svh] overflow-y-auto light-scrollbar"
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="shop-modal-title"
@@ -155,13 +156,13 @@ export const ShopModal: React.FC<ShopModalProps> = ({ onClose, zenPoints, onBuyF
                     <ShopItem
                         icon={<Plus size={32} strokeWidth={2} className="text-purple-500" />}
                         title="연못 확장권"
-                        description="새로운 연못을 추가합니다. (최대 4개)"
+                        description={`새로운 연못을 추가합니다. (최대 ${MAX_POND_COUNT}개)`}
                         price={20000}
                         onBuy={() => onBuyPond()}
                         canAfford={() => zenPoints >= 20000}
                         hasQuantity={false}
-                        disabled={pondCount >= 4}
-                        disabledReason={pondCount >= 4 ? "최대 보유량 도달" : undefined}
+                        disabled={pondCount >= MAX_POND_COUNT}
+                        disabledReason={pondCount >= MAX_POND_COUNT ? "최대 보유량 도달" : undefined}
                     />
                     <ShopItem
                         icon={<Trophy size={32} strokeWidth={2} className="text-orange-600" />}

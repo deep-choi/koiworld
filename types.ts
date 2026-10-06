@@ -83,7 +83,10 @@ export interface KoiGenetics {
   // Tancho (recessive, needs both): every pattern gives way to one round spot on the crown, in the most
   // common spot colour; hidden without spots. The spot genes stay and pass on as usual.
   tanchoGenes?: number;
-  // Ginrin (0-100, blends like lightness): share of scales that sparkle; missing means 0.
+  // Ginrin (incomplete dominant): silver-edged scales; one copy sparkles a little, two copies a lot.
+  ginrinGenes?: number;
+  // Legacy ginrin (0-100 blend, 1.0.6). Read only to migrate into ginrinGenes
+  // (see migrateLegacyGinrin in utils/genetics.ts); new koi never store it.
   ginrin?: number;
   // Doitsu (recessive, needs both): no small scales, one row of interlocking hexagonal scales on each
   // side of the dorsal fin, in a see-through grey that reads a shade darker than the body.

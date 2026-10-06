@@ -6,7 +6,7 @@ import type { KoiGenetics } from '../types';
 
 /** Part of the colour cache key: the trait genes that change how a koi is drawn. */
 const traitGenesKey = (g: KoiGenetics) =>
-    `${g.motoguroGenes ?? 0}${g.hirenagaGenes ?? 0}${g.koromoGenes ?? 0}${g.tanchoGenes ?? 0}${g.doitsuGenes ?? 0}-${g.ginrin ?? 0}`;
+    `${g.motoguroGenes ?? 0}${g.hirenagaGenes ?? 0}${g.koromoGenes ?? 0}${g.tanchoGenes ?? 0}${g.doitsuGenes ?? 0}${g.ginrinGenes ?? 0}-${g.ginrin ?? 0}`;
 import { WaterEffects } from './WaterEffects';
 
 const NO_KOI_POSITIONS: { x: number, y: number, vx: number, vy: number }[] = [];

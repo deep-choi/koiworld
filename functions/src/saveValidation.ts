@@ -8,10 +8,14 @@ const optionalNumber = (value: unknown) => value === undefined || value === null
 // Two-allele trait genes: missing, or how many of the two alleles carry the trait.
 const alleleCount = (value: unknown) => value === undefined || (Number.isInteger(value) && (value as number) >= 0 && (value as number) <= 2);
 const colors = new Set(['검정', '빨강', '노랑', '하양', '주황', '크림']);
+// 한 계정이 가질 수 있는 연못 수. 기본 2개에 상점의 연못 확장권으로 4개까지 늘릴 수 있습니다.
+// 저장본을 고쳐 연못을 더 만드는 것을 막고, 나중에 유료 연못을 붙일 때 이 검사를 구매 수량 기준으로 바꿉니다.
+export const MAX_POND_COUNT = 4;
 
 export function isValidGameStateCore(value: unknown): boolean {
     if (!record(value) || !record(value.ponds) || typeof value.activePondId !== 'string'
-        || !Object.hasOwn(value.ponds, value.activePondId)) return false;
+        || !Object.hasOwn(value.ponds, value.activePondId)
+        || Object.keys(value.ponds).length > MAX_POND_COUNT) return false;
     if (!['zenPoints', 'foodCount', 'koiNameCounter'].every(key => number(value[key]) && value[key] >= 0)) return false;
     if (!['cornCount', 'honorPoints', 'achievementPoints'].every(key => optionalNumber(value[key]) && (value[key] == null || value[key] >= 0))) return false;
     const ids = new Set<string>();
@@ -33,7 +37,7 @@ export function isValidGameStateCore(value: unknown): boolean {
                 || !Array.isArray(g.spots) || !optionalNumber(g.lightness) || !optionalNumber(g.saturation)) return false;
             if (!g.spots.every((s: unknown) => record(s) && number(s.x) && number(s.y) && number(s.size)
                 && colors.has(s.color) && ['circle', 'hexagon', 'polygon', 'oval_h'].includes(s.shape))) return false;
-            if (!['motoguroGenes', 'hirenagaGenes', 'koromoGenes', 'tanchoGenes', 'doitsuGenes'].every(key => alleleCount(g[key]))
+            if (!['motoguroGenes', 'hirenagaGenes', 'ginrinGenes', 'koromoGenes', 'tanchoGenes', 'doitsuGenes'].every(key => alleleCount(g[key]))
                 || !(g.ginrin === undefined || (number(g.ginrin) && g.ginrin >= 0 && g.ginrin <= 100))) return false;
             if (g.spotPhenotypeGenes !== undefined) {
                 const cs = g.spotPhenotypeGenes?.CS;

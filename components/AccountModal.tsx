@@ -246,7 +246,7 @@ export const AccountModal: React.FC<AccountModalProps> = ({
 
     return (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={onClose}>
-            <div className="light-modal bg-white rounded-2xl max-w-md w-full max-h-[calc(100svh-2rem)] border border-slate-200 shadow-2xl overflow-y-auto custom-scrollbar" onClick={event => event.stopPropagation()}>
+            <div className="light-modal bg-white rounded-2xl max-w-md w-full max-h-[88svh] border border-slate-200 shadow-2xl overflow-y-auto custom-scrollbar" onClick={event => event.stopPropagation()}>
                 <div className="flex justify-between items-center px-5 pt-5">
                     <h2 className="text-xl font-medium text-slate-900">
                         계정 정보

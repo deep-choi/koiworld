@@ -3,6 +3,8 @@ import { useState, useCallback, useRef, useMemo, useEffect } from 'react';
 import { Koi, GeneType, Ponds, GrowthStage, Decoration, DecorationType, PondTheme, SpotShape } from '../types';
 import { audioManager } from '../utils/audio';
 import { createFixedSpotPhenotypeGenes } from '../utils/genetics';
+import { createEmptyPond, withDefaultPonds } from '../utils/savedGameState';
+import { MAX_POND_COUNT } from '../functions/src/saveValidation';
 
 const POINTS_TO_JUVENILE = 15;
 const POINTS_TO_ADULT = 15;
@@ -11,6 +13,9 @@ const FEED_COOLDOWN_MS = 3000;
 
 interface FoodPellet {
     id: number;
+    // 먹이를 뿌린 연못 ID. 연못마다 물에 떠 있는 먹이가 따로 있어야
+    // 연못 1에 뿌린 먹이를 연못 2의 코이가 먹는 일이 생기지 않습니다.
+    pondId: string;
     position: { x: number; y: number };
     feedAmount: number; // 1 for normal, 2 for corn
 }
@@ -111,24 +116,16 @@ export const createInitialPonds = (): Ponds => {
         };
     });
 
-    return {
-        'pond-1': {
-            id: 'pond-1',
-            name: '연못 1',
-            kois: initialKois,
-            decorations: [
-                // 개구리밥 설정 제거됨
-            ],
-
-            theme: PondTheme.DEFAULT,
-            waterQuality: 100,
-        }
-    };
+    // 새 게임은 기본 연못 2개로 시작합니다. 시작 코이는 연못 1에만 있고 연못 2는 비어 있습니다.
+    return withDefaultPonds({
+        'pond-1': { ...createEmptyPond(1), kois: initialKois },
+    });
 };
 
 export const useKoiPond = (initialState?: UseKoiPondInitialState) => {
     const [ponds, setPonds] = useState<Ponds>(() => {
-        const initial = initialState?.ponds ?? createInitialPonds();
+        // 불러온 저장본에 연못이 1개뿐이어도 기본 연못 2개를 맞춰 줍니다.
+        const initial = withDefaultPonds(initialState?.ponds ?? createInitialPonds());
         // Migration: ensure all ponds have decorations array
         Object.values(initial).forEach(pond => {
             if (!pond.decorations) pond.decorations = [];
@@ -164,7 +161,13 @@ export const useKoiPond = (initialState?: UseKoiPondInitialState) => {
 
 
     // ... (inside useKoiPond hook)
-    const [foodPellets, setFoodPellets] = useState<FoodPellet[]>([]);
+    // 모든 연못의 먹이를 한 배열에 보관하고, 화면(게임 엔진)에는 현재 연못의 먹이만 넘깁니다.
+    // 다른 연못에 남아 있던 먹이는 사라지지 않고, 그 연못으로 돌아오면 다시 보입니다.
+    const [allFoodPellets, setFoodPellets] = useState<FoodPellet[]>([]);
+    const foodPellets = useMemo(
+        () => allFoodPellets.filter(p => p.pondId === activePondId),
+        [allFoodPellets, activePondId]
+    );
     const [feedAnimations, setFeedAnimations] = useState<FeedAnimation[]>([]);
     const [foodCount, setFoodCount] = useState(initialState?.foodCount ?? 20);
     const [cornCount, setCornCount] = useState(initialState?.cornCount ?? 0);
@@ -226,21 +229,15 @@ export const useKoiPond = (initialState?: UseKoiPondInitialState) => {
     const addPond = useCallback(() => {
         setPonds((prevPonds: Ponds) => {
             const currentCount = Object.keys(prevPonds).length;
-            if (currentCount >= 4) return prevPonds;
+            if (currentCount >= MAX_POND_COUNT) return prevPonds;
 
-            const newPondId = `pond-${currentCount + 1}`;
+            const newPond = createEmptyPond(currentCount + 1);
             const newPonds = {
                 ...prevPonds,
-                [newPondId]: {
-                    id: newPondId,
-                    name: `연못 ${currentCount + 1}`,
-                    kois: [],
-                    decorations: [],
-                    theme: PondTheme.DEFAULT,
-                    waterQuality: 100,
-                }
+                [newPond.id]: newPond,
             };
-            setActivePondId(newPondId);
+            // 새 연못을 사도 지금 보고 있는 연못에 그대로 머뭅니다.
+            // (예전에는 빈 새 연못으로 자동 이동해서 코이가 전부 사라진 것처럼 보였습니다.)
             return newPonds;
         });
     }, []);
@@ -373,6 +370,7 @@ export const useKoiPond = (initialState?: UseKoiPondInitialState) => {
         for (let i = 0; i < 3; i++) {
             newPellets.push({
                 id: Date.now() + i + Math.floor(Math.random() * 1000000),
+                pondId: activePondId,
                 position: {
                     x: position.x + (Math.random() - 0.5) * 4,
                     y: position.y + (Math.random() - 0.5) * 4,
@@ -381,7 +379,7 @@ export const useKoiPond = (initialState?: UseKoiPondInitialState) => {
             });
         }
         setFoodPellets((prev: FoodPellet[]) => [...prev, ...newPellets]);
-    }, []);
+    }, [activePondId]);
 
     const triggerFeedAnimation = useCallback((position: { x: number; y: number }, feedAmount: number = 1) => {
         const animId = Date.now() + Math.random();

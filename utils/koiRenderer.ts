@@ -146,7 +146,7 @@ const FINE_DETAIL_SCALE = 0.35;
 // The fill is a see-through grey, so each scale reads a shade darker than whatever lies under it.
 const DOITSU_START_U = 0.14;
 const DOITSU_END_U = 0.88;
-const DOITSU_SIZE = 0.27;
+const DOITSU_SIZE = 0.33;
 const DOITSU_TAPER = 0.45;
 const DOITSU_FILL = 'rgba(35, 38, 46, 0.24)';
 const DOITSU_EDGE = 'rgba(35, 38, 46, 0.08)';  // over the fill: only just darker than the scale
@@ -169,7 +169,7 @@ const spotDisplaySize = (size: number): number =>
 // Patterns are built from small hexagon cells (circumradius, in units of R).
 // Points face across the body and flat sides face the head and tail, so pattern sides get a shallow
 // zigzag while the head and tail ends step in rows.
-const SPOT_CELL_SIZE = 0.2;
+const SPOT_CELL_SIZE = 0.25;
 const SPOT_CELL_HALF_HEIGHT = SPOT_CELL_SIZE * Math.sqrt(3) / 2;
 
 /** First lattice column (in units of R) at or beyond -half; odd rows are shifted by one radius. */

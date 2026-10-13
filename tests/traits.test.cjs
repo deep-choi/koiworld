@@ -7,7 +7,7 @@ require.extensions['.ts'] = (module, filename) => module._compile(ts.transpileMo
     fs.readFileSync(filename, 'utf8'),
     { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } },
 ).outputText, filename);
-const { breedKoi, getKoiTraits, getGenotypeLabels, getTraitCopies, migrateLegacyGinrin, getKoiBreedName, getKoiDisplayName } = require('../utils/genetics.ts');
+const { breedKoi, getKoiTraits, getGenotypeBadges, getTraitCopies, migrateLegacyGinrin, getKoiBreedName, getKoiDisplayName } = require('../utils/genetics.ts');
 const { normalizeSavedGameState } = require('../utils/savedGameState.ts');
 const { buildKoiRenderStyle } = require('../utils/koiColors.ts');
 const { isValidGameStateCore } = require('../functions/src/saveValidation.ts');
@@ -130,17 +130,34 @@ test('doitsu needs both alleles and shows with or without spots', () => {
     assert.equal(buildKoiRenderStyle(koi(genetics({ doitsuGenes: 2 }))).colors.doitsu, true);
 });
 
-test('genotype labels list each trait allele after the base colour genes', () => {
-    const labels = traits => getGenotypeLabels(genetics(traits)).join('/');
-    assert.equal(labels({}), '순백/순백');
-    assert.equal(getGenotypeLabels({ ...genetics(), baseColorGenes: ['빨강', '검정', '크림'] }).join('/'), '진홍/칠흑/순백');
-    assert.equal(labels({ koromoGenes: 1 }), '순백/순백/고로모');
-    assert.equal(labels({ koromoGenes: 2 }), '순백/순백/고로모/고로모');
-    assert.equal(labels({ motoguroGenes: 1, tanchoGenes: 2 }), '순백/순백/모토구로/탄초/탄초');
-    assert.equal(labels({ ginrinGenes: 1 }), '순백/순백/긴린');
-    assert.equal(labels({ ginrinGenes: 2, koromoGenes: 1 }), '순백/순백/긴린/긴린/고로모');
-    // 1.0.6 koi not yet migrated read the same.
-    assert.equal(labels({ ginrin: 80 }), '순백/순백/긴린/긴린');
+test('genotype badges group matching colour pairs and retain every unpaired allele', () => {
+    assert.deepEqual(getGenotypeBadges(genetics()), [{ label: '순백', kind: 'paired' }]);
+    assert.deepEqual(getGenotypeBadges(genetics({ baseColorGenes: ['크림', '노랑', '크림', '노랑', '크림'] })), [
+        { label: '순백', kind: 'paired' },
+        { label: '황금', kind: 'paired' },
+        { label: '순백', kind: 'carrier' },
+    ]);
+    assert.deepEqual(getGenotypeBadges(genetics({ baseColorGenes: ['빨강', '검정', '크림'] })), [
+        { label: '진홍', kind: 'carrier' }, { label: '칠흑', kind: 'carrier' }, { label: '순백', kind: 'carrier' },
+    ]);
+    assert.equal(getGenotypeBadges(genetics({ baseColorGenes: ['크림', '크림', '크림', '크림'] })).length, 2);
+});
+
+test('only single recessive trait alleles are carrier badges', () => {
+    for (const [trait, name] of [['koromoGenes', '고로모'], ['tanchoGenes', '탄초'], ['doitsuGenes', '도이츠']]) {
+        assert.deepEqual(getGenotypeBadges(genetics({ [trait]: 1 })).at(-1), { label: name, kind: 'carrier' });
+        assert.deepEqual(getGenotypeBadges(genetics({ [trait]: 2 })).at(-1), { label: name, kind: 'paired' });
+    }
+    for (const [trait, name] of [['motoguroGenes', '모토구로'], ['hirenagaGenes', '히레나가'], ['ginrinGenes', '긴린']]) {
+        assert.deepEqual(getGenotypeBadges(genetics({ [trait]: 1 })).at(-1), { label: name, kind: 'single' });
+        assert.deepEqual(getGenotypeBadges(genetics({ [trait]: 2 })).at(-1), { label: name, kind: 'paired' });
+    }
+    assert.deepEqual(getGenotypeBadges(genetics({ ginrinGenes: 1, koromoGenes: 1 })), [
+        { label: '순백', kind: 'paired' }, { label: '긴린', kind: 'single' }, { label: '고로모', kind: 'carrier' },
+    ]);
+    // 1.0.6 저장본도 현재 유전자 개수와 같은 라벨을 보여줍니다.
+    assert.deepEqual(getGenotypeBadges(genetics({ ginrin: 80 })).at(-1), { label: '긴린', kind: 'paired' });
+    assert.deepEqual(getGenotypeBadges(genetics({ ginrin: 30 })).at(-1), { label: '긴린', kind: 'single' });
 });
 
 test('koi are named after the genes that show', () => {

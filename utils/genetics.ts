@@ -315,7 +315,7 @@ export const getKoiTraits = (genetics: KoiGenetics): KoiTraits => {
 };
 
 /**
- * 화면에 보여주는 몸 색 유전자 이름. 코이 이름(예: 진홍잉어)과 유전자형 표기(예: 진홍/진홍/긴린)에 씁니다.
+ * 화면에 보여주는 몸 색 유전자 이름. 코이 이름(예: 진홍잉어)과 유전자 라벨(예: 진홍/진홍)에 씁니다.
  * 저장 데이터와 점 색은 원래 유전자 이름(빨강, 검정…)을 그대로 씁니다.
  * 하양은 몸 색으로 드러나지 않고 예전 저장본에만 남아 있어 '하양'으로 둡니다.
  */
@@ -339,16 +339,39 @@ const GENOTYPE_TRAIT_NAMES: [AlleleTrait, string][] = [
     ['doitsuGenes', '도이츠'],
 ];
 
+export interface GenotypeBadge {
+    label: string;
+    kind: 'paired' | 'single' | 'carrier';
+}
+
 /**
- * 유전자형을 기본 색 유전자처럼 나열합니다. 형질 유전자는 가진 개수만큼 이름을 붙입니다.
- * 예) 크림/크림 + 고로모 1개 → ['순백', '순백', '고로모'], 2개 → ['순백', '순백', '고로모', '고로모']
+ * 같은 몸 색 인자 한 쌍은 이름 하나인 라벨로 표시하고 남은 인자는 보인자로 표시합니다.
+ * 형질도 두 개면 한 쌍으로 묶습니다. 한 개일 때는 열성 형질만 보인자로 구분하고,
+ * 우성/불완전 우성 형질은 한 개로도 발현 가능하므로 보인자 색을 쓰지 않습니다.
  */
-export const getGenotypeLabels = (genetics: KoiGenetics): string[] => {
-    const labels: string[] = genetics.baseColorGenes.map(getBodyColorName);
-    for (const [trait, name] of GENOTYPE_TRAIT_NAMES) {
-        for (let i = 0; i < getTraitCopies(genetics, trait); i++) labels.push(name);
+export const getGenotypeBadges = (genetics: KoiGenetics): GenotypeBadge[] => {
+    const badges: GenotypeBadge[] = [];
+    const colorCounts = new Map<GeneType, number>();
+    for (const gene of genetics.baseColorGenes) {
+        colorCounts.set(gene, (colorCounts.get(gene) ?? 0) + 1);
     }
-    return labels;
+    for (const [gene, count] of colorCounts) {
+        const name = getBodyColorName(gene);
+        for (let i = 0; i < Math.floor(count / 2); i++) {
+            badges.push({ label: name, kind: 'paired' });
+        }
+        if (count % 2) badges.push({ label: name, kind: 'carrier' });
+    }
+    for (const [trait, name] of GENOTYPE_TRAIT_NAMES) {
+        const copies = getTraitCopies(genetics, trait);
+        if (copies === 0) continue;
+        const isRecessive = trait === 'koromoGenes' || trait === 'tanchoGenes' || trait === 'doitsuGenes';
+        badges.push(copies === 2
+            ? { label: name, kind: 'paired' }
+            : { label: name, kind: isRecessive ? 'carrier' : 'single' });
+    }
+    // 주황색 라벨을 먼저 모으고 회색 보인자는 뒤에 둬서 짝과 보유 인자를 빠르게 읽게 합니다.
+    return [...badges.filter(badge => badge.kind !== 'carrier'), ...badges.filter(badge => badge.kind === 'carrier')];
 };
 
 /**

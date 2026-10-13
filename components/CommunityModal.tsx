@@ -93,7 +93,7 @@ export function CommunityModal({ isOpen, onClose, onBack, section = 'news' }: { 
                     <button type="button" className={MENU_ROW} onClick={() => openBoard('notice')}><Megaphone className={MENU_ICON} size={MENU_ICON_SIZE} /><span className={MENU_LABEL}>공지사항</span><ChevronRight size={18} className={MENU_TRAILING} /></button>
                     <button type="button" className={MENU_ROW} onClick={() => openBoard('update')}><Sparkles className={MENU_ICON} size={MENU_ICON_SIZE} /><span className={MENU_LABEL}>업데이트</span><ChevronRight size={18} className={MENU_TRAILING} /></button>
                 </div>
-                <p className="mt-6 text-center text-xs text-slate-400">Koiworld 1.0.7{news.isAdmin && ' · 관리자'}</p>
+                <p className="mt-6 text-center text-xs text-slate-400">Koiworld 1.0.8{news.isAdmin && ' · 관리자'}</p>
             </> : view === 'community' ? <>
                 <p className="mb-4 mt-2 text-sm text-slate-500">함께하는 이야기</p>
                 <div className={MENU_LIST}>
@@ -107,7 +107,7 @@ export function CommunityModal({ isOpen, onClose, onBack, section = 'news' }: { 
                         : <button key={label} type="button" className={MENU_ROW} disabled>{content}</button>;
                 })}
                 </div>
-                <p className="mt-6 text-center text-xs text-slate-400">Koiworld 1.0.7</p>
+                <p className="mt-6 text-center text-xs text-slate-400">Koiworld 1.0.8</p>
             </> : screen.type === 'post'
                 ? <NewsDetail post={screen.post} isAdmin={news.isAdmin}
                     onEdit={() => setScreen({ type: 'edit', draft: draftOf(screen.post), from: screen.post })} />
@@ -119,7 +119,7 @@ export function CommunityModal({ isOpen, onClose, onBack, section = 'news' }: { 
                         onOpen={post => setScreen({ type: 'post', post })}
                         onWrite={() => setScreen({ type: 'edit', draft: newDraft(view) })}
                         onUpload={uploadBundled} />}
-            {onBoard && screen.type === 'list' && <p className="mt-6 text-center text-xs text-slate-400">{KIND_LABEL[view]} · Koiworld 1.0.7</p>}
+            {onBoard && screen.type === 'list' && <p className="mt-6 text-center text-xs text-slate-400">{KIND_LABEL[view]} · Koiworld 1.0.8</p>}
         </div>
     </div>;
 }

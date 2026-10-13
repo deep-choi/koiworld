@@ -156,7 +156,7 @@ export function NewsEditor({ initial, onSaved, onCancel, onDeleted }: {
         <div>
             <label htmlFor="news-title" className={LABEL}>제목</label>
             <input id="news-title" className={FIELD} value={draft.title} maxLength={NEWS_TITLE_MAX}
-                onChange={event => set('title', event.target.value)} placeholder="예: 1.0.7 · 새 장식 추가" />
+                onChange={event => set('title', event.target.value)} placeholder="예: 1.0.8 · 새 장식 추가" />
         </div>
         <div>
             <label htmlFor="news-body" className={LABEL}>본문 <span className="font-normal text-slate-400">· 빈 줄로 문단을 나눠요</span></label>

@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { X, Palette, Sun, Sparkles, Dna, DollarSign, Pencil, Check, ArrowRightLeft, ChevronRight } from 'lucide-react';
 import { Koi, Ponds, PondData, GeneType, GrowthStage, SpotPhenotype } from '../types';
-import { calculateKoiValue, getGenotypeLabels, getKoiDisplayName } from '../utils/genetics';
+import { calculateKoiValue, getGenotypeBadges, getKoiDisplayName } from '../utils/genetics';
 import { KoiCSSPreview } from './KoiCSSPreview';
 
 // Helper component for list items
@@ -61,10 +61,21 @@ const KoiListItem: React.FC<{
           <span>채도 <span className="text-slate-700">{Math.round(koi.genetics.saturation)}</span></span>
           <span>체력 <span className="text-slate-700">{Math.round(koi.stamina ?? 0)}</span></span>
         </div>
-        {/* 셋째 줄: 유전자형. 몸 색 유전자 뒤에 형질 유전자를 가진 개수만큼 이어 붙입니다. 예) 순백/순백/고로모/고로모
-            길어지면 '/' 뒤에서 줄바꿈되도록 보이지 않는 줄바꿈 지점(\u200b)을 넣습니다. */}
-        <div className="mt-1 text-xs text-slate-600">
-          {getGenotypeLabels(koi.genetics).join('/\u200b')}
+        {/* 유전자 한 쌍과 발현 가능한 단일 형질은 주황색, 한 개만 가진 열성 인자는 회색입니다.
+            각 라벨은 한 덩어리로 유지하고, 좁은 화면에서는 라벨 사이에서 줄을 바꿉니다. */}
+        <div className="mt-2 flex flex-wrap gap-1 text-[11px] leading-4">
+          {getGenotypeBadges(koi.genetics).map((badge, index) => (
+            <span
+              key={`${badge.label}-${index}`}
+              title={badge.kind === 'carrier' ? `${badge.label}: 열성 인자 1개 보유` : badge.kind === 'paired' ? `${badge.label}: 유전자 한 쌍` : `${badge.label}: 유전자 1개로 발현 가능`}
+              aria-label={badge.kind === 'carrier' ? `${badge.label} 보인자` : badge.label}
+              className={`rounded px-1.5 py-0.5 font-medium whitespace-nowrap ${badge.kind === 'carrier'
+                ? 'bg-slate-100 text-slate-500'
+                : 'bg-orange-100 text-orange-700'}`}
+            >
+              {badge.label}
+            </span>
+          ))}
         </div>
       </div>
 

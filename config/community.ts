@@ -14,6 +14,14 @@ export function communityUrl(value: string): string | null {
 // 서버에 연결할 수 없을 때만 이 목록을 보여 줍니다. 새 글은 앱의 관리자 글쓰기 화면에서 올립니다.
 export const NEWS: Array<{ id: string; kind: 'notice' | 'update'; title: string; paragraphs: string[]; publishedAt: string }> = [
     {
+        id: '1.0.8', kind: 'update', title: '1.0.8 · 터치 오류 수정과 유전자 라벨', publishedAt: '2026-10-13T18:00:00+09:00',
+        paragraphs: [
+            '연못에서 코이를 고르는 터치가 새로 나타난 교배·판매·이동 버튼까지 이어지던 오류를 수정했습니다. 버튼을 새로 눌러야 실행됩니다.',
+            '연못 현황의 유전인자를 라벨로 정리했습니다. 같은 인자 한 쌍은 주황색 순백, 황금처럼 이름 하나로 표시하고, 한 개만 가진 열성 인자는 회색으로 표시합니다.',
+            '긴린·히레나가·모토구로처럼 한 개로도 발현 가능한 형질은 주황색으로 표시합니다.',
+        ],
+    },
+    {
         id: '1.0.7', kind: 'update', title: '1.0.7 · 연못 두 개와 잉어 이름', publishedAt: '2026-10-06T18:00:00+09:00',
         paragraphs: [
             '이제 연못이 기본으로 2개 제공됩니다. 연못이 하나였던 분도 연못 2를 바로 받습니다. 연못 확장권으로 최대 4개까지 늘릴 수 있습니다.',

@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { Pond } from './components/Pond';
+import { KoiActionPanel } from './components/KoiActionPanel';
 import { ControlBar } from './components/ControlBar';
 import { ShopModal } from './components/ShopModal';
 import { PondInfoModal } from './components/PondInfoModal';
@@ -1613,7 +1614,7 @@ export const App: React.FC = () => {
       {
         // 지금 연못에 실제로 있는 코이를 골랐을 때만 버튼을 띄웁니다. (팔리거나 옮겨진 코이 ID가 남아 있어도 숨김)
         selectedKoisForBreeding.length > 0 && (
-          <div className="absolute bottom-[calc(8rem+env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 z-30 flex flex-col items-center gap-3 w-full max-w-xs px-4">
+          <KoiActionPanel className="absolute bottom-[calc(8rem+env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 z-30 flex flex-col items-center gap-3 w-full max-w-xs px-4">
 
             {isPondMovePickerOpen ? (
               // 이동할 연못 고르기: 다른 연못마다 버튼 하나. 자리가 부족하면 비활성화합니다.
@@ -1697,7 +1698,7 @@ export const App: React.FC = () => {
               )}
             </div>
             )}
-          </div>
+          </KoiActionPanel>
         )
       }
 

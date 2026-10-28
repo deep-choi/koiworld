@@ -41,3 +41,9 @@ android/capacitor-cordova-android-plugins/
 android/local.properties
 android/**/build/
 android/**/.cxx/
+
+# Local build caches, release bundles and screenshots
+.gradle-user-home/
+android/.gradle-user-home/
+releases/
+artifacts/

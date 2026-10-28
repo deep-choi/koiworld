@@ -6,6 +6,9 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import './index.css';
 
 import { AuthProvider } from './contexts/AuthContext';
+import { initAnalytics } from './services/analytics';
+
+initAnalytics();
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {

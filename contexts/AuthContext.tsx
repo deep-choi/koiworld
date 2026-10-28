@@ -3,6 +3,7 @@ import { Capacitor } from '@capacitor/core';
 import { SplashScreen } from '@capacitor/splash-screen';
 import { AppUser, subscribeToAuthChanges, loginWithGoogle, loginWithPlayGames, loginAsGuest, logout, checkRedirectResult, initializeAndroidSession, loginWithEmailPassword, signUpWithEmailPassword, deleteCurrentUser, reauthenticateCurrentUser } from '../services/auth';
 import { deleteUserData } from '../services/cloudData';
+import { trackEvent } from '../services/analytics';
 
 interface AuthContextType {
     user: AppUser | null;
@@ -114,6 +115,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         try {
             setAuthIssue(null);
             await loginWithGoogle();
+            trackEvent('login', { method: 'google' });
         } catch (error) {
             // 에러 처리는 UI에서 하거나 여기서 토스트 메시지 등을 띄울 수 있음
             console.error("Login failed context:", error);
@@ -126,6 +128,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             setAuthIssue(null);
             const signedInUser = await loginWithPlayGames();
             if (signedInUser) setUser(signedInUser);
+            trackEvent('login', { method: 'play_games' });
         } catch (error) {
             console.error('Play Games login failed context:', error);
             setAuthIssue(error instanceof Error ? error.message : 'Play Games 로그인에 실패했습니다.');
@@ -137,6 +140,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         try {
             const signedInUser = await loginWithEmailPassword(email, password);
             if (signedInUser) setUser(signedInUser);
+            trackEvent('login', { method: 'email' });
         } catch (error) {
             console.error("Email login failed context:", error);
             throw error;
@@ -146,6 +150,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const handleGuestLogin = async () => {
         try {
             await loginAsGuest();
+            trackEvent('login', { method: 'guest' });
         } catch (error) {
             console.error('Guest login failed context:', error);
             throw error;
@@ -156,6 +161,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         try {
             const createdUser = await signUpWithEmailPassword(email, password, nickname);
             if (createdUser) setUser(createdUser);
+            trackEvent('sign_up', { method: 'email' });
         } catch (error) {
             console.error("Email sign up failed context:", error);
             throw error;

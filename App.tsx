@@ -36,6 +36,7 @@ import { CURRENT_GAME_STATE_SCHEMA_VERSION, normalizeSavedGameState } from './ut
 import { purchaseHonorTrophies } from './services/ranking';
 import { readLocalSave, writeLocalSave, acceptCloudSave, acknowledgeLocalSave, archiveLocalSave, chooseSaveSource } from './services/saveJournal';
 import { SavePolicy, progressKey } from './services/savePolicy';
+import { trackEvent, trackOnce } from './services/analytics';
 
 interface Animation {
   id: number;
@@ -250,6 +251,7 @@ export const App: React.FC = () => {
       type: 'success',
     });
     audioManager.playSFX('coin');
+    trackEvent('achievement_claim', { achievement_id: id });
 
     // 화면은 즉시 응답하고 서버 요청은 순서대로 처리합니다. 연속해서 보상을
     // 눌러도 앞선 요청이 끝나기 전에 자동 저장이 다시 시작되지 않습니다.
@@ -1024,6 +1026,7 @@ export const App: React.FC = () => {
     }, 1500);
 
     removeKoi(koi.id);
+    trackEvent('koi_sell', { count: 1 });
   }, [removeKoi, koiList.length]);
 
   const handleSellSelected = useCallback((kois: Koi[]) => {
@@ -1042,6 +1045,7 @@ export const App: React.FC = () => {
     // 팔린 코이는 선택에서도 빼야 연못 화면의 교배·판매·이동 버튼이 사라집니다.
     setBreedingSelection([]);
     audioManager.playSFX('coin');
+    trackEvent('koi_sell', { count: kois.length });
   }, [removeKoi, setZenPoints, koiList.length]);
 
   const handleBreedKois = useCallback((parents: Koi[]) => {
@@ -1105,6 +1109,8 @@ export const App: React.FC = () => {
 
     setKoiNameCounter(currentCounter);
     addKois(newKois);
+    trackEvent('breed', { offspring: offspringCount });
+    trackOnce('first_breed');
     // No notification
     audioManager.playSFX('purchase');
   }, [zenPoints, koiList.length, koiNameCounter, addKois, setZenPoints, setNotification, audioManager, setKoiNameCounter, consumeStamina, activePond]);
@@ -1279,6 +1285,7 @@ export const App: React.FC = () => {
           const executeDrop = (x: number, y: number, feedAmount: number) => {
             audioManager.playSFX('plop');
             dropFood({ x, y }, feedAmount);
+            trackOnce('first_feed');
             const dropAnimId = Date.now();
             setFoodDropAnimations(p => [...p, { id: dropAnimId, position: { x, y } }]);
             setTimeout(() => {

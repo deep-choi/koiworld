@@ -15,6 +15,8 @@ require.cache[mockConfigPath] = {
     id: mockConfigPath, filename: mockConfigPath, loaded: true,
     exports: { isMonetizationMock: false, MONETIZATION_MOCK_SCOPE: 'monetization-mock' },
 };
+// 소스 글자 비교는 줄바꿈(CRLF/LF)·들여쓰기와 관계없이 합니다(Windows core.autocrlf=true에서도 같은 결과).
+const { readSource, sourcePattern } = require('./helpers/source-text.cjs');
 const journal = require('../services/saveJournal.ts');
 const { SavePolicy, progressKey } = require('../services/savePolicy.ts');
 const { getScopedSaveGameKey } = require('../services/localSave.ts');
@@ -441,8 +443,7 @@ test('a pond 2 already saved by 1.0.7-1.0.8 is never removed or hidden', () => {
     const threePonds = normalizeSavedGameState({ ...twoPonds, ponds: { ...twoPonds.ponds, 'pond-3': { ...pond2, id: 'pond-3', name: '연못 3' } } });
     assert.deepEqual(Object.keys(threePonds.ponds), ['pond-1', 'pond-2', 'pond-3']);
     // 화면 상태(useKoiPond)도 저장된 연못을 그대로 씁니다.
-    const source = fs.readFileSync(require.resolve('../hooks/useKoiPond.ts'), 'utf8');
-    assert.match(source, /withDefaultPonds\(initialState\?\.ponds \?\? createInitialPonds\(\)\)/);
+    assert.match(readSource('hooks/useKoiPond.ts'), sourcePattern('withDefaultPonds(initialState?.ponds ?? createInitialPonds())'));
     // 일반 연못이 하나도 없는 저장본만 연못 1을 받고, 있던 연못은 지우지 않습니다.
     const { withDefaultPonds: fill } = require('../utils/savedGameState.ts');
     assert.deepEqual(Object.keys(fill({ 'pond-2': pond2 })), ['pond-2']);
@@ -529,7 +530,7 @@ test('the server still accepts the empty pond 2 that 1.0.8 and older apps add', 
     assert.notEqual(pondAllowanceError(withPondIds(['pond-1', 'pond-2', 'pond-3']), undefined, undefined), null);
     assert.notEqual(pondAllowanceError(withPondIds(['pond-1', 'pond-2', 'pond-3']), undefined, one), null);
     // 서버 함수가 이 규칙(pondAllowanceError)을 그대로 씁니다.
-    assert.match(fs.readFileSync(require.resolve('../functions/src/index.ts'), 'utf8'), /const pondError = pondAllowanceError\(/);
+    assert.match(readSource('functions/src/index.ts'), sourcePattern('const pondError = pondAllowanceError('));
 });
 
 test('a brand-new account may carry ZP ponds a guest bought before, once', () => {
@@ -541,8 +542,8 @@ test('a brand-new account may carry ZP ponds a guest bought before, once', () =>
     // 유료 연못은 첫 저장에서도 혜택이 있어야 합니다.
     assert.notEqual(pondAllowanceError(withPondIds(['pond-1', 'pond-paid-1']), undefined, undefined, { carriesGuestProgress: true }), null);
     // 서버는 새 계정의 첫 저장(new-account)일 때만 이 옵션을 켭니다.
-    assert.match(fs.readFileSync(require.resolve('../functions/src/index.ts'), 'utf8'),
-        /carriesGuestProgress: saveReason === 'new-account' && currentGameState == null && currentRevision === 0/);
+    assert.match(readSource('functions/src/index.ts'),
+        sourcePattern("carriesGuestProgress: saveReason === 'new-account' && currentGameState == null && currentRevision === 0"));
 });
 
 test('paid ponds are still allowed by entitlement', () => {

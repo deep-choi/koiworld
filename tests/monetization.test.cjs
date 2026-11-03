@@ -16,7 +16,27 @@ const policy = require('../utils/videoAdPolicy.ts');
 const saveValidation = require('../functions/src/saveValidation.ts');
 const buildCheck = require('../scripts/check-production-build.cjs');
 
-const read = file => fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
+// 소스 글자 비교는 줄바꿈(CRLF/LF)·들여쓰기와 관계없이 합니다(Windows core.autocrlf=true에서도 같은 결과).
+const { normalizeNewlines, readSource: read, sourcePattern } = require('./helpers/source-text.cjs');
+/** 그림·동영상 파일을 불러오는 import 문(여러 줄로 나눠도 import부터 세미콜론까지 봅니다) */
+const MEDIA_IMPORT = /^\s*import\b[^;]*?['"][^'"]*\.(png|jpe?g|svg|webp|gif|mp4|webm)(\?[^'"]*)?['"]/m;
+
+test('source text checks ignore CRLF, wrapped lines and indentation but still catch real changes', () => {
+    assert.equal(normalizeNewlines('a\r\nb\rc\nd'), 'a\nb\nc\nd');
+    const pattern = sourcePattern("mode === 'device' ? <MockDeviceShell /> : <>{game}</>");
+    assert.match("mode === 'device' ? <MockDeviceShell /> : <>{game}</>", pattern);
+    assert.match("mode === 'device'\r\n        ? <MockDeviceShell />\r\n        : <>{game}</>", pattern);
+    assert.doesNotMatch("mode === 'phone' ? <MockDeviceShell /> : <>{game}</>", pattern);
+    // 단어 사이 공백은 없어지면 안 됩니다(const pondError ≠ constpondError).
+    assert.match('const pondError =\n    pondAllowanceError(', sourcePattern('const pondError = pondAllowanceError('));
+    assert.doesNotMatch('constpondError = pondAllowanceError(', sourcePattern('const pondError = pondAllowanceError('));
+    // 결제 시트 "구매" 버튼 글자와 미디어 import 검사도 CRLF·들여쓰기와 관계없이 맞습니다.
+    assert.match('<button>\r\n\t\t구매\r\n</button>', />\s*구매\s*</);
+    assert.match("import appIcon\r\n    from '../../icon.png?url';", MEDIA_IMPORT);
+    assert.match("  import clip from './ad.mp4';", MEDIA_IMPORT);
+    assert.doesNotMatch("// import로 불러오면 빌드에 복사됩니다.\nconst APP_ICON_URL = '/a/ic_launcher.png';", MEDIA_IMPORT);
+    assert.doesNotMatch("import React from 'react';\nconst icon = '/icon.png';", MEDIA_IMPORT);
+});
 
 test('ads use Google test ad units until a production id is configured', () => {
     assert.deepEqual(monetization.resolveAdUnit('banner'), {
@@ -45,7 +65,7 @@ test('the Android manifest falls back to the AdMob test app id', () => {
 test('product ids match the server catalog', () => {
     const server = read('functions/src/playBilling.ts');
     for (const productId of Object.values(monetization.PLAY_PRODUCT_IDS)) {
-        assert.match(server, new RegExp(`\\b${productId}: \\{`), productId);
+        assert.match(server, new RegExp(`\\b${productId}:\\s*\\{`), productId);
     }
 });
 
@@ -105,21 +125,21 @@ test('video ad break points are natural pauses and stale breaks are dropped', ()
     assert.deepEqual([...new Set(requests)].sort(), ["requestVideoAdBreak('breed')", "requestVideoAdBreak('pondSwitch')", "requestVideoAdBreak('sell')"]);
     // 광고가 떠 있는 동안 게임 소리를 멈추고, 닫히면 다시 켭니다.
     const hook = read('hooks/useVideoAds.ts');
-    assert.match(hook, /onShow: \(\) => audioManager\.pauseForAd\(\)/);
-    assert.match(hook, /onClose: \(\) => audioManager\.resumeAfterAd\(\)/);
+    assert.match(hook, sourcePattern('onShow: () => audioManager.pauseForAd()'));
+    assert.match(hook, sourcePattern('onClose: () => audioManager.resumeAfterAd()'));
 });
 
 // ── 로컬 미리보기(npm run dev:mock) ────────────────────────────────────────
 test('the monetization mock can only turn on in the local dev server', () => {
     assert.match(read('config/monetizationMock.ts'),
-        /export const isMonetizationMock: boolean = import\.meta\.env\.DEV && import\.meta\.env\.MODE === 'monetization-mock';/);
+        sourcePattern("export const isMonetizationMock: boolean = import.meta.env.DEV && import.meta.env.MODE === 'monetization-mock';"));
     const pkg = JSON.parse(read('package.json'));
     assert.equal(pkg.scripts['dev:mock'], 'vite --mode monetization-mock');
     assert.match(pkg.scripts.build, /^vite build && node scripts\/check-production-build\.cjs$/);
     // 미리보기 스위치는 한 곳에만 있습니다.
     const sources = ['App.tsx', 'contexts/AuthContext.tsx', 'services/firebase.ts', 'services/analytics.ts', 'services/localSave.ts',
         'services/monetizationBackend.ts', 'hooks/useAchievements.ts'];
-    for (const file of sources) assert.doesNotMatch(read(file), /MODE === 'monetization-mock'/, file);
+    for (const file of sources) assert.doesNotMatch(read(file), sourcePattern("MODE === 'monetization-mock'"), file);
 });
 
 // 아래 두 테스트는 미리보기 모드가 켜진 것처럼 실제 모듈을 불러옵니다(테스트 파일마다 따로 된 프로세스).
@@ -275,8 +295,8 @@ test('inside the phone screen there is no preview badge, explanation or tool but
     assert.match(read('components/mock/MockTestBanner.tsx'), /h-\[50px\] w-\[320px\]/);
     // 동영상 광고: 캔버스로 재생(외부 동영상 파일 없음), 15초 길이, 5초 뒤 건너뛰기, 끝나면 닫기
     const video = read('components/mock/MockVideoAd.tsx');
-    assert.match(video, /MOCK_VIDEO_LENGTH_SECONDS = 15;/);
-    assert.match(video, /MOCK_VIDEO_SKIP_AFTER_SECONDS = 5;/);
+    assert.match(video, sourcePattern('MOCK_VIDEO_LENGTH_SECONDS = 15;'));
+    assert.match(video, sourcePattern('MOCK_VIDEO_SKIP_AFTER_SECONDS = 5;'));
     assert.match(video, /<canvas/);
     assert.match(video, /requestAnimationFrame/);
     assert.doesNotMatch(video, /<video|\.mp4|\.webm|https?:\/\//);
@@ -284,34 +304,36 @@ test('inside the phone screen there is no preview badge, explanation or tool but
     assert.match(video, /aria-label="광고 닫기"/);
     // 결제 시트: 앱 아이콘, 상품 이름, 가격, 테스트 카드, 구매 버튼, 처리 중, 결제 완료
     const sheet = read('components/mock/MockPlaySheet.tsx');
-    for (const part of ['mipmap-xxxhdpi/ic_launcher.png', 'src={APP_ICON_URL}', 'MOCK_PRODUCT_NAMES[productId]', 'MOCK_SAMPLE_PRICES[productId]', 'MOCK_TEST_INSTRUMENTS.approve', '>\n                                    구매\n', '결제 처리 중', '결제 완료']) {
+    for (const part of ['mipmap-xxxhdpi/ic_launcher.png', 'src={APP_ICON_URL}', 'MOCK_PRODUCT_NAMES[productId]', 'MOCK_SAMPLE_PRICES[productId]', 'MOCK_TEST_INSTRUMENTS.approve', '결제 처리 중', '결제 완료']) {
         assert.ok(sheet.includes(part), part);
     }
+    // "구매" 버튼 글자: 버튼 태그와의 사이 줄바꿈·들여쓰기는 상관없습니다.
+    assert.match(sheet, />\s*구매\s*</);
     assert.equal(require('../services/mockMonetization.ts').MOCK_TEST_INSTRUMENTS.approve, '테스트 카드, 항상 승인');
     // 미리보기 소스는 그림·동영상 파일을 import하지 않습니다(import하면 Vite가 배포 빌드에 파일을 복사함).
     for (const file of fs.readdirSync(path.join(__dirname, '../components/mock'))) {
-        assert.doesNotMatch(read(`components/mock/${file}`), /^import .+\.(png|jpe?g|svg|webp|gif|mp4|webm)['"?]/m, file);
+        assert.doesNotMatch(read(`components/mock/${file}`), MEDIA_IMPORT, file);
     }
     // 게임 안 레이어는 휴대폰 크기 브라우저에서만 구석 버튼을 그리고, 배지는 바깥 패널에만 있습니다.
     const layer = read('components/mock/MonetizationMockLayer.tsx');
-    assert.match(layer, /\{!insideDeviceFrame && <CornerTools/);
+    assert.match(layer, sourcePattern('{!insideDeviceFrame && <CornerTools'));
     assert.doesNotMatch(layer, /미리보기 모드/);
-    assert.match(read('components/mock/MockPreviewPanel.tsx'), /MOCK_PREVIEW_BADGE = '미리보기 모드 · 실제 청구 없음'/);
+    assert.match(read('components/mock/MockPreviewPanel.tsx'), sourcePattern("MOCK_PREVIEW_BADGE = '미리보기 모드 · 실제 청구 없음'"));
     // 로그인 버튼의 안내도 게임 화면 토스트가 아니라 바깥 패널로 보냅니다.
-    assert.match(read('App.tsx'), /showMockNotice\(MONETIZATION_MOCK_LOGIN_MESSAGE\)/);
-    assert.doesNotMatch(read('App.tsx'), /setNotification\(\{ message: MONETIZATION_MOCK_LOGIN_MESSAGE/);
+    assert.match(read('App.tsx'), sourcePattern('showMockNotice(MONETIZATION_MOCK_LOGIN_MESSAGE)'));
+    assert.doesNotMatch(read('App.tsx'), sourcePattern('setNotification({ message: MONETIZATION_MOCK_LOGIN_MESSAGE'));
 });
 
 test('the desktop preview runs the game inside a 412x915 phone frame and only there', () => {
     const env = read('components/mock/mockPreviewEnv.ts');
-    assert.match(env, /PHONE_SCREEN = \{ width: 412, height: 915 \}/);
+    assert.match(env, sourcePattern('PHONE_SCREEN = { width: 412, height: 915 }'));
     const root = read('components/mock/MockPreviewRoot.tsx');
     assert.match(root, /<iframe/);
-    assert.match(root, /mode === 'device' \? <MockDeviceShell \/> : <>\{game\}<\/>/);
+    assert.match(root, sourcePattern("mode === 'device' ? <MockDeviceShell /> : <>{game}</>"));
     // 바깥 문서(데스크톱)는 게임을 그리지 않고 기기 테두리와 패널만 그립니다.
     assert.doesNotMatch(root, /<App\b/);
     // 미리보기 껍데기는 미리보기 모드에서만 씁니다.
-    assert.match(read('index.tsx'), /root\.render\(isMonetizationMock \? <MockPreviewRoot game=\{game\} \/> : game\);/);
+    assert.match(read('index.tsx'), sourcePattern('root.render(isMonetizationMock ? <MockPreviewRoot game={game} /> : game);'));
 });
 
 test('the production build check finds mock markers, including escaped ones', () => {

@@ -3,7 +3,7 @@ import { useState, useCallback, useRef, useMemo, useEffect } from 'react';
 import { Koi, GeneType, Ponds, GrowthStage, Decoration, DecorationType, PondTheme, SpotShape } from '../types';
 import { audioManager } from '../utils/audio';
 import { createFixedSpotPhenotypeGenes } from '../utils/genetics';
-import { canAddRegularPond, createEmptyPond, nextRegularPondNumber, withDefaultPonds, withPaidPonds } from '../utils/savedGameState';
+import { createEmptyPond, withDefaultPonds, withPaidPonds } from '../utils/savedGameState';
 
 const POINTS_TO_JUVENILE = 15;
 const POINTS_TO_ADULT = 15;
@@ -225,23 +225,8 @@ export const useKoiPond = (initialState?: UseKoiPondInitialState) => {
 
     const koiList = useMemo(() => ponds[activePondId]?.kois || [], [ponds, activePondId]);
 
-    // 젠 포인트 확장권으로 일반 연못을 하나 더합니다. 유료 연못(pond-paid-N)은 세지 않습니다.
-    const addPond = useCallback(() => {
-        setPonds((prevPonds: Ponds) => {
-            if (!canAddRegularPond(prevPonds)) return prevPonds;
-
-            const newPond = createEmptyPond(nextRegularPondNumber(prevPonds));
-            const newPonds = {
-                ...prevPonds,
-                [newPond.id]: newPond,
-            };
-            // 새 연못을 사도 지금 보고 있는 연못에 그대로 머뭅니다.
-            // (예전에는 빈 새 연못으로 자동 이동해서 코이가 전부 사라진 것처럼 보였습니다.)
-            return newPonds;
-        });
-    }, []);
-
-    // Google Play에서 산 연못 슬롯만큼 유료 연못이 있도록 채웁니다(이미 있으면 아무 일도 하지 않음).
+    // Google Play에서 산 연못 확장권만큼 유료 연못이 있도록 채웁니다(이미 있으면 아무 일도 하지 않음).
+    // 새 연못이 생겨도 지금 보고 있는 연못에 그대로 머뭅니다.
     const ensurePaidPonds = useCallback((paidPondSlots: number) => {
         setPonds((prevPonds: Ponds) => withPaidPonds(prevPonds, paidPondSlots));
     }, []);
@@ -558,7 +543,6 @@ export const useKoiPond = (initialState?: UseKoiPondInitialState) => {
         addKois,
         removeKoi,
         updateKoiPositions,
-        addPond,
         ensurePaidPonds,
         feedKoi,
         foodPellets,

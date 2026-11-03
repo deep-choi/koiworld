@@ -1,9 +1,11 @@
-import React, { createContext, useContext, useEffect, useRef, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState, ReactNode } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { SplashScreen } from '@capacitor/splash-screen';
+import type { User as FirebaseUser } from 'firebase/auth';
 import { AppUser, subscribeToAuthChanges, loginWithGoogle, loginWithPlayGames, loginAsGuest, logout, checkRedirectResult, initializeAndroidSession, loginWithEmailPassword, signUpWithEmailPassword, deleteCurrentUser, reauthenticateCurrentUser } from '../services/auth';
 import { deleteUserData } from '../services/cloudData';
 import { trackEvent } from '../services/analytics';
+import { MONETIZATION_MOCK_SCOPE, isMonetizationMock } from '../config/monetizationMock';
 
 interface AuthContextType {
     user: AppUser | null;
@@ -21,7 +23,45 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+/** 로컬 미리보기에서 로그인 버튼을 눌렀을 때 보여 줄 이유 */
+export const MONETIZATION_MOCK_LOGIN_MESSAGE = '미리보기 모드에서는 로그인을 막아 두었어요. 실제 계정과 클라우드 저장을 건드리지 않고, 이 브라우저의 미리보기 저장만 써요.';
+
+/**
+ * 로컬 미리보기(npm run dev:mock) 전용. Firebase 인증을 전혀 부르지 않고 항상 미리보기 게스트로 시작합니다.
+ * 익명 계정도 만들지 않으며(실제 Firebase 프로젝트에 기록이 남지 않음), 로그인 함수는 모두 이유와 함께 거절합니다.
+ */
+const MonetizationMockAuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+    const value = useMemo<AuthContextType>(() => {
+        const blocked = async () => { throw new Error(MONETIZATION_MOCK_LOGIN_MESSAGE); };
+        return {
+            user: {
+                uid: MONETIZATION_MOCK_SCOPE,
+                email: null,
+                displayName: '미리보기 게스트',
+                photoURL: null,
+                isAnonymous: true,
+                providerIds: [],
+                providerLabel: '미리보기',
+                authSource: 'anonymous',
+                authSourceLabel: '미리보기',
+                rawUser: null as unknown as FirebaseUser,
+            },
+            loading: false,
+            authIssue: null,
+            clearAuthIssue: () => undefined,
+            login: blocked,
+            loginWithPlayGames: blocked,
+            continueAsGuest: blocked,
+            loginWithEmail: blocked,
+            signUpWithEmail: blocked,
+            logout: blocked,
+            deleteAccount: blocked,
+        };
+    }, []);
+    return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+};
+
+const FirebaseAuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
     const [user, setUser] = useState<AppUser | null>(null);
     const [loading, setLoading] = useState(true);
     const [authIssue, setAuthIssue] = useState<string | null>(null);
@@ -198,6 +238,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         </AuthContext.Provider>
     );
 };
+
+/** 배포 빌드에서는 isMonetizationMock이 항상 false라 미리보기용 공급자는 빌드에서 빠집니다. */
+export const AuthProvider: React.FC<{ children: ReactNode }> = isMonetizationMock ? MonetizationMockAuthProvider : FirebaseAuthProvider;
 
 export const useAuth = () => {
     const context = useContext(AuthContext);

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Achievement, AchievementState, Koi } from '../types';
 import { claimAchievement as claimAchievementOnServer } from '../services/ranking';
 import { ACHIEVEMENTS, checkUnlockableAchievements } from '../utils/achievements';
+import { MONETIZATION_MOCK_SCOPE, isMonetizationMock } from '../config/monetizationMock';
 
 const createEmptyAchievementState = (): AchievementState => ({
     unlockedIds: [],
@@ -55,7 +56,8 @@ export const useAchievements = (
     userId: string | undefined,
     initialData?: { unlockedIds: string[]; claimedIds: string[]; totalPoints?: number; } | null,
 ) => {
-    const scope = userId ?? 'guest';
+    // 로컬 미리보기(npm run dev:mock)는 실제 게스트 업적과 섞이지 않도록 따로 된 저장 칸을 씁니다.
+    const scope = userId ?? (isMonetizationMock ? MONETIZATION_MOCK_SCOPE : 'guest');
     const [state, setState] = useState<AchievementState>(() => createEmptyAchievementState());
     const [loadedScope, setLoadedScope] = useState<string | null>(null);
     const stateRef = useRef<AchievementState>(state);

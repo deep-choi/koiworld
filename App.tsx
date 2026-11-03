@@ -21,7 +21,7 @@ import { CleanConfirmModal } from './components/CleanConfirmModal';
 import { SpotGeneticsDebugPanel } from './components/debug/SpotGeneticsDebugPanel';
 
 // --- New Feature Imports ---
-import { useAuth } from './contexts/AuthContext';
+import { MONETIZATION_MOCK_LOGIN_MESSAGE, useAuth } from './contexts/AuthContext';
 import { AuthModal } from './components/AuthModal';
 import { startSession } from './services/session';
 import { GameStateRevisionConflictError, saveGameToCloud, loadUserDataOnce, listenToGameData } from './services/sync';
@@ -38,9 +38,10 @@ import { readLocalSave, writeLocalSave, acceptCloudSave, acknowledgeLocalSave, a
 import { SavePolicy, progressKey } from './services/savePolicy';
 import { trackEvent, trackOnce } from './services/analytics';
 import { useMonetization } from './hooks/useMonetization';
-import { REWARDED_AD_REWARDS, type RewardedAdRewardKind } from './config/monetization';
-import { countPonds } from './functions/src/saveValidation';
-import { canAddRegularPond, hasMissingPaidPonds } from './utils/savedGameState';
+import { useVideoAds } from './hooks/useVideoAds';
+import { hasMissingPaidPonds, pondsForNewGame } from './utils/savedGameState';
+import { MONETIZATION_MOCK_SCOPE, isMonetizationMock } from './config/monetizationMock';
+import { MonetizationMockLayer } from './components/mock/MonetizationMockLayer';
 
 interface Animation {
   id: number;
@@ -84,7 +85,8 @@ const loadGameState = (uid?: string | null): SavedGameState | null => {
 
     // Migrate the old unscoped save into the guest namespace only. It must
     // never be used as the initial state for an authenticated UID.
-    if (!savedData && !uid) {
+    // 로컬 미리보기는 실제 저장을 옮겨 오지 않고 빈 미리보기 저장 칸에서 시작합니다.
+    if (!savedData && !uid && !isMonetizationMock) {
       savedData = localStorage.getItem(SAVE_GAME_KEY);
       if (savedData) localStorage.setItem(scopedKey, savedData);
     }
@@ -109,7 +111,6 @@ export const App: React.FC = () => {
     addKois,
     removeKoi,
     updateKoiPositions,
-    addPond,
     ensurePaidPonds,
     feedKoi,
     foodPellets,
@@ -320,7 +321,8 @@ export const App: React.FC = () => {
   }, [foodCount, cornCount, selectedFoodType]);
 
   useEffect(() => {
-    const scopeId = achievementScope;
+    // 로컬 미리보기는 실제 게스트 탭과 다른 잠금 칸을 씁니다.
+    const scopeId = isMonetizationMock ? MONETIZATION_MOCK_SCOPE : achievementScope;
     const lock = startTabLock(scopeId, {
       onActive: () => {
         resumeLocalGameSave();
@@ -454,13 +456,8 @@ export const App: React.FC = () => {
     return 'User';
   }, [userNickname, user]);
 
-  // --- 유료화: 계정 혜택(연못 슬롯·광고 제거), Google Play 결제, AdMob 광고 ---
-  const handleRewardEarned = useCallback((kind: RewardedAdRewardKind) => {
-    const amount = REWARDED_AD_REWARDS[kind].amount;
-    if (kind === 'food') setFoodCount(count => count + amount);
-    else setZenPoints(points => points + amount);
-    audioManager.playSFX('purchase');
-  }, []);
+  // --- 유료화: 계정 혜택(연못 확장권·광고 제거), Google Play 결제, AdMob 광고 ---
+  // 로컬 미리보기(npm run dev:mock)는 로그인 없이 미리보기 저장 칸을 "계정"처럼 써서 가짜 결제를 시험합니다.
   const handleMonetizationNotice = useCallback((message: string, type: 'success' | 'info' | 'error') => {
     setNotification({ message, type });
   }, []);
@@ -469,20 +466,38 @@ export const App: React.FC = () => {
     setIsAuthModalOpen(true);
   }, []);
   const monetization = useMonetization({
-    accountUid: localSaveScope,
-    isAccountReady: !!localSaveScope && isCloudSyncReady && !isAccountRestoring,
+    accountUid: isMonetizationMock ? MONETIZATION_MOCK_SCOPE : localSaveScope,
+    isAccountReady: isMonetizationMock
+      ? !isAccountRestoring
+      : !!localSaveScope && isCloudSyncReady && !isAccountRestoring,
     notify: handleMonetizationNotice,
-    onRewardEarned: handleRewardEarned,
     onLoginRequired: handlePurchaseLoginRequired,
   });
   const paidPondSlots = monetization.entitlements.paidPondSlots;
 
-  // 산 연못 슬롯만큼 특별 연못(pond-paid-N)이 있도록 채웁니다. 결제 직후, 재설치 후 복원,
+  // 동영상 광고: 쉬는 지점(교배·판매 뒤, 연못 넘기기)에서만. 창이 열려 있거나 먹이를 주는 중,
+  // 코이를 고른 중이면 기다리고, 결제·로그인·저장 복구 중에는 아예 띄우지 않습니다.
+  const isAnyWindowOpen = isShopModalOpen || isPondInfoModalOpen || isThemeModalOpen || isSaveLoadModalOpen
+    || isInfoModalOpen || isCleanConfirmOpen || isRankingModalOpen || isAccountModalOpen || isCommunityOpen
+    || isAchievementModalOpen;
+  const videoAds = useVideoAds({
+    enabled: monetization.adsEnabled,
+    isIdle: !isAnyWindowOpen && !isFeedModeActive && breedingSelection.length === 0,
+    isBlocked: isAuthModalOpen || monetization.busyProductId !== null || isAccountRestoring
+      || isDuplicateTabPaused || isConflictOpen,
+  });
+  const requestVideoAdBreak = videoAds.requestBreak;
+
+  // 산 연못 확장권만큼 유료 연못(pond-paid-N)이 있도록 채웁니다. 결제 직후, 재설치 후 복원,
   // 새 게임 시작, 웹 로그인 모두 이 한 곳에서 처리합니다. 계정 저장본을 다 불러온 뒤에만 실행해
   // 불러오기 전의 임시 상태에 연못을 붙이지 않습니다. 추가된 연못은 평소 자동 저장으로 서버에 올라갑니다.
   useEffect(() => {
-    if (!localSaveScope || !isCloudSyncReady || isAccountRestoring || !monetization.entitlementsLoaded) return;
-    if (localHydratedScopeRef.current !== localSaveScope) return;
+    if (isAccountRestoring || !monetization.entitlementsLoaded) return;
+    if (isMonetizationMock) {
+      if (localHydratedScopeRef.current !== 'guest') return;
+    } else if (!localSaveScope || !isCloudSyncReady || localHydratedScopeRef.current !== localSaveScope) {
+      return;
+    }
     if (hasMissingPaidPonds(ponds, paidPondSlots)) ensurePaidPonds(paidPondSlots);
   }, [ponds, paidPondSlots, localSaveScope, isCloudSyncReady, isAccountRestoring, monetization.entitlementsLoaded, ensurePaidPonds]);
 
@@ -862,7 +877,8 @@ export const App: React.FC = () => {
 
     const initialState: SavedGameState = {
       schemaVersion: CURRENT_GAME_STATE_SCHEMA_VERSION,
-      ponds: createInitialPonds(),
+      // 코이와 꾸미기는 처음으로 돌리지만, 가진 연못 칸(예전에 산 연못, 연못 확장권)은 빈 연못으로 남깁니다.
+      ponds: pondsForNewGame(ponds, createInitialPonds()),
       activePondId: 'pond-1',
       zenPoints: import.meta.env.DEV ? 10000 : 2000,
       foodCount: 20,
@@ -1064,7 +1080,8 @@ export const App: React.FC = () => {
 
     removeKoi(koi.id);
     trackEvent('koi_sell', { count: 1 });
-  }, [removeKoi, koiList.length]);
+    requestVideoAdBreak('sell');
+  }, [removeKoi, koiList.length, requestVideoAdBreak]);
 
   const handleSellSelected = useCallback((kois: Koi[]) => {
     // Restriction: Ensure at least 2 koi remain
@@ -1083,7 +1100,9 @@ export const App: React.FC = () => {
     setBreedingSelection([]);
     audioManager.playSFX('coin');
     trackEvent('koi_sell', { count: kois.length });
-  }, [removeKoi, setZenPoints, koiList.length]);
+    // 판매가 끝난 쉬는 지점. 연못 현황 창에서 팔았다면 창을 닫은 뒤에 광고가 나올 수 있습니다.
+    requestVideoAdBreak('sell');
+  }, [removeKoi, setZenPoints, koiList.length, requestVideoAdBreak]);
 
   const handleBreedKois = useCallback((parents: Koi[]) => {
     if (parents.length !== 2) return;
@@ -1150,7 +1169,9 @@ export const App: React.FC = () => {
     trackOnce('first_breed');
     // No notification
     audioManager.playSFX('purchase');
-  }, [zenPoints, koiList.length, koiNameCounter, addKois, setZenPoints, setNotification, audioManager, setKoiNameCounter, consumeStamina, activePond]);
+    // 교배가 끝난 쉬는 지점. 새 코이를 볼 시간을 두고, 그사이 화면을 누르면 광고는 건너뜁니다.
+    requestVideoAdBreak('breed');
+  }, [zenPoints, koiList.length, koiNameCounter, addKois, setZenPoints, setNotification, audioManager, setKoiNameCounter, consumeStamina, activePond, requestVideoAdBreak]);
 
   const handleMultiParentBreed = () => {
     const selectedKois = koiList.filter(k => breedingSelection.includes(k.id));
@@ -1173,6 +1194,8 @@ export const App: React.FC = () => {
     // 교배용으로 고른 코이는 이전 연못의 코이이므로 함께 비웁니다.
     setBreedingSelection([]);
     setActivePondId(sortedPondIds[nextIndex]);
+    // 연못을 넘기는 장면 전환. 연달아 넘기는 중이면(화면을 다시 누르면) 광고는 건너뜁니다.
+    requestVideoAdBreak('pondSwitch');
   };
 
   // 연못 화면 하단의 '이동'을 눌렀을 때 옮길 연못을 고르는 패널을 보여줄지 여부
@@ -1194,18 +1217,6 @@ export const App: React.FC = () => {
     setNotification({ message: `${targetPond.name}에 코이 ${kois.length}마리를 옮겼어요.`, type: 'success' });
     return true;
   };
-
-  const handleBuyPondExpansion = () => {
-    const cost = 20000;
-    // 젠 포인트 확장권은 일반 연못만 늘립니다. 한도에 닿았으면 포인트를 빼지 않습니다.
-    if (zenPoints < cost || !canAddRegularPond(ponds)) return;
-    setZenPoints(p => p - cost);
-    audioManager.playSFX('purchase');
-    addPond();
-    setIsShopModalOpen(false);
-    // 새 연못으로 자동 이동하지 않으므로, 연못이 생겼다는 것과 코이를 옮기는 방법을 알려줍니다.
-    setNotification({ message: '새 연못이 생겼어요! 연못 현황에서 코이를 옮길 수 있어요.', type: 'success' });
-  }
 
   const handleBuyFood = (quantity: number) => {
     const cost = FOOD_PACK_PRICE * quantity;
@@ -1630,6 +1641,11 @@ export const App: React.FC = () => {
         <button
           onClick={() => {
             if (authLoading) return;
+            // 로컬 미리보기에서는 실제 계정을 건드리지 않도록 로그인 창 대신 이유를 알려 줍니다.
+            if (isMonetizationMock) {
+              setNotification({ message: MONETIZATION_MOCK_LOGIN_MESSAGE, type: 'info' });
+              return;
+            }
             // Anonymous Firebase auth is only the implementation detail for
             // the local guest namespace. Guests should see the auth choices,
             // not an account modal with a misleading "로그아웃" action.
@@ -1638,8 +1654,8 @@ export const App: React.FC = () => {
           }}
           disabled={authLoading}
           className="bg-white/10 backdrop-blur-sm p-0 rounded-full border border-white/20 text-white hover:text-orange-400 transition-colors hover:bg-white/20 hover:border-white/30 w-[46px] h-[46px] overflow-hidden flex items-center justify-center group disabled:cursor-wait disabled:hover:text-white disabled:hover:bg-white/10"
-          title={authLoading ? '로그인 상태 확인 중' : user && !user.isAnonymous ? `${user.displayName || userNickname || '사용자'} 님` : '로그인 또는 회원가입'}
-          aria-label={authLoading ? '로그인 상태 확인 중' : user && !user.isAnonymous ? '계정 정보 열기' : '로그인 창 열기'}
+          title={isMonetizationMock ? '미리보기 모드: 로그인 꺼짐' : authLoading ? '로그인 상태 확인 중' : user && !user.isAnonymous ? `${user.displayName || userNickname || '사용자'} 님` : '로그인 또는 회원가입'}
+          aria-label={isMonetizationMock ? '미리보기 모드라 로그인이 꺼져 있어요. 이유 보기' : authLoading ? '로그인 상태 확인 중' : user && !user.isAnonymous ? '계정 정보 열기' : '로그인 창 열기'}
         >
           {authLoading ? (
             <LoaderCircle size={24} strokeWidth={1.7} className="animate-spin text-white/85" aria-hidden="true" />
@@ -1788,8 +1804,6 @@ export const App: React.FC = () => {
             onBuyCorn={handleBuyCorn}
             onBuyCornLarge={handleBuyCornLarge}
             onBuyTrophy={handleBuyTrophy}
-            onBuyPond={handleBuyPondExpansion}
-            regularPondCount={countPonds(Object.keys(ponds)).regular}
             monetization={{
               isNativeStore: monetization.isNativeStore,
               prices: monetization.prices,
@@ -1798,10 +1812,6 @@ export const App: React.FC = () => {
               adFree: monetization.entitlements.adFree,
               onPurchase: productId => { void monetization.purchase(productId); },
               onRestorePurchases: () => { void monetization.restorePurchases(); },
-              canWatchRewardedAds: monetization.canWatchRewardedAds,
-              isWatchingAd: monetization.isWatchingAd,
-              rewardedAdsRemaining: monetization.rewardedAdsRemaining,
-              onWatchRewardedAd: kind => { void monetization.watchRewardedAd(kind); },
             }}
           />
         )
@@ -1914,10 +1924,13 @@ export const App: React.FC = () => {
         )
       }
 
-      <AuthModal
-        isOpen={isAuthModalOpen}
-        onClose={() => setIsAuthModalOpen(false)}
-      />
+      {/* 로컬 미리보기에서는 로그인 창을 아예 그리지 않습니다. */}
+      {!isMonetizationMock && (
+        <AuthModal
+          isOpen={isAuthModalOpen}
+          onClose={() => setIsAuthModalOpen(false)}
+        />
+      )}
 
       <CommunityModal isOpen={isCommunityOpen} section={communitySection} onClose={() => setIsCommunityOpen(false)} onBack={() => { setIsCommunityOpen(false); setIsSaveLoadModalOpen(true); }} />
       <SessionConflictModal
@@ -1942,7 +1955,8 @@ export const App: React.FC = () => {
 
       {/* Spot Genetics Debug Panel - shows first selected koi's genes */}
       {/* Spot Genetics Debug Panel - shows first selected koi's genes */}
-      {import.meta.env.DEV && (
+      {/* 로컬 미리보기에서는 광고 자리를 가리지 않도록 개발자 패널을 숨깁니다. */}
+      {import.meta.env.DEV && !isMonetizationMock && (
         <SpotGeneticsDebugPanel
           koi={selectedKoisForBreeding[0] || null}
           zenPoints={zenPoints}
@@ -1986,6 +2000,19 @@ export const App: React.FC = () => {
         currUserId={localSaveScope ?? undefined}
         myAchievementPoints={achievementScore}
       />
+
+      {/* 로컬 미리보기(npm run dev:mock) 전용: 배지, 배너 자리, 동영상 광고 자리, 가짜 결제창, 미리보기 도구 */}
+      {isMonetizationMock && (
+        <MonetizationMockLayer
+          videoAds={videoAds}
+          entitlements={monetization.entitlements}
+          adsEnabled={monetization.adsEnabled}
+          ponds={ponds}
+          activePondId={activePondId}
+          setPonds={setPonds}
+          setActivePondId={setActivePondId}
+        />
+      )}
 
       <AchievementModal
         key={achievementScope}

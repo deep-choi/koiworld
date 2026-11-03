@@ -5,17 +5,18 @@ import {
     BannerAdPluginEvents,
     BannerAdPosition,
     BannerAdSize,
-    RewardAdPluginEvents,
+    InterstitialAdPluginEvents,
 } from '@capacitor-community/admob';
-import { resolveAdUnit } from '../config/monetization';
+import { VIDEO_AD_LIMITS, resolveAdUnit } from '../config/monetization';
 
 // AdMob(Android 전용) 래퍼입니다. 웹에서는 모든 함수가 아무 일도 하지 않습니다.
-// 이 게임은 작은 배너와 사용자가 원할 때만 보는 보상형 광고만 씁니다. 전면 광고는 쓰지 않습니다.
+// 이 게임은 화면 아래 작은 배너와, 쉬는 지점에서만 나오는 동영상 전면 광고만 씁니다.
+// 언제 동영상 광고를 띄울지는 hooks/useVideoAds.ts와 utils/videoAdPolicy.ts가 정합니다.
 
 /** 실제 광고 단위 ID. 기본은 비어 있어 테스트 광고가 나옵니다. 출시 때 VITE_ADMOB_* 환경 변수로만 채웁니다. */
 const productionAdUnits = {
     banner: import.meta.env.VITE_ADMOB_BANNER_ID ?? '',
-    rewarded: import.meta.env.VITE_ADMOB_REWARDED_ID ?? '',
+    interstitial: import.meta.env.VITE_ADMOB_INTERSTITIAL_ID ?? '',
 };
 
 export const isAdSupported = (): boolean => Capacitor.getPlatform() === 'android';
@@ -24,14 +25,14 @@ let initialization: Promise<boolean> | null = null;
 
 /**
  * AdMob을 한 번만 초기화합니다. 유럽 등 동의가 필요한 지역이면 Google UMP 동의 화면을 먼저 띄웁니다.
- * 광고를 요청할 수 없는 상태면 false를 돌려주고, 이때는 배너와 보상형 광고를 모두 건너뜁니다.
+ * 광고를 요청할 수 없는 상태면 false를 돌려주고, 이때는 배너와 동영상 광고를 모두 건너뜁니다.
  */
 export const initializeAds = (): Promise<boolean> => {
     if (!isAdSupported()) return Promise.resolve(false);
     initialization ??= (async () => {
         try {
             const usesTestAds = resolveAdUnit('banner', productionAdUnits).isTesting
-                || resolveAdUnit('rewarded', productionAdUnits).isTesting;
+                || resolveAdUnit('interstitial', productionAdUnits).isTesting;
             await AdMob.initialize({ initializeForTesting: usesTestAds });
             try {
                 const consent = await AdMob.requestConsentInfo();
@@ -104,42 +105,96 @@ export const removeBanner = async (): Promise<void> => {
     bannerSizeListener = null;
 };
 
+// ── 동영상 전면 광고 ────────────────────────────────────────────────────────
+// 쉬는 지점에서 바로 띄울 수 있도록 미리 한 편을 받아 둡니다. 준비되지 않았으면 그 지점은 건너뜁니다
+// (늦게 받은 광고를 나중에 갑자기 띄우지 않습니다). 한 번 보여 준 광고는 다시 쓰지 않고 새로 받습니다.
+
+let videoAdLoadedAt: number | null = null;
+let videoAdLoading: Promise<boolean> | null = null;
+let lastVideoAdLoadFailureAt = Number.NEGATIVE_INFINITY;
+let videoAdShowing = false;
+
+/** 바로 띄울 수 있는 동영상 광고가 있는지(받은 지 1시간 가까이 지난 광고는 만료로 봅니다) */
+export const isVideoAdReady = (): boolean =>
+    videoAdLoadedAt !== null && Date.now() - videoAdLoadedAt < VIDEO_AD_LIMITS.preloadExpiryMs;
+
+/** 동영상 광고를 미리 받습니다. 이미 받았거나 받는 중이면 그대로 둡니다. */
+export const prepareVideoAd = (): Promise<boolean> => {
+    if (!isAdSupported()) return Promise.resolve(false);
+    if (isVideoAdReady()) return Promise.resolve(true);
+    if (videoAdLoading) return videoAdLoading;
+    if (Date.now() - lastVideoAdLoadFailureAt < VIDEO_AD_LIMITS.loadRetryMs) return Promise.resolve(false);
+    videoAdLoading = (async () => {
+        try {
+            if (!(await initializeAds())) return false;
+            videoAdLoadedAt = null;
+            await AdMob.prepareInterstitial(resolveAdUnit('interstitial', productionAdUnits));
+            videoAdLoadedAt = Date.now();
+            return true;
+        } catch (error) {
+            videoAdLoadedAt = null;
+            lastVideoAdLoadFailureAt = Date.now();
+            console.warn('Video ad could not be loaded:', error);
+            return false;
+        } finally {
+            videoAdLoading = null;
+        }
+    })();
+    return videoAdLoading;
+};
+
+export type VideoAdHandlers = {
+    /** 광고 화면이 실제로 나타났을 때(게임 소리를 멈춥니다) */
+    onShow?: () => void;
+    /** 광고가 닫히거나 띄우지 못했을 때. 항상 한 번 불립니다(게임 소리를 다시 켭니다) */
+    onClose?: () => void;
+};
+
+/** 닫힘 이벤트가 오지 않아도 게임이 계속 조용하지 않도록 정리하는 시간 */
+const VIDEO_AD_SAFETY_TIMEOUT_MS = 3 * 60_000;
+
 /**
- * 보상형 광고를 보여 주고, 끝까지 봐서 보상을 받을 자격이 생겼는지 돌려줍니다.
- * 플러그인은 보상을 못 받고 닫으면 promise를 끝내지 않으므로, 닫힘·실패 이벤트로 직접 마무리합니다.
+ * 미리 받아 둔 동영상 광고를 띄우고, 닫힐 때까지 기다립니다. 실제로 보여 줬으면 true입니다.
+ * 플러그인의 showInterstitial은 광고를 띄우자마자 끝나므로, 닫힘·실패 이벤트로 마무리를 알아냅니다.
  */
-export const showRewardedAd = async (): Promise<boolean> => {
-    if (!(await initializeAds())) return false;
+export const showVideoAd = async (handlers: VideoAdHandlers = {}): Promise<boolean> => {
+    if (!isAdSupported() || videoAdShowing || !isVideoAdReady()) {
+        handlers.onClose?.();
+        return false;
+    }
+    videoAdShowing = true;
+    videoAdLoadedAt = null;
     const listeners: PluginListenerHandle[] = [];
     try {
-        await AdMob.prepareRewardVideoAd(resolveAdUnit('rewarded', productionAdUnits));
         return await new Promise<boolean>(resolve => {
-            let earned = false;
+            let shown = false;
             let settled = false;
             const finish = (value: boolean) => {
                 if (settled) return;
                 settled = true;
+                clearTimeout(safetyTimer);
                 resolve(value);
             };
+            const safetyTimer = setTimeout(() => finish(shown), VIDEO_AD_SAFETY_TIMEOUT_MS);
             void Promise.all([
-                AdMob.addListener(RewardAdPluginEvents.Rewarded, () => { earned = true; }),
-                AdMob.addListener(RewardAdPluginEvents.Dismissed, () => finish(earned)),
-                AdMob.addListener(RewardAdPluginEvents.FailedToShow, () => finish(false)),
+                AdMob.addListener(InterstitialAdPluginEvents.Showed, () => {
+                    shown = true;
+                    handlers.onShow?.();
+                }),
+                AdMob.addListener(InterstitialAdPluginEvents.Dismissed, () => finish(true)),
+                AdMob.addListener(InterstitialAdPluginEvents.FailedToShow, () => finish(shown)),
             ]).then(handles => {
                 listeners.push(...handles);
-                return AdMob.showRewardVideoAd();
-            }).then(() => {
-                // 보상 지급 시점에 resolve됩니다. 화면이 닫힌 뒤(Dismissed) 보상을 반영합니다.
-                earned = true;
+                if (settled) return undefined;
+                return AdMob.showInterstitial();
             }).catch(error => {
-                console.warn('Rewarded ad failed:', error);
+                console.warn('Video ad failed to show:', error);
                 finish(false);
             });
         });
-    } catch (error) {
-        console.warn('Rewarded ad could not be prepared:', error);
-        return false;
     } finally {
+        videoAdShowing = false;
+        handlers.onClose?.();
         await Promise.all(listeners.map(handle => handle.remove().catch(() => undefined)));
     }
 };

@@ -14,7 +14,7 @@ export const PLAY_PACKAGE_NAME = 'com.zenkoigarden.game';
 
 /**
  * 판매하는 인앱 상품. 키가 Play Console의 "제품 ID"입니다.
- * - pond_slot: 소모성 상품. 살 때마다 연못 슬롯이 1개 늘고, 서버가 확인 후 소비 처리해 다시 살 수 있게 합니다.
+ * - pond_slot: 소모성 상품(상점 이름 "연못 확장권"). 살 때마다 연못 슬롯이 1개 늘고, 서버가 확인 후 소비 처리해 다시 살 수 있게 합니다.
  * - remove_ads: 비소모성 상품. 한 번 사면 배너 광고가 사라집니다. 서버가 확인 후 승인(acknowledge)합니다.
  */
 export const PLAY_PRODUCTS = {
@@ -100,7 +100,7 @@ const REJECT_MESSAGES: Record<RejectReason, string> = {
     'already-consumed': '이미 사용된 구매입니다.',
     'product-mismatch': '구매한 상품 정보가 맞지 않습니다.',
     'invalid-quantity': '구매 수량을 확인할 수 없습니다.',
-    'slot-limit': `연못 슬롯은 계정당 ${MAX_PAID_POND_SLOTS}개까지 살 수 있어요. 이 구매는 적용되지 않으며 Google Play에서 자동으로 환불됩니다.`,
+    'slot-limit': `연못 확장권은 계정당 ${MAX_PAID_POND_SLOTS}개까지 살 수 있어요. 이 구매는 적용되지 않으며 Google Play에서 자동으로 환불됩니다.`,
 };
 
 const reject = (reason: RejectReason, entitlements: AccountEntitlements): GrantDecision =>

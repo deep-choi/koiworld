@@ -1,3 +1,5 @@
+import { MONETIZATION_MOCK_SCOPE, isMonetizationMock } from '../config/monetizationMock';
+
 // The unscoped key is kept only for one-time migration of older installs.
 export const SAVE_GAME_KEY = 'zenKoiGardenSaveData_v2';
 export const GUEST_SAVE_GAME_KEY = 'zenKoiGardenSaveData_guest_v1';
@@ -6,6 +8,8 @@ export const MANUAL_SAVE_KEY = 'zenKoiGardenManualSaveData';
 export const FORCE_CLEAR_KEY = 'zenKoiGardenForceClear_v1';
 
 export function getScopedSaveGameKey(uid?: string | null): string {
+    // 로컬 미리보기(npm run dev:mock)는 항상 따로 된 저장 칸을 써서 실제 게스트·계정 저장을 건드리지 않습니다.
+    if (isMonetizationMock) return `zenKoiGardenSaveData_${MONETIZATION_MOCK_SCOPE}_v1`;
     return uid
         ? `${USER_SAVE_GAME_KEY_PREFIX}${encodeURIComponent(uid)}`
         : GUEST_SAVE_GAME_KEY;

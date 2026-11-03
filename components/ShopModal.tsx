@@ -1,17 +1,11 @@
 import React, { useState } from 'react';
-import { MAX_PAID_POND_SLOTS, MAX_REGULAR_POND_COUNT } from '../functions/src/saveValidation';
-import { X, ShoppingCart, Minus, Plus, Trophy, Smartphone, Ban, PlayCircle, RotateCcw, Sparkles } from 'lucide-react';
+import { MAX_PAID_POND_SLOTS } from '../functions/src/saveValidation';
+import { X, ShoppingCart, Minus, Plus, Trophy, Smartphone, Ban, RotateCcw } from 'lucide-react';
 import { CornIcon, FeedIcon } from './FoodIcons';
 import { MODAL_CLOSE } from './menuStyles';
-import {
-    PLAY_PRODUCT_IDS,
-    REWARDED_AD_REWARDS,
-    REWARDED_ADS_PER_DAY,
-    type PlayProductId,
-    type RewardedAdRewardKind,
-} from '../config/monetization';
+import { PLAY_PRODUCT_IDS, type PlayProductId } from '../config/monetization';
 
-/** Google Play 상품과 광고 관련 상태. 앱(Android)과 웹이 같은 모양을 받고, isNativeStore로 구분합니다. */
+/** Google Play 상품 관련 상태. 앱(Android)과 웹이 같은 모양을 받고, isNativeStore로 구분합니다. */
 export interface ShopMonetizationProps {
     isNativeStore: boolean;
     prices: Partial<Record<PlayProductId, string>>;
@@ -20,10 +14,6 @@ export interface ShopMonetizationProps {
     adFree: boolean;
     onPurchase: (productId: PlayProductId) => void;
     onRestorePurchases: () => void;
-    canWatchRewardedAds: boolean;
-    isWatchingAd: boolean;
-    rewardedAdsRemaining: number;
-    onWatchRewardedAd: (kind: RewardedAdRewardKind) => void;
 }
 
 interface ShopModalProps {
@@ -34,9 +24,6 @@ interface ShopModalProps {
     onBuyCorn: (quantity: number) => void;
     onBuyCornLarge: (quantity: number) => void;
     onBuyTrophy: (quantity: number) => void;
-    onBuyPond: () => void;
-    /** 젠 포인트로 산 연못을 포함한 일반 연못 수(유료 연못 제외) */
-    regularPondCount: number;
     monetization: ShopMonetizationProps;
 }
 
@@ -45,13 +32,11 @@ const FOOD_LARGE_PACK_PRICE = 800; // 20% bulk discount
 const CORN_PACK_PRICE = 1000;
 const CORN_LARGE_PACK_PRICE = 4000; // 20% bulk discount
 const TROPHY_PRICE = 100000;
-const POND_EXPANSION_PRICE = 20000;
 
 // 버튼: 모바일은 설명 아래 전체 폭, 넓은 화면(sm 이상)은 오른쪽 정렬된 고정 폭입니다.
 const PRIMARY_BUTTON = 'w-full sm:w-auto sm:min-w-[8rem] h-11 px-4 rounded-lg font-medium flex items-center justify-center gap-2 transition-colors disabled:bg-slate-200 disabled:text-slate-500 disabled:cursor-not-allowed';
 const ZP_BUTTON = `${PRIMARY_BUTTON} bg-orange-500 text-white enabled:hover:bg-orange-600`;
 const PLAY_BUTTON = `${PRIMARY_BUTTON} bg-emerald-600 text-white enabled:hover:bg-emerald-700`;
-const AD_BUTTON = `${PRIMARY_BUTTON} bg-sky-600 text-white enabled:hover:bg-sky-700`;
 
 /**
  * 상점의 한 줄. 상자 안에 상자를 넣지 않고, 목록의 구분선(divide-y)으로만 나눕니다.
@@ -96,8 +81,7 @@ const ZenShopItem: React.FC<{
     zenPoints: number;
     onBuy: (quantity: number) => void;
     hasQuantity?: boolean;
-    disabledReason?: string;
-}> = ({ icon, title, description, price, zenPoints, onBuy, hasQuantity = false, disabledReason }) => {
+}> = ({ icon, title, description, price, zenPoints, onBuy, hasQuantity = false }) => {
     const [quantity, setQuantity] = useState(1);
     const total = price * quantity;
     const affordable = zenPoints >= total;
@@ -131,11 +115,11 @@ const ZenShopItem: React.FC<{
             )}
             <button
                 onClick={() => onBuy(quantity)}
-                disabled={!affordable || !!disabledReason}
+                disabled={!affordable}
                 className={ZP_BUTTON}
-                aria-label={disabledReason ? `${title}: ${disabledReason}` : `${title} ${quantity}개 구매하기`}
+                aria-label={`${title} ${quantity}개 구매하기`}
             >
-                {disabledReason ?? (affordable ? '구매하기' : 'ZP 부족')}
+                {affordable ? '구매하기' : 'ZP 부족'}
             </button>
         </ShopRow>
     );
@@ -170,9 +154,8 @@ const PlayPurchaseAction: React.FC<{
 };
 
 export const ShopModal: React.FC<ShopModalProps> = ({
-    onClose, zenPoints, onBuyFood, onBuyFoodLarge, onBuyCorn, onBuyCornLarge, onBuyTrophy, onBuyPond, regularPondCount, monetization,
+    onClose, zenPoints, onBuyFood, onBuyFoodLarge, onBuyCorn, onBuyCornLarge, onBuyTrophy, monetization,
 }) => {
-    const regularPondsFull = regularPondCount >= MAX_REGULAR_POND_COUNT;
     const pondSlotsFull = monetization.paidPondSlots >= MAX_PAID_POND_SLOTS;
     const playPrice = (productId: PlayProductId) => monetization.isNativeStore ? (monetization.prices[productId] ?? '') : '';
 
@@ -180,7 +163,7 @@ export const ShopModal: React.FC<ShopModalProps> = ({
         // Android 배너가 화면 맨 아래를 덮으므로 그 높이만큼 아래 여백을 더해 상점이 가려지지 않게 합니다.
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-40 p-4 pb-[calc(1rem+var(--ad-banner-height,0px))]">
             <div
-                className="light-modal bg-white border border-slate-200 rounded-2xl shadow-2xl p-5 w-full max-w-sm sm:max-w-md animate-fade-in-up max-h-[88svh] overflow-y-auto light-scrollbar"
+                className="light-modal bg-white border border-slate-200 rounded-2xl shadow-2xl p-5 w-full max-w-sm sm:max-w-md animate-fade-in-up max-h-[min(88svh,calc(100svh-2rem-var(--ad-banner-height,0px)))] overflow-y-auto light-scrollbar"
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="shop-modal-title"
@@ -240,52 +223,15 @@ export const ShopModal: React.FC<ShopModalProps> = ({
                         />
                     </ShopSection>
 
-                    {monetization.canWatchRewardedAds && (
-                        <ShopSection
-                            title="광고 보고 받기"
-                            note={`원할 때만 보는 광고예요. 오늘 ${monetization.rewardedAdsRemaining}/${REWARDED_ADS_PER_DAY}회 남았어요.`}
-                        >
-                            {(Object.keys(REWARDED_AD_REWARDS) as RewardedAdRewardKind[]).map(kind => (
-                                <ShopRow
-                                    key={kind}
-                                    icon={kind === 'food'
-                                        ? <FeedIcon size={30} className="text-sky-600" />
-                                        : <PlayCircle size={28} strokeWidth={2} className="text-sky-600" />}
-                                    title={REWARDED_AD_REWARDS[kind].label}
-                                    description="짧은 광고를 끝까지 보면 바로 받아요."
-                                    price={<span className="text-sky-700">무료</span>}
-                                >
-                                    <button
-                                        onClick={() => monetization.onWatchRewardedAd(kind)}
-                                        disabled={monetization.isWatchingAd || monetization.rewardedAdsRemaining <= 0}
-                                        className={AD_BUTTON}
-                                        aria-label={`광고 보고 ${REWARDED_AD_REWARDS[kind].label} 받기`}
-                                    >
-                                        {monetization.rewardedAdsRemaining <= 0 ? '오늘 모두 받음' : (monetization.isWatchingAd ? '광고 여는 중…' : '광고 보기')}
-                                    </button>
-                                </ShopRow>
-                            ))}
-                        </ShopSection>
-                    )}
-
                     <ShopSection title="연못">
-                        <ZenShopItem
+                        <ShopRow
                             icon={<Plus size={28} strokeWidth={2} className="text-purple-500" />}
                             title="연못 확장권"
-                            description={`새로운 연못을 추가합니다. (젠 포인트로 최대 ${MAX_REGULAR_POND_COUNT}개)`}
-                            price={POND_EXPANSION_PRICE}
-                            zenPoints={zenPoints}
-                            onBuy={() => onBuyPond()}
-                            disabledReason={regularPondsFull ? '최대 보유량 도달' : undefined}
-                        />
-                        <ShopRow
-                            icon={<Sparkles size={28} strokeWidth={2} className="text-emerald-600" />}
-                            title="특별 연못 슬롯"
-                            description={`젠 포인트 연못과 별도로 특별 연못을 하나 더 받아요. 계정에 저장되어 재설치하거나 웹에서 로그인해도 유지돼요. (보유 ${monetization.paidPondSlots}/${MAX_PAID_POND_SLOTS})`}
+                            description={`연못을 하나 더 받아요. 계정에 저장되어 재설치하거나 웹에서 로그인해도 유지돼요. (보유 ${monetization.paidPondSlots}/${MAX_PAID_POND_SLOTS})`}
                             price={playPrice(PLAY_PRODUCT_IDS.pondSlot)}
                         >
                             <PlayPurchaseAction
-                                title="특별 연못 슬롯"
+                                title="연못 확장권"
                                 productId={PLAY_PRODUCT_IDS.pondSlot}
                                 monetization={monetization}
                                 ownedReason={pondSlotsFull ? '최대 보유량 도달' : undefined}
@@ -297,7 +243,7 @@ export const ShopModal: React.FC<ShopModalProps> = ({
                         <ShopRow
                             icon={<Ban size={26} strokeWidth={2} className="text-emerald-600" />}
                             title="광고 제거"
-                            description="한 번 사면 앱 하단 배너가 사라져요. 보상형 광고는 원할 때만 볼 수 있게 남아 있어요."
+                            description="한 번 사면 앱 하단 배너와 동영상 광고가 모두 사라져요."
                             price={playPrice(PLAY_PRODUCT_IDS.removeAds)}
                         >
                             <PlayPurchaseAction
@@ -334,7 +280,7 @@ export const ShopModal: React.FC<ShopModalProps> = ({
                         </div>
                     ) : (
                         <p className="border-t border-slate-200 pt-4 text-xs leading-relaxed text-slate-500 break-keep">
-                            특별 연못 슬롯과 광고 제거는 Android 앱에서 구매할 수 있어요. 앱에서 산 혜택은 같은 계정으로 로그인하면 웹에서도 적용돼요.
+                            연못 확장권과 광고 제거는 Android 앱에서 구매할 수 있어요. 앱에서 산 혜택은 같은 계정으로 로그인하면 웹에서도 적용돼요.
                         </p>
                     )}
                 </div>

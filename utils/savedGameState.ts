@@ -1,5 +1,5 @@
 import { SavedGameState, GrowthStage, PondData, Ponds, PondTheme } from '../types';
-import { MAX_REGULAR_POND_COUNT, countPonds, isPaidPondId, isValidGameStateCore, paidPondId, paidPondNumber } from '../functions/src/saveValidation';
+import { DEFAULT_FREE_POND_COUNT, countPonds, isPaidPondId, isValidGameStateCore, paidPondId, paidPondNumber } from '../functions/src/saveValidation';
 import { migrateLegacyGinrin } from './genetics';
 
 export const CURRENT_GAME_STATE_SCHEMA_VERSION = 3;
@@ -27,8 +27,11 @@ export const isCompleteSavedGameState = (value: unknown): value is SavedGameStat
         && Array.isArray(state.achievements?.claimedIds);
 };
 
-/** 연못은 기본으로 2개를 제공합니다. 상점의 연못 확장권(ZP)으로 일반 연못을 최대 4개까지 늘릴 수 있습니다. */
-export const DEFAULT_POND_COUNT = 2;
+/**
+ * 연못은 모든 계정에 기본 2개입니다. 더 늘리려면 Google Play의 연못 확장권을 삽니다(유료 연못 pond-paid-N).
+ * 예전에 젠 포인트 확장권으로 산 일반 연못(pond-3, pond-4)은 그대로 남습니다.
+ */
+export const DEFAULT_POND_COUNT = DEFAULT_FREE_POND_COUNT;
 
 /** n번째 빈 일반 연못 (id: pond-n, 이름: 연못 n) */
 export const createEmptyPond = (n: number): PondData => ({
@@ -40,24 +43,35 @@ export const createEmptyPond = (n: number): PondData => ({
     waterQuality: 100,
 });
 
-/** Google Play 연못 슬롯 n번에 해당하는 빈 연못 (id: pond-paid-n, 이름: 특별 연못 n) */
-export const createPaidPond = (slot: number): PondData => ({
-    ...createEmptyPond(slot),
+const POND_NUMBER_IN_NAME = /^연못\s*(\d+)$/;
+const POND_NUMBER_IN_ID = /^pond-(\d+)$/;
+
+/**
+ * 새 연못에 붙일 화면 번호. 지금 가진 연못 다음 번호라 "연못 1, 연못 2, 연못 3 …"처럼 이어집니다.
+ * 연못 수, 일반 연못 id 번호, "연못 N" 이름 중 가장 큰 번호의 다음 값이라 이름이 겹치지 않습니다.
+ */
+export const nextPondDisplayNumber = (ponds: Ponds): number => {
+    let highest = Object.keys(ponds).length;
+    for (const [id, pond] of Object.entries(ponds)) {
+        const fromId = POND_NUMBER_IN_ID.exec(id);
+        const fromName = typeof pond?.name === 'string' ? POND_NUMBER_IN_NAME.exec(pond.name.trim()) : null;
+        for (const match of [fromId, fromName]) {
+            if (match) highest = Math.max(highest, Number(match[1]));
+        }
+    }
+    return highest + 1;
+};
+
+/**
+ * Google Play 연못 확장권 slot번에 해당하는 빈 연못.
+ * id는 pond-paid-slot으로 일반 연못과 구분하고, 화면 이름은 일반 연못 번호에 이어 "연못 N"으로 붙입니다.
+ */
+export const createPaidPond = (slot: number, displayNumber: number): PondData => ({
+    ...createEmptyPond(displayNumber),
     id: paidPondId(slot),
-    name: `특별 연못 ${slot}`,
 });
 
 const regularPondCount = (ponds: Ponds) => countPonds(Object.keys(ponds)).regular;
-
-/** 젠 포인트 확장권으로 일반 연못을 하나 더 만들 수 있는지 */
-export const canAddRegularPond = (ponds: Ponds): boolean => regularPondCount(ponds) < MAX_REGULAR_POND_COUNT;
-
-/** 새 일반 연못에 쓸 가장 작은 빈 번호 */
-export const nextRegularPondNumber = (ponds: Ponds): number => {
-    let n = 1;
-    while (ponds[`pond-${n}`]) n++;
-    return n;
-};
 
 /**
  * 일반 연못이 DEFAULT_POND_COUNT개보다 적으면 비어 있는 번호로 빈 연못을 채워 넣습니다.
@@ -72,7 +86,7 @@ export const withDefaultPonds = (ponds: Ponds): Ponds => {
 };
 
 /**
- * 산 연못 슬롯만큼 유료 연못(pond-paid-1 …)이 있도록 채웁니다. 이미 있으면 그대로 둡니다.
+ * 산 연못 확장권 수만큼 유료 연못(pond-paid-1 …)이 있도록 채웁니다. 이미 있는 연못은 이름까지 그대로 둡니다.
  * 결제 직후, 재설치 후 복원, 새 게임 시작, 웹 로그인 때 모두 같은 방식으로 빠진 연못을 채웁니다.
  * 바뀐 것이 없으면 같은 객체를 돌려줘 불필요한 렌더링과 저장을 막습니다.
  */
@@ -82,14 +96,27 @@ export const withPaidPonds = (ponds: Ponds, paidPondSlots: number): Ponds => {
         const id = paidPondId(slot);
         if (result[id]) continue;
         if (result === ponds) result = { ...ponds };
-        result[id] = createPaidPond(slot);
+        result[id] = createPaidPond(slot, nextPondDisplayNumber(result));
     }
     return result;
 };
 
-/** 유료 연못 중 아직 만들어지지 않은 슬롯이 있는지 */
+/** 유료 연못 중 아직 만들어지지 않은 칸이 있는지 */
 export const hasMissingPaidPonds = (ponds: Ponds, paidPondSlots: number): boolean =>
     withPaidPonds(ponds, paidPondSlots) !== ponds;
+
+/**
+ * 새 게임용 연못. 코이·장식·테마·수질은 처음으로 돌리지만, 가진 연못 칸(예전에 젠 포인트로 산 일반 연못,
+ * Google Play로 산 연못)은 이름 그대로 빈 연못으로 남깁니다. 새 게임 때문에 산 연못이 사라지지 않게 합니다.
+ */
+export const pondsForNewGame = (current: Ponds, fresh: Ponds): Ponds => {
+    const result: Ponds = { ...fresh };
+    for (const [id, pond] of Object.entries(current)) {
+        if (result[id]) continue;
+        result[id] = { ...createEmptyPond(1), id, name: pond.name };
+    }
+    return result;
+};
 
 export { isPaidPondId, paidPondNumber };
 

@@ -8,6 +8,8 @@ let currentBgmVolume = 0.3;
 let currentSfxVolume = 0.5;
 let successSfxBufferPromise: Promise<AudioBuffer | null> | null = null;
 const successSfxGain = 0.2;
+// 동영상 광고가 떠 있는 동안 true. 이때는 효과음이나 화면 복귀가 소리를 다시 켜지 않습니다.
+let pausedForAd = false;
 
 const initAudio = () => {
     if (!audioCtx) {
@@ -21,7 +23,7 @@ const initAudio = () => {
         bgmGainNode.gain.value = 0.3; // Lower volume for BGM
         sfxGainNode.gain.value = 0.5;
     }
-    if (audioCtx.state === 'suspended') {
+    if (audioCtx.state === 'suspended' && !pausedForAd) {
         audioCtx.resume();
     }
     return audioCtx;
@@ -98,6 +100,25 @@ export const audioManager = {
     },
 
     resume: () => {
+        if (pausedForAd) return;
+        if (audioCtx && audioCtx.state === 'suspended') {
+            audioCtx.resume();
+        }
+    },
+
+    /** 동영상 광고가 나타나면 배경 음악과 효과음을 멈춥니다. */
+    pauseForAd: () => {
+        pausedForAd = true;
+        if (audioCtx && audioCtx.state === 'running') {
+            audioCtx.suspend();
+        }
+    },
+
+    /** 동영상 광고가 닫히면 소리를 다시 켭니다. 앱이 뒤로 가 있으면 돌아올 때 켜집니다. */
+    resumeAfterAd: () => {
+        if (!pausedForAd) return;
+        pausedForAd = false;
+        if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
         if (audioCtx && audioCtx.state === 'suspended') {
             audioCtx.resume();
         }

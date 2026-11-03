@@ -217,8 +217,9 @@ export const PondInfoModal: React.FC<PondInfoModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="light-modal bg-white rounded-2xl w-full max-w-3xl h-[88svh] flex flex-col border border-slate-200 shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+    // Android 배너 광고가 화면 맨 아래를 덮으므로 그 높이만큼 비워 아래쪽 판매·교배·이동 버튼이 가려지지 않게 합니다.
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4 pb-[calc(1rem+var(--ad-banner-height,0px))]" onClick={onClose}>
+      <div className="light-modal bg-white rounded-2xl w-full max-w-3xl h-[min(88svh,calc(100svh-2rem-var(--ad-banner-height,0px)))] flex flex-col border border-slate-200 shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
 
         {/* Header - Title and Tabs */}
         <div className="px-5 pt-5 pb-4 border-b border-slate-100">

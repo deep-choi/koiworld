@@ -148,12 +148,19 @@ test('the mock Google Play sheet runs the buy, cancel and pending paths', async 
     const stop = backend.subscribeToEntitlements('monetization-mock', value => updates.push(value));
     assert.deepEqual(updates[0], { paidPondSlots: 0, adFree: false });
 
-    const waitFor = async predicate => { for (let i = 0; i < 100 && !predicate(); i++) await new Promise(resolve => setTimeout(resolve, 10)); };
+    const waitFor = async predicate => { for (let i = 0; i < 400 && !predicate(); i++) await new Promise(resolve => setTimeout(resolve, 10)); };
+
+    // 실제 앱처럼 가격만 보여 줍니다("예시" 같은 설명은 휴대폰 화면 바깥 패널에만).
+    assert.deepEqual(await backend.loadProductPrices(), { pond_slot: '₩2,500', remove_ads: '₩5,500' });
 
     const bought = backend.purchase('monetization-mock', 'pond_slot');
-    assert.deepEqual(mock.mockUiStore.getSnapshot().purchase, { productId: 'pond_slot', phase: 'choose' });
-    mock.answerMockPurchase('buy');
+    assert.deepEqual(mock.mockUiStore.getSnapshot().purchase, { productId: 'pond_slot', phase: 'choose', outcome: 'approve' });
+    // 시트의 "구매": 처리 중 → 결제 완료(체크) → 시트가 내려간 뒤 혜택
+    mock.confirmMockPurchase();
     await waitFor(() => mock.mockUiStore.getSnapshot().purchase?.phase === 'processing');
+    assert.equal(mock.mockUiStore.getSnapshot().purchase?.phase, 'processing');
+    await waitFor(() => mock.mockUiStore.getSnapshot().purchase?.phase === 'done');
+    assert.equal(mock.mockUiStore.getSnapshot().purchase?.phase, 'done');
     const granted = await bought;
     assert.equal(granted.status, 'granted');
     assert.deepEqual(granted.entitlements, { paidPondSlots: 1, adFree: false });
@@ -161,14 +168,33 @@ test('the mock Google Play sheet runs the buy, cancel and pending paths', async 
     assert.deepEqual(updates.at(-1), { paidPondSlots: 1, adFree: false });
     assert.deepEqual(JSON.parse(global.localStorage.getItem('koiworld:monetization-mock:entitlements')), { paidPondSlots: 1, adFree: false });
 
+    // 시트 바깥을 누르거나 바깥 패널의 "열린 결제 창 닫기"
     const cancelled = backend.purchase('monetization-mock', 'remove_ads');
-    mock.answerMockPurchase('cancel');
+    mock.cancelMockPurchase();
     assert.equal(await cancelled, null);
+    assert.equal(mock.mockUiStore.getSnapshot().purchase, null);
 
+    // 바깥 패널에서 "취소"를 고르면 "구매"를 눌러도 취소로 끝납니다.
+    mock.setMockPurchaseOutcome('cancel');
+    const cancelledByOutcome = backend.purchase('monetization-mock', 'remove_ads');
+    mock.confirmMockPurchase();
+    assert.equal(await cancelledByOutcome, null);
+
+    // 바깥 패널에서 "결제 대기"를 고르면 열린 시트의 결제 수단도 느린 테스트 카드로 바뀌고, 혜택은 생기지 않습니다.
+    mock.setMockPurchaseOutcome('approve');
     const pending = backend.purchase('monetization-mock', 'remove_ads');
-    mock.answerMockPurchase('pending');
+    mock.setMockPurchaseOutcome('pending');
+    assert.equal(mock.mockUiStore.getSnapshot().purchase.outcome, 'pending');
+    mock.confirmMockPurchase();
     assert.equal((await pending).status, 'pending');
     assert.equal(mock.readMockEntitlements().adFree, false);
+    mock.setMockPurchaseOutcome('approve');
+
+    // 실제 앱 화면에 없는 안내는 바깥 패널로 보냅니다.
+    mock.showMockNotice('로그인 꺼짐');
+    assert.equal(mock.mockUiStore.getSnapshot().notice.message, '로그인 꺼짐');
+    mock.dismissMockNotice();
+    assert.equal(mock.mockUiStore.getSnapshot().notice, null);
 
     // 가짜 동영상 광고: 닫을 때까지 기다리고, 소리 멈춤·재개 신호를 한 번씩 보냅니다.
     const sound = [];
@@ -181,6 +207,113 @@ test('the mock Google Play sheet runs the buy, cancel and pending paths', async 
     stop();
 });
 
+test('the outside preview panel drives the game only through the bridge', () => {
+    global.localStorage = memoryStorage();
+    const mock = require('../services/mockMonetization.ts');
+    const { mockPreviewBridge, publishMockGame, findMockBridge, MOCK_BRIDGE_KEY } = require('../services/mockPreviewBridge.ts');
+    const calls = [];
+    const gameState = {
+        adsEnabled: true, entitlements: { paidPondSlots: 0, adFree: false }, nextAdAt: 0, pendingTrigger: null,
+        isVideoAdShowing: false, paidPondCount: 0, paidPondsWithKoi: 0,
+    };
+    const actions = { showVideoAdNow: () => calls.push('show'), resetAdTimers: () => calls.push('reset'), removePaidPonds: () => calls.push('remove') };
+    let notified = 0;
+    const stop = mockPreviewBridge.subscribe(() => notified++);
+    publishMockGame(gameState, actions);
+    const first = mockPreviewBridge.getSnapshot();
+    assert.deepEqual(first.game, gameState);
+    // 같은 값을 다시 알려도 패널을 다시 그리지 않습니다.
+    publishMockGame({ ...gameState, entitlements: { ...gameState.entitlements } }, actions);
+    assert.equal(mockPreviewBridge.getSnapshot(), first);
+    const afterPublish = notified;
+
+    mockPreviewBridge.actions.showVideoAdNow();
+    mockPreviewBridge.actions.resetAdTimers();
+    mockPreviewBridge.actions.setAdFree(true);
+    assert.equal(mock.readMockEntitlements().adFree, true);
+    mockPreviewBridge.actions.setPaidPondSlots(9);
+    assert.equal(mock.readMockEntitlements().paidPondSlots, 4);
+    mockPreviewBridge.actions.resetPurchases();
+    assert.deepEqual(mock.readMockEntitlements(), { paidPondSlots: 0, adFree: false });
+    assert.deepEqual(calls, ['show', 'reset', 'remove']);
+    mockPreviewBridge.actions.setPurchaseOutcome('pending');
+    assert.equal(mockPreviewBridge.getSnapshot().ui.purchaseOutcome, 'pending');
+    assert.ok(notified > afterPublish);
+    mockPreviewBridge.actions.setPurchaseOutcome('approve');
+    stop();
+
+    // 기기 테두리 안 iframe 창에 걸린 다리를 찾습니다. 없거나 읽을 수 없는 창이면 null입니다.
+    const found = findMockBridge({ [MOCK_BRIDGE_KEY]: mockPreviewBridge });
+    assert.equal(found.getSnapshot(), mockPreviewBridge.getSnapshot());
+    found.actions.setAdFree(true);
+    assert.equal(mock.readMockEntitlements().adFree, true);
+    found.actions.setAdFree(false);
+    // iframe이 새로 고쳐져 옛 창의 함수를 부를 수 없게 되어도 패널은 멈추지 않고 마지막 상태를 씁니다.
+    const dead = () => { throw new TypeError("can't access dead object"); };
+    const gone = findMockBridge({ [MOCK_BRIDGE_KEY]: { subscribe: () => dead, getSnapshot: mockPreviewBridge.getSnapshot, actions: { ...mockPreviewBridge.actions } } });
+    const lastSnapshot = gone.getSnapshot();
+    const unsubscribe = gone.subscribe(() => {});
+    const broken = findMockBridge({ [MOCK_BRIDGE_KEY]: { subscribe: dead, getSnapshot: dead, actions: { showVideoAdNow: dead } } });
+    assert.doesNotThrow(() => unsubscribe());
+    assert.doesNotThrow(() => broken.subscribe(() => {})());
+    assert.doesNotThrow(() => broken.actions.showVideoAdNow());
+    assert.deepEqual(broken.getSnapshot().game, null);
+    assert.ok(lastSnapshot.ui);
+    assert.equal(findMockBridge({}), null);
+    assert.equal(findMockBridge(null), null);
+    assert.equal(findMockBridge(new Proxy({}, { get: () => { throw new Error('cross-origin'); } })), null);
+});
+
+test('inside the phone screen there is no preview badge, explanation or tool button', () => {
+    // 휴대폰 화면 안에 그리는 것: 배너, 동영상 광고, 결제 시트(실제 앱에 있는 것). 주석은 빼고 화면에 나오는 코드만 봅니다.
+    const withoutComments = file => ts.transpileModule(read(file), {
+        compilerOptions: { removeComments: true, jsx: ts.JsxEmit.Preserve, target: ts.ScriptTarget.ES2022 },
+    }).outputText;
+    const inside = ['components/mock/MockTestBanner.tsx', 'components/mock/MockVideoAd.tsx', 'components/mock/MockPlaySheet.tsx'].map(withoutComments).join('\n');
+    assert.doesNotMatch(inside, /미리보기|가짜|자리|예시|청구 없음|실제 광고가 아니/);
+    assert.match(read('components/mock/MockTestBanner.tsx'), />\s*Test Ad\s*</);
+    assert.match(read('components/mock/MockTestBanner.tsx'), /h-\[50px\] w-\[320px\]/);
+    // 동영상 광고: 캔버스로 재생(외부 동영상 파일 없음), 15초 길이, 5초 뒤 건너뛰기, 끝나면 닫기
+    const video = read('components/mock/MockVideoAd.tsx');
+    assert.match(video, /MOCK_VIDEO_LENGTH_SECONDS = 15;/);
+    assert.match(video, /MOCK_VIDEO_SKIP_AFTER_SECONDS = 5;/);
+    assert.match(video, /<canvas/);
+    assert.match(video, /requestAnimationFrame/);
+    assert.doesNotMatch(video, /<video|\.mp4|\.webm|https?:\/\//);
+    assert.match(video, /광고 건너뛰기/);
+    assert.match(video, /aria-label="광고 닫기"/);
+    // 결제 시트: 앱 아이콘, 상품 이름, 가격, 테스트 카드, 구매 버튼, 처리 중, 결제 완료
+    const sheet = read('components/mock/MockPlaySheet.tsx');
+    for (const part of ['mipmap-xxxhdpi/ic_launcher.png', 'src={APP_ICON_URL}', 'MOCK_PRODUCT_NAMES[productId]', 'MOCK_SAMPLE_PRICES[productId]', 'MOCK_TEST_INSTRUMENTS.approve', '>\n                                    구매\n', '결제 처리 중', '결제 완료']) {
+        assert.ok(sheet.includes(part), part);
+    }
+    assert.equal(require('../services/mockMonetization.ts').MOCK_TEST_INSTRUMENTS.approve, '테스트 카드, 항상 승인');
+    // 미리보기 소스는 그림·동영상 파일을 import하지 않습니다(import하면 Vite가 배포 빌드에 파일을 복사함).
+    for (const file of fs.readdirSync(path.join(__dirname, '../components/mock'))) {
+        assert.doesNotMatch(read(`components/mock/${file}`), /^import .+\.(png|jpe?g|svg|webp|gif|mp4|webm)['"?]/m, file);
+    }
+    // 게임 안 레이어는 휴대폰 크기 브라우저에서만 구석 버튼을 그리고, 배지는 바깥 패널에만 있습니다.
+    const layer = read('components/mock/MonetizationMockLayer.tsx');
+    assert.match(layer, /\{!insideDeviceFrame && <CornerTools/);
+    assert.doesNotMatch(layer, /미리보기 모드/);
+    assert.match(read('components/mock/MockPreviewPanel.tsx'), /MOCK_PREVIEW_BADGE = '미리보기 모드 · 실제 청구 없음'/);
+    // 로그인 버튼의 안내도 게임 화면 토스트가 아니라 바깥 패널로 보냅니다.
+    assert.match(read('App.tsx'), /showMockNotice\(MONETIZATION_MOCK_LOGIN_MESSAGE\)/);
+    assert.doesNotMatch(read('App.tsx'), /setNotification\(\{ message: MONETIZATION_MOCK_LOGIN_MESSAGE/);
+});
+
+test('the desktop preview runs the game inside a 412x915 phone frame and only there', () => {
+    const env = read('components/mock/mockPreviewEnv.ts');
+    assert.match(env, /PHONE_SCREEN = \{ width: 412, height: 915 \}/);
+    const root = read('components/mock/MockPreviewRoot.tsx');
+    assert.match(root, /<iframe/);
+    assert.match(root, /mode === 'device' \? <MockDeviceShell \/> : <>\{game\}<\/>/);
+    // 바깥 문서(데스크톱)는 게임을 그리지 않고 기기 테두리와 패널만 그립니다.
+    assert.doesNotMatch(root, /<App\b/);
+    // 미리보기 껍데기는 미리보기 모드에서만 씁니다.
+    assert.match(read('index.tsx'), /root\.render\(isMonetizationMock \? <MockPreviewRoot game=\{game\} \/> : game\);/);
+});
+
 test('the production build check finds mock markers, including escaped ones', () => {
     assert.deepEqual(buildCheck.markersMissingFromSources(), []);
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'koiworld-build-check-'));
@@ -189,8 +322,9 @@ test('the production build check finds mock markers, including escaped ones', ()
         fs.writeFileSync(path.join(dir, 'index.html'), '<div id="root"></div>');
         fs.writeFileSync(path.join(dir, 'assets', 'index.js'), 'const shop = "연못 확장권";');
         assert.deepEqual(buildCheck.findMockMarkers(dir), []);
-        fs.writeFileSync(path.join(dir, 'assets', 'leak.js'), 'const a = "\\ubc30\\ub108 \\uad11\\uace0 \\uc790\\ub9ac"; const b = "monetization-mock";');
-        assert.deepEqual(buildCheck.findMockMarkers(dir).map(item => item.marker).sort(), ['monetization-mock', '배너 광고 자리']);
+        // "미리보기 도구"를 \uXXXX로 바꿔 쓴 경우도 찾습니다.
+        fs.writeFileSync(path.join(dir, 'assets', 'leak.js'), 'const a = "\\ubbf8\\ub9ac\\ubcf4\\uae30 \\ub3c4\\uad6c"; const b = "monetization-mock";');
+        assert.deepEqual(buildCheck.findMockMarkers(dir).map(item => item.marker).sort(), ['monetization-mock', '미리보기 도구'].sort());
     } finally {
         fs.rmSync(dir, { recursive: true, force: true });
     }
@@ -304,7 +438,7 @@ test('shop rows use full-width buttons on mobile and divider lines instead of ne
     assert.ok(actionButtons.length >= 7);
     for (const button of actionButtons) {
         assert.match(button.props.className, /(^|\s)w-full(\s|$)/, text(button));
-        assert.match(button.props.className, /sm:w-auto/, text(button));
+        assert.doesNotMatch(button.props.className, /sm:w-auto/, text(button));
     }
     const lists = flatten(tree).filter(node => node.type === 'ul');
     assert.ok(lists.length >= 4);
@@ -313,4 +447,38 @@ test('shop rows use full-width buttons on mobile and divider lines instead of ne
     const rows = flatten(tree).filter(node => node.type === 'li');
     const boxed = rows.flatMap(flatten).filter(node => node.type !== 'button' && /\bbg-(slate|white|gray)-/.test(node.props?.className ?? ''));
     assert.deepEqual(boxed.map(node => node.props.className), []);
+});
+
+test('Google Play buy buttons use the same brand orange as the other buy buttons', () => {
+    const { tree } = renderShop({ monetization: { isNativeStore: true } });
+    const zpButton = byLabel(tree, '기본 사료 (50개) 1개 구매하기');
+    const pondButton = byLabel(tree, '연못 확장권 Google Play로 구매하기');
+    const adsButton = byLabel(tree, '광고 제거 Google Play로 구매하기');
+    assert.ok(zpButton && pondButton && adsButton);
+    assert.match(zpButton.props.className, /\bbg-orange-500\b/);
+    assert.equal(pondButton.props.className, zpButton.props.className);
+    assert.equal(adsButton.props.className, zpButton.props.className);
+    // 상점에는 초록 강조가 남아 있지 않습니다(버튼, 아이콘, 안내 문구).
+    assert.doesNotMatch(read('components/ShopModal.tsx'), /\b(?:bg|text|border|ring)-(?:emerald|green|teal|lime)-/);
+});
+
+test('the quantity stepper spans the full width like the buy button below it', () => {
+    const { tree } = renderShop();
+    const minus = byLabel(tree, '기본 사료 (50개) 수량 줄이기');
+    const plus = byLabel(tree, '기본 사료 (50개) 수량 늘리기');
+    const stepper = flatten(tree).find(node => node.type === 'div' && node.children.includes(minus) && node.children.includes(plus));
+    assert.ok(stepper, 'minus and plus share one row');
+    assert.match(stepper.props.className, /(^|\s)w-full(\s|$)/);
+    assert.doesNotMatch(stepper.props.className, /sm:mr-auto|inline-flex/);
+    // −는 왼쪽 끝, 숫자는 가운데(남는 폭을 모두 차지), +는 오른쪽 끝입니다.
+    assert.equal(stepper.children[0], minus);
+    assert.equal(stepper.children.at(-1), plus);
+    assert.equal(stepper.children.length, 3);
+    assert.match(stepper.children[1].props.className, /\bflex-1\b/);
+    assert.match(stepper.children[1].props.className, /\btext-center\b/);
+    assert.equal(text(stepper.children[1]), '1');
+    // 수량 선택과 구매 버튼은 한 열에 위아래로 놓여 같은 폭입니다.
+    const column = flatten(tree).find(node => node.type === 'div' && node.children.includes(stepper));
+    assert.match(column.props.className, /\bflex-col\b/);
+    assert.doesNotMatch(column.props.className, /sm:flex-row/);
 });

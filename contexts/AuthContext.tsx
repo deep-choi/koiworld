@@ -37,13 +37,14 @@ const MonetizationMockAuthProvider: React.FC<{ children: ReactNode }> = ({ child
             user: {
                 uid: MONETIZATION_MOCK_SCOPE,
                 email: null,
-                displayName: '미리보기 게스트',
+                // 휴대폰 화면 안(랭킹 등)에는 실제 게스트와 똑같이 보이도록 게스트 값만 씁니다.
+                displayName: null,
                 photoURL: null,
                 isAnonymous: true,
                 providerIds: [],
-                providerLabel: '미리보기',
+                providerLabel: '게스트 (익명)',
                 authSource: 'anonymous',
-                authSourceLabel: '미리보기',
+                authSourceLabel: '게스트',
                 rawUser: null as unknown as FirebaseUser,
             },
             loading: false,

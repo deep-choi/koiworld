@@ -10,16 +10,25 @@ const alleleCount = (value: unknown) => value === undefined || (Number.isInteger
 const colors = new Set(['검정', '빨강', '노랑', '하양', '주황', '크림']);
 // ── 연못 수 규칙 ─────────────────────────────────────────────────────────
 // 연못은 두 종류입니다.
-//  1) 일반 연못(pond-1, pond-2 …): 모든 계정에 무료로 2개.
-//     예전에는 상점의 젠 포인트(20,000 ZP) 확장권으로 4개까지 늘릴 수 있었고, 그때 산 연못
-//     (pond-3, pond-4)은 계속 인정합니다. 지금은 일반 연못을 새로 늘릴 수 없습니다.
+//  1) 일반 연못(pond-1, pond-2 …): 새 게임은 무료 연못 1개(pond-1)로 시작합니다.
+//     1.0.7~1.0.8 앱은 모든 계정에 무료 연못 2개를 주었고, 그 전에는 상점의 젠 포인트(20,000 ZP)
+//     확장권으로 4개까지 늘릴 수 있었습니다. 그때 생긴 연못(pond-2, pond-3, pond-4)은 계속 인정합니다.
+//     지금은 일반 연못을 새로 늘릴 수 없습니다.
 //  2) 유료 연못(pond-paid-1, pond-paid-2 …): Google Play에서 산 "연못 확장권"(상품 pond_slot) 1개당 1개.
 //     화면 이름은 일반 연못 번호에 이어서 붙습니다(예: 연못 3).
 // 두 종류를 id로 구분해 두면 예전에 젠 포인트로 산 연못과 현금으로 산 연못이 섞이지 않고,
 // 재설치·새 게임 후에도 유료 연못 id만 보고 빠진 연못을 다시 채워 줄 수 있습니다.
 
-/** 모든 계정이 무료로 받는 일반 연못 수 */
-export const DEFAULT_FREE_POND_COUNT = 2;
+/** 새 게임이 무료로 받는 일반 연못 수(앱이 새 게임을 만들 때 쓰는 값) */
+export const DEFAULT_FREE_POND_COUNT = 1;
+/**
+ * 서버가 저장본 없이도 받아 주는 일반 연못 수. 1.0.7~1.0.8 앱은 새 계정과 연못이 1개인 저장본에
+ * 빈 연못 2(pond-2)를 스스로 채워 저장하므로, 아직 깔려 있는 구버전 앱의 저장이 실패하지 않도록
+ * 새 게임 기본값(DEFAULT_FREE_POND_COUNT)보다 1개 많은 2개까지 받습니다.
+ * 이 값을 1로 내리면 구버전 앱의 클라우드 저장이 "일반 연못은 더 늘릴 수 없습니다"로 계속 실패합니다.
+ * 구버전 앱이 충분히 사라진 뒤에만 낮추세요(docs/유료화-콘솔-체크리스트.md 9번).
+ */
+export const LEGACY_CLIENT_FREE_POND_COUNT = 2;
 /** 일반 연못의 최대 개수. 젠 포인트 확장권이 있던 때 산 연못까지 합쳐 4개입니다. */
 export const MAX_REGULAR_POND_COUNT = 4;
 /** 예전 코드와의 호환용 이름. 일반 연못 한도와 같습니다. */
@@ -87,19 +96,21 @@ export type PondAllowanceOptions = {
 
 /**
  * 이 저장에서 허용하는 일반 연못 수.
- * 기본 2개, 또는 서버에 이미 저장되어 있던 일반 연못 수(예전에 젠 포인트로 산 연못 포함, 최대 4개) 중 큰 값입니다.
+ * 구버전 앱 호환값 2개(LEGACY_CLIENT_FREE_POND_COUNT), 또는 서버에 이미 저장되어 있던 일반 연못 수
+ * (예전에 젠 포인트로 산 연못 포함, 최대 4개) 중 큰 값입니다. 새 앱은 연못 1개로 시작하지만,
+ * 구버전 앱이 채워 넣는 빈 연못 2 때문에 저장이 막히지 않도록 서버는 2개까지 받습니다.
  */
 export const allowedRegularPondCount = (previousState: unknown, options: PondAllowanceOptions = {}): number => {
     if (options.carriesGuestProgress && !record(previousState)) return MAX_REGULAR_POND_COUNT;
     const stored = countPonds(pondIdsOf(previousState)).regular;
-    return Math.min(MAX_REGULAR_POND_COUNT, Math.max(DEFAULT_FREE_POND_COUNT, stored));
+    return Math.min(MAX_REGULAR_POND_COUNT, Math.max(LEGACY_CLIENT_FREE_POND_COUNT, stored));
 };
 
 /**
  * 계정 혜택 기준의 연못 수 검사. 문제가 없으면 null, 있으면 거절 이유를 돌려줍니다.
  *
- * - 일반 연못은 더 늘릴 수 없습니다. 서버에 저장되어 있던 수(최소 기본 2개)까지만 받습니다.
- *   예전에 젠 포인트로 산 연못(pond-3, pond-4)은 이미 저장되어 있으므로 계속 받습니다.
+ * - 일반 연못은 더 늘릴 수 없습니다. 서버에 저장되어 있던 수(최소 구버전 앱 호환값 2개)까지만 받습니다.
+ *   예전에 받은 연못 2와 젠 포인트로 산 연못(pond-3, pond-4)은 이미 저장되어 있으므로 계속 받습니다.
  * - 유료 연못 pond-paid-N은 N이 산 연못 확장권 수 이하일 때만 새로 만들 수 있습니다.
  * - 서버에 이미 저장된 연못은 그대로 둡니다. 환불 등으로 혜택이 줄어도 저장이
  *   막혀 코이를 잃는 일이 없도록, "새로 생긴 연못"만 혜택으로 검사합니다.

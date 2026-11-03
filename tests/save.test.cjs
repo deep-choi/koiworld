@@ -418,14 +418,36 @@ test('live cloud updates replace pending device progress even if device storage 
     }
 });
 
-test('saves with one pond get the second default pond; more ponds stay as they are', () => {
+test('a new game starts with one pond and a one-pond save is not given a second pond', () => {
+    const { createInitialPonds } = require('../hooks/useKoiPond.ts');
+    const { DEFAULT_POND_COUNT } = require('../utils/savedGameState.ts');
+    assert.equal(DEFAULT_POND_COUNT, 1);
+    const fresh = createInitialPonds();
+    assert.deepEqual(Object.keys(fresh), ['pond-1']);
+    assert.ok(fresh['pond-1'].kois.length > 0, 'the starter koi live in pond 1');
+    // 예전 저장본에 연못이 1개뿐이면 그대로 1개입니다(연못 2를 자동으로 채우지 않음).
     const loaded = state();
-    assert.deepEqual(Object.keys(loaded.ponds), ['pond-1', 'pond-2']);
-    assert.deepEqual(loaded.ponds['pond-2'], { id: 'pond-2', name: '연못 2', kois: [], decorations: [], theme: '기본 (맑은 물)', waterQuality: 100 });
+    assert.deepEqual(Object.keys(loaded.ponds), ['pond-1']);
     assert.equal(loaded.activePondId, 'pond-1');
-    const threePonds = normalizeSavedGameState({ ...loaded, ponds: { ...loaded.ponds, 'pond-3': { ...loaded.ponds['pond-2'], id: 'pond-3', name: '연못 3' } } });
-    assert.deepEqual(Object.keys(threePonds.ponds), ['pond-1', 'pond-2', 'pond-3']);
     assert.deepEqual(normalizeSavedGameState(loaded).ponds, loaded.ponds);
+});
+
+test('a pond 2 already saved by 1.0.7-1.0.8 is never removed or hidden', () => {
+    const base = state();
+    const pond2 = { id: 'pond-2', name: '연못 2', kois: [], decorations: [], theme: '기본 (맑은 물)', waterQuality: 100 };
+    const twoPonds = normalizeSavedGameState({ ...base, activePondId: 'pond-2', ponds: { ...base.ponds, 'pond-2': pond2 } });
+    assert.deepEqual(Object.keys(twoPonds.ponds), ['pond-1', 'pond-2']);
+    assert.equal(twoPonds.activePondId, 'pond-2');
+    const threePonds = normalizeSavedGameState({ ...twoPonds, ponds: { ...twoPonds.ponds, 'pond-3': { ...pond2, id: 'pond-3', name: '연못 3' } } });
+    assert.deepEqual(Object.keys(threePonds.ponds), ['pond-1', 'pond-2', 'pond-3']);
+    // 화면 상태(useKoiPond)도 저장된 연못을 그대로 씁니다.
+    const source = fs.readFileSync(require.resolve('../hooks/useKoiPond.ts'), 'utf8');
+    assert.match(source, /withDefaultPonds\(initialState\?\.ponds \?\? createInitialPonds\(\)\)/);
+    // 일반 연못이 하나도 없는 저장본만 연못 1을 받고, 있던 연못은 지우지 않습니다.
+    const { withDefaultPonds: fill } = require('../utils/savedGameState.ts');
+    assert.deepEqual(Object.keys(fill({ 'pond-2': pond2 })), ['pond-2']);
+    const paidOnly = { 'pond-paid-1': { ...pond2, id: 'pond-paid-1' } };
+    assert.deepEqual(Object.keys(fill(paidOnly)).sort(), ['pond-1', 'pond-paid-1']);
 });
 
 test('saves may hold up to four ponds; a fifth is rejected', () => {
@@ -485,12 +507,29 @@ test('a new regular pond-3 is rejected for an account that only had two ponds', 
     // 연못 확장권을 사 둔 계정도 일반 연못으로는 늘릴 수 없습니다(유료 연못 id로만).
     assert.notEqual(pondAllowanceError(withPond3, { paidPondSlots: 4 }, previous), null);
     assert.notEqual(pondAllowanceError(withPondIds(['pond-1', 'pond-2', 'pond-3', 'pond-4']), { paidPondSlots: 4 }, previous), null);
-    // 연못이 1개였던 예전 저장본은 기본 2번째 연못을 받습니다.
-    assert.equal(pondAllowanceError(previous, undefined, withPondIds(['pond-1'])), null);
-    // 새 계정(저장본 없음)은 무료 연못 2개로 시작합니다.
+});
+
+test('the server still accepts the empty pond 2 that 1.0.8 and older apps add', () => {
+    const { DEFAULT_FREE_POND_COUNT, LEGACY_CLIENT_FREE_POND_COUNT } = require('../functions/src/saveValidation.ts');
+    // 새 앱은 연못 1개로 시작하지만, 서버는 구버전 앱 호환을 위해 일반 연못 2개까지 받습니다.
+    assert.equal(DEFAULT_FREE_POND_COUNT, 1);
+    assert.equal(LEGACY_CLIENT_FREE_POND_COUNT, 2);
+    const one = withPondIds(['pond-1']);
+    const two = withPondIds(['pond-1', 'pond-2']);
+    // 새 앱의 새 계정 첫 저장(연못 1개)
+    assert.equal(pondAllowanceError(one, undefined, undefined), null);
+    // 구버전 앱의 새 계정 첫 저장(기본 연못 2개) — 저장 이유와 관계없이 받습니다.
     assert.equal(allowedRegularPondCount(undefined), 2);
-    assert.equal(pondAllowanceError(previous, undefined, undefined), null);
-    assert.notEqual(pondAllowanceError(withPond3, undefined, undefined), null);
+    assert.equal(pondAllowanceError(two, undefined, undefined), null);
+    assert.equal(pondAllowanceError(two, undefined, undefined, { carriesGuestProgress: false }), null);
+    // 새 앱으로 연못 1개가 저장된 계정을 구버전 앱으로 열면 빈 연못 2가 붙어 올라옵니다. 이것도 받습니다.
+    assert.equal(allowedRegularPondCount(one), 2);
+    assert.equal(pondAllowanceError(two, undefined, one), null);
+    // 그 이상은 여전히 거절합니다.
+    assert.notEqual(pondAllowanceError(withPondIds(['pond-1', 'pond-2', 'pond-3']), undefined, undefined), null);
+    assert.notEqual(pondAllowanceError(withPondIds(['pond-1', 'pond-2', 'pond-3']), undefined, one), null);
+    // 서버 함수가 이 규칙(pondAllowanceError)을 그대로 씁니다.
+    assert.match(fs.readFileSync(require.resolve('../functions/src/index.ts'), 'utf8'), /const pondError = pondAllowanceError\(/);
 });
 
 test('a brand-new account may carry ZP ponds a guest bought before, once', () => {
@@ -498,24 +537,29 @@ test('a brand-new account may carry ZP ponds a guest bought before, once', () =>
     assert.equal(pondAllowanceError(guestWithFour, undefined, undefined, { carriesGuestProgress: true }), null);
     // 이미 저장본이 있는 계정에는 적용되지 않습니다.
     assert.notEqual(pondAllowanceError(guestWithFour, undefined, withPondIds(['pond-1', 'pond-2']), { carriesGuestProgress: true }), null);
+    assert.notEqual(pondAllowanceError(guestWithFour, undefined, withPondIds(['pond-1']), { carriesGuestProgress: true }), null);
     // 유료 연못은 첫 저장에서도 혜택이 있어야 합니다.
-    assert.notEqual(pondAllowanceError(withPondIds(['pond-1', 'pond-2', 'pond-paid-1']), undefined, undefined, { carriesGuestProgress: true }), null);
+    assert.notEqual(pondAllowanceError(withPondIds(['pond-1', 'pond-paid-1']), undefined, undefined, { carriesGuestProgress: true }), null);
     // 서버는 새 계정의 첫 저장(new-account)일 때만 이 옵션을 켭니다.
     assert.match(fs.readFileSync(require.resolve('../functions/src/index.ts'), 'utf8'),
         /carriesGuestProgress: saveReason === 'new-account' && currentGameState == null && currentRevision === 0/);
 });
 
 test('paid ponds are still allowed by entitlement', () => {
-    const previous = withPondIds(['pond-1', 'pond-2']);
-    const oneSlot = withPondIds(['pond-1', 'pond-2', 'pond-paid-1']);
-    const twoSlots = withPondIds(['pond-1', 'pond-2', 'pond-paid-1', 'pond-paid-2']);
+    const previous = withPondIds(['pond-1']);
+    const oneSlot = withPondIds(['pond-1', 'pond-paid-1']);
+    const twoSlots = withPondIds(['pond-1', 'pond-paid-1', 'pond-paid-2']);
 
     assert.notEqual(pondAllowanceError(oneSlot, undefined, previous), null);
     assert.notEqual(pondAllowanceError(oneSlot, { paidPondSlots: 0, adFree: true }, previous), null);
     assert.equal(pondAllowanceError(oneSlot, { paidPondSlots: 1 }, previous), null);
     assert.notEqual(pondAllowanceError(twoSlots, { paidPondSlots: 1 }, previous), null);
     assert.equal(pondAllowanceError(twoSlots, { paidPondSlots: 2 }, previous), null);
-    assert.equal(pondAllowanceError(withPondIds(['pond-1', 'pond-2', 'pond-paid-1', 'pond-paid-2', 'pond-paid-3', 'pond-paid-4']), { paidPondSlots: 4 }, previous), null);
+    assert.equal(pondAllowanceError(withPondIds(['pond-1', 'pond-paid-1', 'pond-paid-2', 'pond-paid-3', 'pond-paid-4']), { paidPondSlots: 4 }, previous), null);
+    // 연못 2를 가진 예전 계정도 같은 규칙입니다.
+    const legacyTwo = withPondIds(['pond-1', 'pond-2']);
+    assert.equal(pondAllowanceError(withPondIds(['pond-1', 'pond-2', 'pond-paid-1']), { paidPondSlots: 1 }, legacyTwo), null);
+    assert.notEqual(pondAllowanceError(withPondIds(['pond-1', 'pond-2', 'pond-paid-1']), undefined, legacyTwo), null);
     // 혜택이 줄어도 이미 서버에 있던 연못은 저장을 막지 않아 코이를 잃지 않습니다.
     assert.equal(pondAllowanceError(twoSlots, { paidPondSlots: 1 }, twoSlots), null);
     // 첫 저장(이전 저장본 없음)도 같은 규칙입니다.
@@ -534,10 +578,11 @@ test('entitlements are clamped and turn into the account pond limit', () => {
 
 test('paid ponds continue the normal pond numbering and keep their koi', () => {
     const base = state().ponds;
+    // 연못 1개로 시작한 계정은 연못 확장권을 사면 "연못 2"부터 받습니다.
     const filled = withPaidPonds(base, 2);
-    assert.deepEqual(Object.keys(filled), ['pond-1', 'pond-2', 'pond-paid-1', 'pond-paid-2']);
-    assert.equal(filled['pond-paid-1'].name, '연못 3');
-    assert.equal(filled['pond-paid-2'].name, '연못 4');
+    assert.deepEqual(Object.keys(filled), ['pond-1', 'pond-paid-1', 'pond-paid-2']);
+    assert.equal(filled['pond-paid-1'].name, '연못 2');
+    assert.equal(filled['pond-paid-2'].name, '연못 3');
     assert.equal(filled['pond-paid-1'].kois.length, 0);
     assert.equal(withPaidPonds(filled, 2), filled, 'nothing to add keeps the same object');
     assert.equal(hasMissingPaidPonds(filled, 2), false);
@@ -547,36 +592,47 @@ test('paid ponds continue the normal pond numbering and keep their koi', () => {
     const more = withPaidPonds(withKoi, 3);
     assert.equal(more['pond-paid-1'].kois.length, 1);
     assert.equal(more['pond-paid-1'].name, '특별 연못 1');
-    assert.equal(more['pond-paid-3'].name, '연못 5');
+    assert.equal(more['pond-paid-3'].name, '연못 4');
+    // 1.0.7~1.0.8에서 연못 2를 받은 계정은 연못 3부터 이어집니다.
+    const legacyTwo = { ...base, 'pond-2': createEmptyPond(2) };
+    assert.equal(withPaidPonds(legacyTwo, 1)['pond-paid-1'].name, '연못 3');
     // 예전에 젠 포인트로 4개를 산 계정은 연못 5부터 이어집니다.
-    const legacy = { ...base, 'pond-3': createEmptyPond(3), 'pond-4': createEmptyPond(4) };
+    const legacy = { ...legacyTwo, 'pond-3': createEmptyPond(3), 'pond-4': createEmptyPond(4) };
     assert.equal(nextPondDisplayNumber(legacy), 5);
     assert.equal(withPaidPonds(legacy, 1)['pond-paid-1'].name, '연못 5');
     // 이름 번호가 비어 있어도 겹치지 않게 가장 큰 번호 다음을 씁니다.
     assert.equal(nextPondDisplayNumber({ 'pond-1': createEmptyPond(1), 'pond-paid-1': { ...createEmptyPond(7), id: 'pond-paid-1' } }), 8);
-    // 일반 연못이 1개뿐이면 유료 연못이 있어도 기본 연못 2를 채웁니다.
-    assert.deepEqual(Object.keys(withDefaultPonds({ 'pond-1': base['pond-1'], 'pond-paid-1': filled['pond-paid-1'] })).sort(),
-        ['pond-1', 'pond-2', 'pond-paid-1']);
+    // 일반 연못이 1개면 유료 연못이 있어도 연못 2를 채우지 않습니다.
+    const withPaid = { 'pond-1': base['pond-1'], 'pond-paid-1': filled['pond-paid-1'] };
+    assert.equal(withDefaultPonds(withPaid)['pond-2'], undefined);
+    assert.deepEqual(Object.keys(withDefaultPonds(withPaid)).sort(), ['pond-1', 'pond-paid-1']);
 });
 
 test('a new game keeps every pond the player owns, empty', () => {
     const owned = {
         ...state().ponds,
         'pond-1': { ...createEmptyPond(1), kois: [{ id: 'old' }], theme: '밤' },
+        // 1.0.7~1.0.8에서 받은 연못 2
+        'pond-2': { ...createEmptyPond(2), kois: [{ id: 'old-2' }] },
         'pond-3': { ...createEmptyPond(3), kois: [{ id: 'old-3' }] },
         'pond-4': createEmptyPond(4),
         'pond-paid-1': { ...createEmptyPond(5), id: 'pond-paid-1', kois: [{ id: 'old-paid' }] },
     };
-    const fresh = { 'pond-1': { ...createEmptyPond(1), kois: [{ id: 'starter' }] }, 'pond-2': createEmptyPond(2) };
+    // 새 게임의 기본 연못은 연못 1 하나입니다.
+    const fresh = { 'pond-1': { ...createEmptyPond(1), kois: [{ id: 'starter' }] } };
     const next = pondsForNewGame(owned, fresh);
     assert.deepEqual(Object.keys(next).sort(), ['pond-1', 'pond-2', 'pond-3', 'pond-4', 'pond-paid-1']);
     assert.deepEqual(next['pond-1'].kois.map(koi => koi.id), ['starter']);
     assert.equal(next['pond-1'].theme, fresh['pond-1'].theme);
+    assert.equal(next['pond-2'].kois.length, 0);
+    assert.equal(next['pond-2'].name, '연못 2');
     assert.equal(next['pond-3'].kois.length, 0);
     assert.equal(next['pond-paid-1'].kois.length, 0);
     assert.equal(next['pond-paid-1'].name, '연못 5');
     assert.equal(next['pond-paid-1'].id, 'pond-paid-1');
     // 새 게임 저장본은 서버 연못 검사를 그대로 통과합니다(혜택이 없어도 이미 있던 연못).
     assert.equal(pondAllowanceError({ ...state(), ponds: next }, undefined, { ...state(), ponds: owned }), null);
+    // 연못 1개였던 계정은 새 게임 뒤에도 1개입니다.
+    assert.deepEqual(Object.keys(pondsForNewGame(state().ponds, fresh)), ['pond-1']);
 });
 

@@ -10,17 +10,35 @@ const path = require('node:path');
  * 각 문구가 실제 미리보기 소스에 있는지도 확인하므로(MARKER_SOURCES), 문구를 바꾸면 여기도 함께 고쳐야 합니다.
  */
 const MOCK_MARKERS = [
+    // 미리보기 모드 이름과 저장 칸, 기기 테두리 안 iframe 표시, 바깥 패널과 잇는 다리 이름
     'monetization-mock',
+    'mock-screen',
+    '__koiworldMonetizationMockBridge',
+    // 휴대폰 화면 바깥의 배지와 도구 패널
     '미리보기 모드',
-    '배너 광고 자리',
-    '동영상 광고 자리',
-    'Google Play 결제 미리보기',
+    '실제 청구 없음',
+    '미리보기 도구',
+    // 휴대폰 화면 안의 테스트 배너·전면 동영상 광고(가상의 앱 광고)
+    'Sample App',
+    '광고 건너뛰기',
+    // Google Play 결제 시트의 테스트 결제 수단과 앱 아이콘 주소(개발 서버 전용)
+    '테스트 카드, 항상 승인',
+    '느린 테스트 카드',
+    'mipmap-xxxhdpi/ic_launcher.png',
 ];
 
 /** 문구가 들어 있어야 하는 미리보기 소스(빌드 검사가 빈 검사가 되지 않도록 확인합니다) */
 const MARKER_SOURCES = [
     'config/monetizationMock.ts',
+    'services/mockMonetization.ts',
+    'services/mockPreviewBridge.ts',
+    'components/mock/mockPreviewEnv.ts',
     'components/mock/MonetizationMockLayer.tsx',
+    'components/mock/MockPreviewRoot.tsx',
+    'components/mock/MockPreviewPanel.tsx',
+    'components/mock/MockTestBanner.tsx',
+    'components/mock/MockVideoAd.tsx',
+    'components/mock/MockPlaySheet.tsx',
 ];
 
 const TEXT_EXTENSIONS = new Set(['.js', '.mjs', '.cjs', '.html', '.css', '.json', '.map', '.txt', '.webmanifest']);

@@ -8,6 +8,7 @@ import type { KoiGenetics } from '../types';
 const traitGenesKey = (g: KoiGenetics) =>
     `${g.motoguroGenes ?? 0}${g.hirenagaGenes ?? 0}${g.koromoGenes ?? 0}${g.tanchoGenes ?? 0}${g.doitsuGenes ?? 0}${g.ginrinGenes ?? 0}-${g.ginrin ?? 0}`;
 import { WaterEffects } from './WaterEffects';
+import { isMonetizationMock } from '../config/monetizationMock';
 
 const NO_KOI_POSITIONS: { x: number, y: number, vx: number, vy: number }[] = [];
 
@@ -64,7 +65,8 @@ export class GameEngine {
     private frameCount = 0;
     private fpsLastTime = 0;
     private currentFPS = 0;
-    private showFPS = import.meta.env.DEV; // 개발자 패널용 FPS 표시 (개발 환경에서만)
+    // 개발자 패널용 FPS 표시 (개발 환경에서만). 로컬 결제·광고 미리보기는 실제 앱처럼 보이도록 숨깁니다.
+    private showFPS = import.meta.env.DEV && !isMonetizationMock;
     private readonly resizeListener = () => this.resize();
     private readonly visibilityListener = () => {
         if (document.hidden) this.stop();

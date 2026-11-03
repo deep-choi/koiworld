@@ -33,14 +33,15 @@ const CORN_PACK_PRICE = 1000;
 const CORN_LARGE_PACK_PRICE = 4000; // 20% bulk discount
 const TROPHY_PRICE = 100000;
 
-// 버튼: 모바일은 설명 아래 전체 폭, 넓은 화면(sm 이상)은 오른쪽 정렬된 고정 폭입니다.
-const PRIMARY_BUTTON = 'w-full sm:w-auto sm:min-w-[8rem] h-11 px-4 rounded-lg font-medium flex items-center justify-center gap-2 transition-colors disabled:bg-slate-200 disabled:text-slate-500 disabled:cursor-not-allowed';
-const ZP_BUTTON = `${PRIMARY_BUTTON} bg-orange-500 text-white enabled:hover:bg-orange-600`;
-const PLAY_BUTTON = `${PRIMARY_BUTTON} bg-emerald-600 text-white enabled:hover:bg-emerald-700`;
+// 구매 버튼: 설명 아래 전체 폭입니다(상점 창이 좁아 넓은 화면에서도 같은 모양).
+// 젠 포인트 상품과 Google Play 상품 모두 같은 브랜드 오렌지를 씁니다.
+const BUY_BUTTON = 'w-full h-11 px-4 rounded-lg font-medium flex items-center justify-center gap-2 transition-colors bg-orange-500 text-white enabled:hover:bg-orange-600 disabled:bg-slate-200 disabled:text-slate-500 disabled:cursor-not-allowed';
+// 수량 선택: 구매 버튼과 같은 전체 폭. −는 왼쪽 끝, 숫자는 가운데, +는 오른쪽 끝입니다.
+const STEP_BUTTON = 'w-11 h-full shrink-0 flex items-center justify-center text-slate-500 enabled:hover:text-slate-900 disabled:opacity-40';
 
 /**
  * 상점의 한 줄. 상자 안에 상자를 넣지 않고, 목록의 구분선(divide-y)으로만 나눕니다.
- * 위쪽: 아이콘 · 이름 · 가격 · 설명 / 아래쪽: 수량과 버튼(모바일은 전체 폭)
+ * 위쪽: 아이콘 · 이름 · 가격 · 설명 / 아래쪽: 전체 폭 수량 선택과 전체 폭 구매 버튼
  */
 const ShopRow: React.FC<{
     icon: React.ReactNode;
@@ -60,7 +61,7 @@ const ShopRow: React.FC<{
                 <p className="text-sm text-slate-600 mt-1 leading-relaxed break-keep">{description}</p>
             </div>
         </div>
-        {children && <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">{children}</div>}
+        {children && <div className="mt-3 flex flex-col gap-2">{children}</div>}
     </li>
 );
 
@@ -72,7 +73,7 @@ const ShopSection: React.FC<{ title: string; note?: React.ReactNode; children: R
     </section>
 );
 
-/** 젠 포인트 상품: 수량 조절이 있으면 총액을 함께 보여 줍니다. */
+/** 젠 포인트 상품: 수량을 2개 이상 고르면 구매 버튼에 합계를 함께 보여 줍니다. */
 const ZenShopItem: React.FC<{
     icon: React.ReactNode;
     title: string;
@@ -90,36 +91,34 @@ const ZenShopItem: React.FC<{
     return (
         <ShopRow icon={icon} title={title} description={description} price={`${price.toLocaleString()} ZP`}>
             {hasQuantity && (
-                <div className="flex items-center justify-between gap-3 sm:mr-auto">
-                    <div className="inline-flex items-center rounded-full border border-slate-300">
-                        <button
-                            onClick={() => changeQuantity(-1)}
-                            className="w-9 h-9 flex items-center justify-center text-slate-500 hover:text-slate-900 disabled:opacity-40"
-                            disabled={quantity <= 1}
-                            aria-label={`${title} 수량 줄이기`}
-                        >
-                            <Minus size={16} />
-                        </button>
-                        <span className="w-8 text-center text-slate-900 font-medium" aria-live="polite">{quantity}</span>
-                        <button
-                            onClick={() => changeQuantity(1)}
-                            className="w-9 h-9 flex items-center justify-center text-slate-500 hover:text-slate-900 disabled:opacity-40"
-                            disabled={quantity >= 99}
-                            aria-label={`${title} 수량 늘리기`}
-                        >
-                            <Plus size={16} />
-                        </button>
-                    </div>
-                    {quantity > 1 && <span className="text-sm text-slate-600">합계 {total.toLocaleString()} ZP</span>}
+                <div className="flex h-11 w-full items-center rounded-lg border border-slate-300">
+                    <button
+                        onClick={() => changeQuantity(-1)}
+                        className={STEP_BUTTON}
+                        disabled={quantity <= 1}
+                        aria-label={`${title} 수량 줄이기`}
+                    >
+                        <Minus size={16} />
+                    </button>
+                    <span className="flex-1 text-center text-slate-900 font-medium tabular-nums" aria-live="polite">{quantity}</span>
+                    <button
+                        onClick={() => changeQuantity(1)}
+                        className={STEP_BUTTON}
+                        disabled={quantity >= 99}
+                        aria-label={`${title} 수량 늘리기`}
+                    >
+                        <Plus size={16} />
+                    </button>
                 </div>
             )}
             <button
                 onClick={() => onBuy(quantity)}
                 disabled={!affordable}
-                className={ZP_BUTTON}
-                aria-label={`${title} ${quantity}개 구매하기`}
+                className={BUY_BUTTON}
+                aria-label={`${title} ${quantity}개 구매하기, 합계 ${total.toLocaleString()} ZP`}
             >
                 {affordable ? '구매하기' : 'ZP 부족'}
+                {quantity > 1 && <span className="font-normal opacity-90">· 합계 {total.toLocaleString()} ZP</span>}
             </button>
         </ShopRow>
     );
@@ -134,8 +133,8 @@ const PlayPurchaseAction: React.FC<{
 }> = ({ title, productId, monetization, ownedReason }) => {
     if (!monetization.isNativeStore) {
         return (
-            <p className="flex items-center gap-2 text-sm text-slate-600 sm:ml-auto">
-                <Smartphone size={16} className="shrink-0 text-emerald-600" aria-hidden="true" />
+            <p className="flex items-center gap-2 text-sm text-slate-600">
+                <Smartphone size={16} className="shrink-0 text-orange-600" aria-hidden="true" />
                 {ownedReason ?? '앱에서 구매할 수 있어요'}
             </p>
         );
@@ -145,7 +144,7 @@ const PlayPurchaseAction: React.FC<{
         <button
             onClick={() => monetization.onPurchase(productId)}
             disabled={!!ownedReason || monetization.busyProductId !== null}
-            className={PLAY_BUTTON}
+            className={BUY_BUTTON}
             aria-label={ownedReason ? `${title}: ${ownedReason}` : `${title} Google Play로 구매하기`}
         >
             {ownedReason ?? (isBusy ? '결제 확인 중…' : '구매하기')}
@@ -241,7 +240,7 @@ export const ShopModal: React.FC<ShopModalProps> = ({
 
                     <ShopSection title="광고 제거">
                         <ShopRow
-                            icon={<Ban size={26} strokeWidth={2} className="text-emerald-600" />}
+                            icon={<Ban size={26} strokeWidth={2} className="text-orange-600" />}
                             title="광고 제거"
                             description="한 번 사면 앱 하단 배너와 동영상 광고가 모두 사라져요."
                             price={playPrice(PLAY_PRODUCT_IDS.removeAds)}

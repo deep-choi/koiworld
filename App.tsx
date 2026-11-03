@@ -42,6 +42,7 @@ import { useVideoAds } from './hooks/useVideoAds';
 import { hasMissingPaidPonds, pondsForNewGame } from './utils/savedGameState';
 import { MONETIZATION_MOCK_SCOPE, isMonetizationMock } from './config/monetizationMock';
 import { MonetizationMockLayer } from './components/mock/MonetizationMockLayer';
+import { showMockNotice } from './services/mockMonetization';
 
 interface Animation {
   id: number;
@@ -1641,9 +1642,10 @@ export const App: React.FC = () => {
         <button
           onClick={() => {
             if (authLoading) return;
-            // 로컬 미리보기에서는 실제 계정을 건드리지 않도록 로그인 창 대신 이유를 알려 줍니다.
+            // 로컬 미리보기에서는 실제 계정을 건드리지 않도록 로그인 창을 열지 않고,
+            // 실제 앱 화면에 없는 안내는 휴대폰 화면 바깥의 미리보기 패널에만 보여 줍니다.
             if (isMonetizationMock) {
-              setNotification({ message: MONETIZATION_MOCK_LOGIN_MESSAGE, type: 'info' });
+              showMockNotice(MONETIZATION_MOCK_LOGIN_MESSAGE);
               return;
             }
             // Anonymous Firebase auth is only the implementation detail for
@@ -1654,7 +1656,7 @@ export const App: React.FC = () => {
           }}
           disabled={authLoading}
           className="bg-white/10 backdrop-blur-sm p-0 rounded-full border border-white/20 text-white hover:text-orange-400 transition-colors hover:bg-white/20 hover:border-white/30 w-[46px] h-[46px] overflow-hidden flex items-center justify-center group disabled:cursor-wait disabled:hover:text-white disabled:hover:bg-white/10"
-          title={isMonetizationMock ? '미리보기 모드: 로그인 꺼짐' : authLoading ? '로그인 상태 확인 중' : user && !user.isAnonymous ? `${user.displayName || userNickname || '사용자'} 님` : '로그인 또는 회원가입'}
+          title={authLoading ? '로그인 상태 확인 중' : user && !user.isAnonymous ? `${user.displayName || userNickname || '사용자'} 님` : '로그인 또는 회원가입'}
           aria-label={isMonetizationMock ? '미리보기 모드라 로그인이 꺼져 있어요. 이유 보기' : authLoading ? '로그인 상태 확인 중' : user && !user.isAnonymous ? '계정 정보 열기' : '로그인 창 열기'}
         >
           {authLoading ? (
@@ -2001,7 +2003,8 @@ export const App: React.FC = () => {
         myAchievementPoints={achievementScore}
       />
 
-      {/* 로컬 미리보기(npm run dev:mock) 전용: 배지, 배너 자리, 동영상 광고 자리, 가짜 결제창, 미리보기 도구 */}
+      {/* 로컬 미리보기(npm run dev:mock) 전용: AdMob 테스트 배너, 전면 동영상 광고, Google Play 결제 시트.
+          미리보기 배지와 도구는 휴대폰 화면 바깥(components/mock/MockPreviewRoot.tsx)에 있습니다. */}
       {isMonetizationMock && (
         <MonetizationMockLayer
           videoAds={videoAds}

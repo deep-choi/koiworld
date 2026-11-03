@@ -279,7 +279,8 @@ export const saveGameState = onCall(async request => {
         }
 
         const currentGameState = userData.gameState;
-        // 연못 수 검사: 일반 연못은 서버에 저장되어 있던 수(최소 기본 2개)를 넘길 수 없고,
+        // 연못 수 검사: 일반 연못은 서버에 저장되어 있던 수를 넘길 수 없고(새 앱은 1개로 시작하지만,
+        // 빈 연못 2를 채워 저장하는 1.0.8 이하 앱을 위해 최소 2개까지는 받습니다),
         // 유료 연못은 산 연못 확장권 수까지만 새로 만들 수 있습니다. 이미 저장된 연못은 그대로 인정합니다.
         // 저장본이 없는 새 계정의 첫 저장만, 게스트 시절 젠 포인트로 산 일반 연못을 함께 옮길 수 있습니다.
         const pondError = pondAllowanceError(

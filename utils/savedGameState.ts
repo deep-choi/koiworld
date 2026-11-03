@@ -28,8 +28,8 @@ export const isCompleteSavedGameState = (value: unknown): value is SavedGameStat
 };
 
 /**
- * 연못은 모든 계정에 기본 2개입니다. 더 늘리려면 Google Play의 연못 확장권을 삽니다(유료 연못 pond-paid-N).
- * 예전에 젠 포인트 확장권으로 산 일반 연못(pond-3, pond-4)은 그대로 남습니다.
+ * 새 게임은 연못 1개로 시작합니다. 더 늘리려면 Google Play의 연못 확장권을 삽니다(유료 연못 pond-paid-N).
+ * 1.0.7~1.0.8에서 받은 연못 2와 예전에 젠 포인트 확장권으로 산 일반 연못(pond-3, pond-4)은 그대로 남습니다.
  */
 export const DEFAULT_POND_COUNT = DEFAULT_FREE_POND_COUNT;
 
@@ -74,8 +74,9 @@ export const createPaidPond = (slot: number, displayNumber: number): PondData =>
 const regularPondCount = (ponds: Ponds) => countPonds(Object.keys(ponds)).regular;
 
 /**
- * 일반 연못이 DEFAULT_POND_COUNT개보다 적으면 비어 있는 번호로 빈 연못을 채워 넣습니다.
- * 연못이 1개였던 예전 저장본도 불러오면 연못 2를 기본으로 받게 됩니다.
+ * 일반 연못이 DEFAULT_POND_COUNT개(1개)보다 적으면 비어 있는 번호로 빈 연못을 채워 넣습니다.
+ * 일반 연못이 하나도 없는 이상한 저장본만 연못 1을 받습니다. 연못이 1개인 저장본에 연못 2를 더 채우지 않고,
+ * 이미 있는 연못(연못 2, 예전에 산 연못)은 지우거나 숨기지 않습니다.
  */
 export const withDefaultPonds = (ponds: Ponds): Ponds => {
     const result = { ...ponds };

@@ -44,6 +44,8 @@ function accountContext(overrides = {}) {
         achievementClaimQueueRef: { current: Promise.resolve() }, pendingAchievementClaimsRef: { current: 0 },
         flushCurrentGameStateRef: { current: async () => {} }, claimReward: async () => {},
         setNotification: () => {}, audioManager: { playSFX: () => {} },
+        // App.tsx의 handleClaimReward가 분석 이벤트를 보내므로, 테스트에서는 아무 일도 하지 않는 함수로 대신합니다.
+        trackEvent: () => {},
         console: { error: () => {} }, ...overrides,
     };
 }

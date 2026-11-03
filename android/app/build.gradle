@@ -28,6 +28,13 @@ android {
         versionCode 16
         versionName "1.0.8"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        // AdMob 앱 ID. 실제 값은 저장소에 넣지 않고 gradle 속성(-PKOIWORLD_ADMOB_APP_ID=…)이나
+        // 같은 이름의 환경 변수로만 넣습니다. 비어 있으면 Google의 공개 테스트 앱 ID를 씁니다.
+        // (AdMob SDK는 앱 ID가 없으면 시작 즉시 종료되므로 빈 값 대신 테스트 ID가 들어갑니다.)
+        def admobAppId = (project.findProperty("KOIWORLD_ADMOB_APP_ID") ?: System.getenv("KOIWORLD_ADMOB_APP_ID") ?: "").toString().trim()
+        manifestPlaceholders = [
+            admobAppId: admobAppId ?: "ca-app-pub-3940256099942544~3347511713"
+        ]
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
              // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61

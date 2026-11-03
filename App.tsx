@@ -37,6 +37,10 @@ import { purchaseHonorTrophies } from './services/ranking';
 import { readLocalSave, writeLocalSave, acceptCloudSave, acknowledgeLocalSave, archiveLocalSave, chooseSaveSource } from './services/saveJournal';
 import { SavePolicy, progressKey } from './services/savePolicy';
 import { trackEvent, trackOnce } from './services/analytics';
+import { useMonetization } from './hooks/useMonetization';
+import { REWARDED_AD_REWARDS, type RewardedAdRewardKind } from './config/monetization';
+import { countPonds } from './functions/src/saveValidation';
+import { canAddRegularPond, hasMissingPaidPonds } from './utils/savedGameState';
 
 interface Animation {
   id: number;
@@ -106,6 +110,7 @@ export const App: React.FC = () => {
     removeKoi,
     updateKoiPositions,
     addPond,
+    ensurePaidPonds,
     feedKoi,
     foodPellets,
     dropFood,
@@ -448,6 +453,38 @@ export const App: React.FC = () => {
     if (fromEmail) return fromEmail;
     return 'User';
   }, [userNickname, user]);
+
+  // --- 유료화: 계정 혜택(연못 슬롯·광고 제거), Google Play 결제, AdMob 광고 ---
+  const handleRewardEarned = useCallback((kind: RewardedAdRewardKind) => {
+    const amount = REWARDED_AD_REWARDS[kind].amount;
+    if (kind === 'food') setFoodCount(count => count + amount);
+    else setZenPoints(points => points + amount);
+    audioManager.playSFX('purchase');
+  }, []);
+  const handleMonetizationNotice = useCallback((message: string, type: 'success' | 'info' | 'error') => {
+    setNotification({ message, type });
+  }, []);
+  const handlePurchaseLoginRequired = useCallback(() => {
+    setIsShopModalOpen(false);
+    setIsAuthModalOpen(true);
+  }, []);
+  const monetization = useMonetization({
+    accountUid: localSaveScope,
+    isAccountReady: !!localSaveScope && isCloudSyncReady && !isAccountRestoring,
+    notify: handleMonetizationNotice,
+    onRewardEarned: handleRewardEarned,
+    onLoginRequired: handlePurchaseLoginRequired,
+  });
+  const paidPondSlots = monetization.entitlements.paidPondSlots;
+
+  // 산 연못 슬롯만큼 특별 연못(pond-paid-N)이 있도록 채웁니다. 결제 직후, 재설치 후 복원,
+  // 새 게임 시작, 웹 로그인 모두 이 한 곳에서 처리합니다. 계정 저장본을 다 불러온 뒤에만 실행해
+  // 불러오기 전의 임시 상태에 연못을 붙이지 않습니다. 추가된 연못은 평소 자동 저장으로 서버에 올라갑니다.
+  useEffect(() => {
+    if (!localSaveScope || !isCloudSyncReady || isAccountRestoring || !monetization.entitlementsLoaded) return;
+    if (localHydratedScopeRef.current !== localSaveScope) return;
+    if (hasMissingPaidPonds(ponds, paidPondSlots)) ensurePaidPonds(paidPondSlots);
+  }, [ponds, paidPondSlots, localSaveScope, isCloudSyncReady, isAccountRestoring, monetization.entitlementsLoaded, ensurePaidPonds]);
 
   // Ref to hold latest state for periodic saving
   const gameStateRef = useRef<SavedGameState | null>(null);
@@ -1160,7 +1197,8 @@ export const App: React.FC = () => {
 
   const handleBuyPondExpansion = () => {
     const cost = 20000;
-    if (zenPoints < cost) return;
+    // 젠 포인트 확장권은 일반 연못만 늘립니다. 한도에 닿았으면 포인트를 빼지 않습니다.
+    if (zenPoints < cost || !canAddRegularPond(ponds)) return;
     setZenPoints(p => p - cost);
     audioManager.playSFX('purchase');
     addPond();
@@ -1407,7 +1445,8 @@ export const App: React.FC = () => {
   }, []);
 
   return (
-    <div className="relative w-full h-[100svh] bg-gray-900 overflow-hidden select-none flex flex-col">
+    // Android 배너 광고가 화면 맨 아래를 차지하는 만큼(--ad-banner-height) 게임 화면을 줄여 하단 버튼이 가려지지 않게 합니다.
+    <div className="relative w-full h-[calc(100svh-var(--ad-banner-height,0px))] bg-gray-900 overflow-hidden select-none flex flex-col">
       <main
         className="flex-grow relative overflow-hidden touch-none"
       >
@@ -1750,7 +1789,20 @@ export const App: React.FC = () => {
             onBuyCornLarge={handleBuyCornLarge}
             onBuyTrophy={handleBuyTrophy}
             onBuyPond={handleBuyPondExpansion}
-            pondCount={Object.keys(ponds).length}
+            regularPondCount={countPonds(Object.keys(ponds)).regular}
+            monetization={{
+              isNativeStore: monetization.isNativeStore,
+              prices: monetization.prices,
+              busyProductId: monetization.busyProductId,
+              paidPondSlots,
+              adFree: monetization.entitlements.adFree,
+              onPurchase: productId => { void monetization.purchase(productId); },
+              onRestorePurchases: () => { void monetization.restorePurchases(); },
+              canWatchRewardedAds: monetization.canWatchRewardedAds,
+              isWatchingAd: monetization.isWatchingAd,
+              rewardedAdsRemaining: monetization.rewardedAdsRemaining,
+              onWatchRewardedAd: kind => { void monetization.watchRewardedAd(kind); },
+            }}
           />
         )
       }

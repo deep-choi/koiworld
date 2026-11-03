@@ -20,7 +20,23 @@ import {
     type CanonicalProgression,
 } from './progression.js';
 
-import { isValidGameStateCore } from './saveValidation.js';
+import { isValidGameStateCore, normalizeEntitlements, pondAllowanceError } from './saveValidation.js';
+import {
+    PLAY_PACKAGE_NAME,
+    PLAY_PRODUCTS,
+    decidePurchaseGrant,
+    isPlausiblePurchaseToken,
+    isPlayProductId,
+    purchaseRecordId,
+    type GrantDecision,
+    type PlayProductPurchase,
+} from './playBilling.js';
+import {
+    PlayApiError,
+    createDefaultAccessTokenProvider,
+    createPlayDeveloperApi,
+    type PlayDeveloperApi,
+} from './googlePlay.js';
 
 initializeApp();
 
@@ -93,6 +109,10 @@ const gameStateBackupRef = (uid: string, backupId = 'latest') => gameStateBackup
 const rankingStateRef = (uid: string) => db.collection('rankingState').doc(uid);
 const rankingRef = (uid: string) => db.collection('rankings').doc(uid);
 const eventRef = (uid: string, eventId: string) => db.collection('rankingEvents').doc(`${uid}_${eventId}`);
+// 계정별 혜택(연못 슬롯 수, 광고 제거). 서버만 쓰고, 계정 주인은 앱·웹에서 읽기만 합니다.
+const entitlementsRef = (uid: string) => db.collection('entitlements').doc(uid);
+// Google Play 구매 기록. 같은 구매 토큰으로 혜택을 두 번 주지 않기 위한 장부이며 클라이언트는 읽을 수 없습니다.
+const playPurchaseRef = (purchaseToken: string) => db.collection('playPurchases').doc(purchaseRecordId(purchaseToken));
 
 const asGameState = (value: unknown): GameState => asRecord(value) as GameState;
 
@@ -242,9 +262,10 @@ export const saveGameState = onCall(async request => {
         : [[], [], null];
 
     return db.runTransaction(async transaction => {
-        const [userSnapshot, stateSnapshot] = await Promise.all([
+        const [userSnapshot, stateSnapshot, entitlementsSnapshot] = await Promise.all([
             transaction.get(userReference),
             transaction.get(stateReference),
+            transaction.get(entitlementsRef(uid)),
         ]);
         const userData = userSnapshot.exists ? userSnapshot.data() ?? {} : {};
         const currentRevision = finiteInteger(userData.gameStateRevision);
@@ -258,6 +279,15 @@ export const saveGameState = onCall(async request => {
         }
 
         const currentGameState = userData.gameState;
+        // 연못 수는 계정 혜택(산 연못 슬롯 수) 기준으로 검사합니다. 이미 저장된 연못은 그대로 인정합니다.
+        const pondError = pondAllowanceError(
+            incomingGameState,
+            normalizeEntitlements(entitlementsSnapshot.exists ? entitlementsSnapshot.data() : undefined),
+            currentGameState,
+        );
+        if (pondError) {
+            throw new HttpsError('failed-precondition', pondError, { reason: 'pond-allowance' });
+        }
         const nextRevision = currentRevision + 1;
         const rankingData = stateSnapshot.exists ? stateSnapshot.data() ?? {} : {};
         const isFirstGameSave = saveReason === 'new-account' && currentGameState == null
@@ -865,6 +895,9 @@ export const claimAchievement = onCall(async request => {
     });
 });
 
+// 게임 데이터 삭제는 저장본·랭킹·백업만 지웁니다. 유료 구매 기록(playPurchases)과
+// 그 결과인 혜택(entitlements)은 결제 기록 보관 의무와 구매 복원을 위해 남겨 둡니다.
+// (개인정보처리방침에 적을 내용은 docs/유료화-콘솔-체크리스트.md 참고)
 export const deleteAccountData = onCall(async request => {
     const uid = requireAuth(request.auth?.uid);
     const userReference = usersRef(uid);
@@ -889,6 +922,124 @@ export const deleteAccountData = onCall(async request => {
     }
 
     return { deleted: true };
+});
+
+// ── Google Play 인앱 결제 확인 ─────────────────────────────────────────────
+
+let playApi: PlayDeveloperApi | null = null;
+const getPlayApi = (): PlayDeveloperApi => {
+    playApi ??= createPlayDeveloperApi({
+        packageName: PLAY_PACKAGE_NAME,
+        getAccessToken: createDefaultAccessTokenProvider(),
+    });
+    return playApi;
+};
+
+type PurchaseVerificationResult = {
+    status: 'granted' | 'already-granted' | 'pending';
+    productId: string;
+    entitlements: ReturnType<typeof normalizeEntitlements>;
+    /** Google Play에 소비/승인까지 끝났는지. false면 앱이 직접 마무리하거나 다음 실행 때 다시 확인합니다. */
+    finished: boolean;
+};
+
+/**
+ * 앱이 Google Play에서 받은 구매 토큰을 확인하고 계정 혜택을 저장합니다.
+ *
+ * 1. Google Play Developer API로 구매가 진짜인지, 결제가 끝났는지, 어느 계정이 샀는지 확인합니다.
+ * 2. 트랜잭션 안에서 구매 장부(playPurchases)와 혜택(entitlements)을 함께 씁니다.
+ *    같은 토큰을 여러 번 보내도(재시도, 재설치 후 복원) 혜택은 한 번만 더해집니다.
+ * 3. 혜택을 저장한 뒤에만 Play에 소비(연못 슬롯) 또는 승인(광고 제거)을 알립니다.
+ *    승인 전에 앱이 꺼져도 다음 실행의 복원 흐름이 같은 토큰을 다시 보내 마무리합니다.
+ */
+export const verifyPlayPurchase = onCall(async request => {
+    const uid = requireAuth(request.auth?.uid);
+    // 익명 계정은 재설치하면 사라지므로 구매를 묶지 않습니다. 앱은 구매 전에 로그인을 안내합니다.
+    if (request.auth?.token.firebase?.sign_in_provider === 'anonymous') {
+        throw new HttpsError('failed-precondition', '구매하려면 로그인이 필요합니다.', { reason: 'login-required' });
+    }
+    const data = asRecord(request.data);
+    const productId = data.productId;
+    const purchaseToken = data.purchaseToken;
+    if (!isPlayProductId(productId)) {
+        throw new HttpsError('invalid-argument', '판매하지 않는 상품입니다.');
+    }
+    if (!isPlausiblePurchaseToken(purchaseToken)) {
+        throw new HttpsError('invalid-argument', '구매 토큰이 올바르지 않습니다.');
+    }
+
+    const api = getPlayApi();
+    let purchase: PlayProductPurchase;
+    try {
+        purchase = await api.getProductPurchase(productId, purchaseToken);
+    } catch (error) {
+        if (error instanceof PlayApiError && error.isInvalidPurchase) {
+            throw new HttpsError('not-found', 'Google Play에서 구매 정보를 찾을 수 없습니다.', { reason: 'not-found' });
+        }
+        console.error('Google Play purchase lookup failed:', error);
+        throw new HttpsError('unavailable', 'Google Play 구매를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.');
+    }
+
+    const recordReference = playPurchaseRef(purchaseToken);
+    const entitlementReference = entitlementsRef(uid);
+    const decision: GrantDecision = await db.runTransaction(async transaction => {
+        const [recordSnapshot, entitlementSnapshot] = await Promise.all([
+            transaction.get(recordReference),
+            transaction.get(entitlementReference),
+        ]);
+        const result = decidePurchaseGrant({
+            uid,
+            productId,
+            purchase,
+            existingRecord: recordSnapshot.exists ? recordSnapshot.data() : null,
+            entitlements: entitlementSnapshot.exists ? entitlementSnapshot.data() : undefined,
+        });
+        if (result.kind === 'grant') {
+            transaction.create(recordReference, {
+                ...result.record,
+                productType: PLAY_PRODUCTS[productId].type,
+                grantedAt: FieldValue.serverTimestamp(),
+            });
+            transaction.set(entitlementReference, {
+                uid,
+                ...result.entitlements,
+                updatedAt: FieldValue.serverTimestamp(),
+            }, { merge: true });
+        }
+        return result;
+    });
+
+    if (decision.kind === 'reject') {
+        throw new HttpsError('failed-precondition', decision.message, { reason: decision.reason });
+    }
+    if (decision.kind === 'pending') {
+        return {
+            status: 'pending',
+            productId,
+            entitlements: decision.entitlements,
+            finished: false,
+        } satisfies PurchaseVerificationResult;
+    }
+
+    let finished = decision.finish === null;
+    if (decision.finish) {
+        try {
+            if (decision.finish === 'consume') await api.consumeProductPurchase(productId, purchaseToken);
+            else await api.acknowledgeProductPurchase(productId, purchaseToken);
+            await recordReference.set({ finished: true, finishedAt: FieldValue.serverTimestamp() }, { merge: true });
+            finished = true;
+        } catch (error) {
+            // 혜택은 이미 저장되었습니다. 마무리는 앱의 직접 처리나 다음 복원 때 다시 시도합니다.
+            console.error('Google Play purchase finish failed:', error);
+        }
+    }
+
+    return {
+        status: decision.kind === 'grant' ? 'granted' : 'already-granted',
+        productId,
+        entitlements: decision.entitlements,
+        finished,
+    } satisfies PurchaseVerificationResult;
 });
 
 type AchievementClaimResult = RankingResult & {

@@ -433,3 +433,75 @@ test('saves may hold up to four ponds; a fifth is rejected', () => {
     assert.equal(isValidGameStateCore(withPonds(5)), false);
     assert.equal(normalizeSavedGameState(withPonds(5)), null);
 });
+
+// ── 유료 연못 슬롯: 계정 혜택 기준 연못 수 검사 ───────────────────────────
+const {
+    pondAllowanceError, maxPondCountFor, normalizeEntitlements, MAX_PAID_POND_SLOTS, ABSOLUTE_MAX_POND_COUNT,
+} = require('../functions/src/saveValidation.ts');
+const { withPaidPonds, hasMissingPaidPonds, canAddRegularPond, nextRegularPondNumber, withDefaultPonds } = require('../utils/savedGameState.ts');
+
+const withPondIds = ids => {
+    const base = state();
+    const ponds = {};
+    for (const id of ids) ponds[id] = { ...base.ponds['pond-1'], id, name: id, kois: [] };
+    return { ...base, ponds };
+};
+
+test('paid pond slots live beside the four regular ponds and cannot exceed the slot catalog', () => {
+    const full = withPondIds(['pond-1', 'pond-2', 'pond-3', 'pond-4', 'pond-paid-1', 'pond-paid-2', 'pond-paid-3', 'pond-paid-4']);
+    assert.equal(Object.keys(full.ponds).length, ABSOLUTE_MAX_POND_COUNT);
+    assert.equal(isValidGameStateCore(full), true);
+    assert.equal(isValidGameStateCore(withPondIds(['pond-1', 'pond-2', `pond-paid-${MAX_PAID_POND_SLOTS + 1}`])), false);
+    // 유료 연못이 있어도 일반 연못 5개는 여전히 거절합니다.
+    assert.equal(isValidGameStateCore(withPondIds(['pond-1', 'pond-2', 'pond-3', 'pond-4', 'pond-5', 'pond-paid-1'])), false);
+    assert.equal(isValidGameStateCore(withPondIds(['pond-1', 'pond-paid-0'])), true, 'pond-paid-0 is just an unusual regular id');
+});
+
+test('a save can only add the paid ponds that the account bought', () => {
+    const previous = withPondIds(['pond-1', 'pond-2']);
+    const oneSlot = withPondIds(['pond-1', 'pond-2', 'pond-paid-1']);
+    const twoSlots = withPondIds(['pond-1', 'pond-2', 'pond-paid-1', 'pond-paid-2']);
+
+    assert.notEqual(pondAllowanceError(oneSlot, undefined, previous), null);
+    assert.notEqual(pondAllowanceError(oneSlot, { paidPondSlots: 0, adFree: true }, previous), null);
+    assert.equal(pondAllowanceError(oneSlot, { paidPondSlots: 1 }, previous), null);
+    assert.notEqual(pondAllowanceError(twoSlots, { paidPondSlots: 1 }, previous), null);
+    assert.equal(pondAllowanceError(twoSlots, { paidPondSlots: 2 }, previous), null);
+    // ZP 확장권 연못은 혜택과 무관합니다(4개 한도는 구조 검사가 맡습니다).
+    assert.equal(pondAllowanceError(withPondIds(['pond-1', 'pond-2', 'pond-3', 'pond-4']), undefined, previous), null);
+    // 혜택이 줄어도 이미 서버에 있던 연못은 저장을 막지 않아 코이를 잃지 않습니다.
+    assert.equal(pondAllowanceError(twoSlots, { paidPondSlots: 1 }, twoSlots), null);
+    // 첫 저장(이전 저장본 없음)도 같은 규칙입니다.
+    assert.notEqual(pondAllowanceError(oneSlot, undefined, undefined), null);
+});
+
+test('entitlements are clamped and turn into the account pond limit', () => {
+    assert.deepEqual(normalizeEntitlements(undefined), { paidPondSlots: 0, adFree: false });
+    assert.deepEqual(normalizeEntitlements({ paidPondSlots: 2.7, adFree: true }), { paidPondSlots: 2, adFree: true });
+    assert.deepEqual(normalizeEntitlements({ paidPondSlots: -3, adFree: 1 }), { paidPondSlots: 0, adFree: false });
+    assert.equal(maxPondCountFor(undefined), 4);
+    assert.equal(maxPondCountFor({ paidPondSlots: 3 }), 7);
+    assert.equal(maxPondCountFor({ paidPondSlots: 99 }), 4 + MAX_PAID_POND_SLOTS);
+});
+
+test('paid ponds are filled in once per bought slot and regular expansion ignores them', () => {
+    const base = state().ponds;
+    const filled = withPaidPonds(base, 2);
+    assert.deepEqual(Object.keys(filled), ['pond-1', 'pond-2', 'pond-paid-1', 'pond-paid-2']);
+    assert.equal(filled['pond-paid-2'].name, '특별 연못 2');
+    assert.equal(filled['pond-paid-1'].kois.length, 0);
+    assert.equal(withPaidPonds(filled, 2), filled, 'nothing to add keeps the same object');
+    assert.equal(hasMissingPaidPonds(filled, 2), false);
+    assert.equal(hasMissingPaidPonds(filled, 3), true);
+    // 이미 있는 특별 연못의 코이는 건드리지 않습니다.
+    const withKoi = { ...filled, 'pond-paid-1': { ...filled['pond-paid-1'], kois: [{ id: 'k' }] } };
+    assert.equal(withPaidPonds(withKoi, 2)['pond-paid-1'].kois.length, 1);
+
+    assert.equal(canAddRegularPond(filled), true);
+    assert.equal(nextRegularPondNumber(filled), 3);
+    const fourRegular = { ...filled, 'pond-3': { ...base['pond-1'], id: 'pond-3' }, 'pond-4': { ...base['pond-1'], id: 'pond-4' } };
+    assert.equal(canAddRegularPond(fourRegular), false);
+    // 일반 연못이 1개뿐이면 특별 연못이 있어도 기본 연못 2를 채웁니다.
+    assert.deepEqual(Object.keys(withDefaultPonds({ 'pond-1': base['pond-1'], 'pond-paid-1': filled['pond-paid-1'] })).sort(),
+        ['pond-1', 'pond-2', 'pond-paid-1']);
+});

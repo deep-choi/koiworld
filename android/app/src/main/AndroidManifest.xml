@@ -13,6 +13,11 @@
             android:name="com.google.android.gms.games.APP_ID"
             android:value="@string/games_app_id" />
 
+        <!-- AdMob 앱 ID. 값은 app/build.gradle의 manifestPlaceholders(KOIWORLD_ADMOB_APP_ID)에서 들어옵니다. -->
+        <meta-data
+            android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="${admobAppId}" />
+
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
             android:name=".MainActivity"

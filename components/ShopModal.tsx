@@ -1,7 +1,30 @@
 import React, { useState } from 'react';
-import { MAX_POND_COUNT } from '../functions/src/saveValidation';
-import { X, ShoppingCart, Minus, Plus, Trophy } from 'lucide-react';
+import { MAX_PAID_POND_SLOTS, MAX_REGULAR_POND_COUNT } from '../functions/src/saveValidation';
+import { X, ShoppingCart, Minus, Plus, Trophy, Smartphone, Ban, PlayCircle, RotateCcw, Sparkles } from 'lucide-react';
 import { CornIcon, FeedIcon } from './FoodIcons';
+import { MODAL_CLOSE } from './menuStyles';
+import {
+    PLAY_PRODUCT_IDS,
+    REWARDED_AD_REWARDS,
+    REWARDED_ADS_PER_DAY,
+    type PlayProductId,
+    type RewardedAdRewardKind,
+} from '../config/monetization';
+
+/** Google Play 상품과 광고 관련 상태. 앱(Android)과 웹이 같은 모양을 받고, isNativeStore로 구분합니다. */
+export interface ShopMonetizationProps {
+    isNativeStore: boolean;
+    prices: Partial<Record<PlayProductId, string>>;
+    busyProductId: PlayProductId | 'restore' | null;
+    paidPondSlots: number;
+    adFree: boolean;
+    onPurchase: (productId: PlayProductId) => void;
+    onRestorePurchases: () => void;
+    canWatchRewardedAds: boolean;
+    isWatchingAd: boolean;
+    rewardedAdsRemaining: number;
+    onWatchRewardedAd: (kind: RewardedAdRewardKind) => void;
+}
 
 interface ShopModalProps {
     onClose: () => void;
@@ -12,7 +35,9 @@ interface ShopModalProps {
     onBuyCornLarge: (quantity: number) => void;
     onBuyTrophy: (quantity: number) => void;
     onBuyPond: () => void;
-    pondCount: number;
+    /** 젠 포인트로 산 연못을 포함한 일반 연못 수(유료 연못 제외) */
+    regularPondCount: number;
+    monetization: ShopMonetizationProps;
 }
 
 const FOOD_PACK_PRICE = 200;
@@ -20,161 +45,299 @@ const FOOD_LARGE_PACK_PRICE = 800; // 20% bulk discount
 const CORN_PACK_PRICE = 1000;
 const CORN_LARGE_PACK_PRICE = 4000; // 20% bulk discount
 const TROPHY_PRICE = 100000;
+const POND_EXPANSION_PRICE = 20000;
 
-const ShopItem: React.FC<{
+// 버튼: 모바일은 설명 아래 전체 폭, 넓은 화면(sm 이상)은 오른쪽 정렬된 고정 폭입니다.
+const PRIMARY_BUTTON = 'w-full sm:w-auto sm:min-w-[8rem] h-11 px-4 rounded-lg font-medium flex items-center justify-center gap-2 transition-colors disabled:bg-slate-200 disabled:text-slate-500 disabled:cursor-not-allowed';
+const ZP_BUTTON = `${PRIMARY_BUTTON} bg-orange-500 text-white enabled:hover:bg-orange-600`;
+const PLAY_BUTTON = `${PRIMARY_BUTTON} bg-emerald-600 text-white enabled:hover:bg-emerald-700`;
+const AD_BUTTON = `${PRIMARY_BUTTON} bg-sky-600 text-white enabled:hover:bg-sky-700`;
+
+/**
+ * 상점의 한 줄. 상자 안에 상자를 넣지 않고, 목록의 구분선(divide-y)으로만 나눕니다.
+ * 위쪽: 아이콘 · 이름 · 가격 · 설명 / 아래쪽: 수량과 버튼(모바일은 전체 폭)
+ */
+const ShopRow: React.FC<{
+    icon: React.ReactNode;
+    title: string;
+    description: React.ReactNode;
+    price?: React.ReactNode;
+    children?: React.ReactNode;
+}> = ({ icon, title, description, price, children }) => (
+    <li className="py-4">
+        <div className="flex items-start gap-3">
+            <div className="w-9 h-9 shrink-0 flex items-center justify-center" aria-hidden="true">{icon}</div>
+            <div className="min-w-0 flex-1">
+                <div className="flex items-baseline justify-between gap-3">
+                    <h4 className="text-base font-medium text-slate-900">{title}</h4>
+                    {price && <span className="shrink-0 text-sm font-semibold text-orange-600">{price}</span>}
+                </div>
+                <p className="text-sm text-slate-600 mt-1 leading-relaxed break-keep">{description}</p>
+            </div>
+        </div>
+        {children && <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">{children}</div>}
+    </li>
+);
+
+const ShopSection: React.FC<{ title: string; note?: React.ReactNode; children: React.ReactNode }> = ({ title, note, children }) => (
+    <section className="border-t border-slate-200 pt-4 first:border-t-0 first:pt-0">
+        <h3 className="text-xs font-semibold tracking-wide text-slate-500">{title}</h3>
+        {note && <p className="mt-1 text-xs leading-relaxed text-slate-500 break-keep">{note}</p>}
+        <ul className="divide-y divide-slate-200">{children}</ul>
+    </section>
+);
+
+/** 젠 포인트 상품: 수량 조절이 있으면 총액을 함께 보여 줍니다. */
+const ZenShopItem: React.FC<{
     icon: React.ReactNode;
     title: string;
     description: string;
     price: number;
+    zenPoints: number;
     onBuy: (quantity: number) => void;
-    canAfford: (quantity: number) => boolean;
     hasQuantity?: boolean;
-    disabled?: boolean;
     disabledReason?: string;
-}> = ({ icon, title, description, price, onBuy, canAfford, hasQuantity = false, disabled = false, disabledReason }) => {
+}> = ({ icon, title, description, price, zenPoints, onBuy, hasQuantity = false, disabledReason }) => {
     const [quantity, setQuantity] = useState(1);
-
-    const handleQuantityChange = (delta: number) => {
-        setQuantity(prev => Math.max(1, Math.min(99, prev + delta)));
-    };
-
-    const currentPrice = price * quantity;
-    const affordable = canAfford(quantity);
+    const total = price * quantity;
+    const affordable = zenPoints >= total;
+    const changeQuantity = (delta: number) => setQuantity(prev => Math.max(1, Math.min(99, prev + delta)));
 
     return (
-        <div className="bg-slate-50 p-3 rounded-lg flex flex-col">
-            <div className="flex items-center gap-3">
-                <div className="w-10 h-10 shrink-0 flex items-center justify-center">{icon}</div>
-                <div className="flex-grow">
-                    <h3 className="text-base font-medium text-slate-900">{title}</h3>
-                    <p className="text-sm text-slate-600 mt-1 leading-relaxed">{description}</p>
-                </div>
-            </div>
-
+        <ShopRow icon={icon} title={title} description={description} price={`${price.toLocaleString()} ZP`}>
             {hasQuantity && (
-                <div className="flex items-center justify-between mt-3 bg-white border border-slate-300 rounded-lg p-1">
-                    <button
-                        onClick={() => handleQuantityChange(-1)}
-                        className="p-1 text-slate-500 hover:text-slate-900 disabled:opacity-50"
-                        disabled={quantity <= 1}
-                        aria-label={`${title} 수량 줄이기`}
-                    >
-                        <Minus size={16} />
-                    </button>
-                    <span className="text-slate-900 font-medium" aria-live="polite">{quantity}</span>
-                    <button
-                        onClick={() => handleQuantityChange(1)}
-                        className="p-1 text-slate-500 hover:text-slate-900 disabled:opacity-50"
-                        disabled={quantity >= 99}
-                        aria-label={`${title} 수량 늘리기`}
-                    >
-                        <Plus size={16} />
-                    </button>
+                <div className="flex items-center justify-between gap-3 sm:mr-auto">
+                    <div className="inline-flex items-center rounded-full border border-slate-300">
+                        <button
+                            onClick={() => changeQuantity(-1)}
+                            className="w-9 h-9 flex items-center justify-center text-slate-500 hover:text-slate-900 disabled:opacity-40"
+                            disabled={quantity <= 1}
+                            aria-label={`${title} 수량 줄이기`}
+                        >
+                            <Minus size={16} />
+                        </button>
+                        <span className="w-8 text-center text-slate-900 font-medium" aria-live="polite">{quantity}</span>
+                        <button
+                            onClick={() => changeQuantity(1)}
+                            className="w-9 h-9 flex items-center justify-center text-slate-500 hover:text-slate-900 disabled:opacity-40"
+                            disabled={quantity >= 99}
+                            aria-label={`${title} 수량 늘리기`}
+                        >
+                            <Plus size={16} />
+                        </button>
+                    </div>
+                    {quantity > 1 && <span className="text-sm text-slate-600">합계 {total.toLocaleString()} ZP</span>}
                 </div>
             )}
-
-            <div className="text-base font-semibold text-orange-600 mt-2 text-right">
-                {currentPrice.toLocaleString()} ZP
-            </div>
             <button
                 onClick={() => onBuy(quantity)}
-                disabled={!affordable || disabled}
-                className="mt-2 w-full h-10 bg-orange-500 text-white font-medium rounded-lg flex items-center justify-center transition-colors disabled:bg-slate-200 disabled:text-slate-500 disabled:cursor-not-allowed enabled:hover:bg-orange-600"
-                aria-label={disabled && disabledReason ? `${title}: ${disabledReason}` : `${title} ${quantity}개 구매하기`}
+                disabled={!affordable || !!disabledReason}
+                className={ZP_BUTTON}
+                aria-label={disabledReason ? `${title}: ${disabledReason}` : `${title} ${quantity}개 구매하기`}
             >
-                {disabled && disabledReason ? disabledReason : "구매하기"}
+                {disabledReason ?? (affordable ? '구매하기' : 'ZP 부족')}
             </button>
-        </div>
+        </ShopRow>
     );
 };
 
+/** Google Play 상품의 버튼 자리. 웹에서는 버튼 대신 앱 구매 안내를 보여 줍니다. */
+const PlayPurchaseAction: React.FC<{
+    title: string;
+    productId: PlayProductId;
+    monetization: ShopMonetizationProps;
+    ownedReason?: string;
+}> = ({ title, productId, monetization, ownedReason }) => {
+    if (!monetization.isNativeStore) {
+        return (
+            <p className="flex items-center gap-2 text-sm text-slate-600 sm:ml-auto">
+                <Smartphone size={16} className="shrink-0 text-emerald-600" aria-hidden="true" />
+                {ownedReason ?? '앱에서 구매할 수 있어요'}
+            </p>
+        );
+    }
+    const isBusy = monetization.busyProductId === productId;
+    return (
+        <button
+            onClick={() => monetization.onPurchase(productId)}
+            disabled={!!ownedReason || monetization.busyProductId !== null}
+            className={PLAY_BUTTON}
+            aria-label={ownedReason ? `${title}: ${ownedReason}` : `${title} Google Play로 구매하기`}
+        >
+            {ownedReason ?? (isBusy ? '결제 확인 중…' : '구매하기')}
+        </button>
+    );
+};
 
-export const ShopModal: React.FC<ShopModalProps> = ({ onClose, zenPoints, onBuyFood, onBuyFoodLarge, onBuyCorn, onBuyCornLarge, onBuyTrophy, onBuyPond, pondCount }) => {
+export const ShopModal: React.FC<ShopModalProps> = ({
+    onClose, zenPoints, onBuyFood, onBuyFoodLarge, onBuyCorn, onBuyCornLarge, onBuyTrophy, onBuyPond, regularPondCount, monetization,
+}) => {
+    const regularPondsFull = regularPondCount >= MAX_REGULAR_POND_COUNT;
+    const pondSlotsFull = monetization.paidPondSlots >= MAX_PAID_POND_SLOTS;
+    const playPrice = (productId: PlayProductId) => monetization.isNativeStore ? (monetization.prices[productId] ?? '') : '';
 
     return (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-40 p-4">
+        // Android 배너가 화면 맨 아래를 덮으므로 그 높이만큼 아래 여백을 더해 상점이 가려지지 않게 합니다.
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-40 p-4 pb-[calc(1rem+var(--ad-banner-height,0px))]">
             <div
-                className="light-modal bg-white border border-slate-200 rounded-2xl shadow-2xl p-5 w-full max-w-sm animate-fade-in-up max-h-[88svh] overflow-y-auto light-scrollbar"
+                className="light-modal bg-white border border-slate-200 rounded-2xl shadow-2xl p-5 w-full max-w-sm sm:max-w-md animate-fade-in-up max-h-[88svh] overflow-y-auto light-scrollbar"
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="shop-modal-title"
             >
-                <div className="flex justify-between items-center mb-4">
+                <div className="flex justify-between items-center mb-3">
                     <h2 id="shop-modal-title" className="text-xl font-medium text-slate-900 flex items-center gap-2">
                         <ShoppingCart size={20} className="text-orange-600" />
                         상점
                     </h2>
-                    <button onClick={onClose} className="w-8 h-8 rounded-full bg-slate-100 text-slate-400 hover:bg-slate-200 hover:text-slate-600 transition-colors flex items-center justify-center" aria-label="상점 닫기">
+                    <button onClick={onClose} className={MODAL_CLOSE} aria-label="상점 닫기">
                         <X size={18} />
                     </button>
                 </div>
 
-                <div className="mb-2 px-1">
-                    <div className="flex justify-between items-center">
-                        <span className="text-sm text-slate-600 font-medium">보유 ZP</span>
-                        <span className="text-lg font-semibold text-orange-600">{zenPoints.toLocaleString()} ZP</span>
-                    </div>
+                <div className="flex justify-between items-center pb-4 mb-4 border-b border-slate-200">
+                    <span className="text-sm text-slate-600 font-medium">보유 ZP</span>
+                    <span className="text-lg font-semibold text-orange-600">{zenPoints.toLocaleString()} ZP</span>
                 </div>
 
-                <div className="space-y-3">
-                    <ShopItem
-                        icon={<FeedIcon size={32} className="text-orange-500" />}
-                        title="기본 사료 (50개)"
-                        description="가장 기본적인 물고기 사료입니다."
-                        price={FOOD_PACK_PRICE}
-                        onBuy={(q) => onBuyFood(q)}
-                        canAfford={(q) => zenPoints >= FOOD_PACK_PRICE * q}
-                        hasQuantity={true}
-                    />
-                    <ShopItem
-                        icon={<FeedIcon size={32} className="text-orange-500" />}
-                        title="기본 사료 대용량 (250개)"
-                        description="대용량으로 더 오랫동안 먹이를 줄 수 있습니다."
-                        price={FOOD_LARGE_PACK_PRICE}
-                        onBuy={(q) => onBuyFoodLarge(q)}
-                        canAfford={(q) => zenPoints >= FOOD_LARGE_PACK_PRICE * q}
-                        hasQuantity={true}
-                    />
-                    <ShopItem
-                        icon={<CornIcon size={32} className="text-orange-600" />}
-                        title="프리미엄 옥수수 (50개)"
-                        description="일반 먹이보다 2배 효과! 코이가 빠르게 성장합니다."
-                        price={CORN_PACK_PRICE}
-                        onBuy={(q) => onBuyCorn(q)}
-                        canAfford={(q) => zenPoints >= CORN_PACK_PRICE * q}
-                        hasQuantity={true}
-                    />
-                    <ShopItem
-                        icon={<CornIcon size={32} className="text-orange-600" />}
-                        title="프리미엄 옥수수 대용량 (250개)"
-                        description="옥수수 대량 팩입니다. 대규모 양식에 적합합니다."
-                        price={CORN_LARGE_PACK_PRICE}
-                        onBuy={(q) => onBuyCornLarge(q)}
-                        canAfford={(q) => zenPoints >= CORN_LARGE_PACK_PRICE * q}
-                        hasQuantity={true}
-                    />
-                    <ShopItem
-                        icon={<Plus size={32} strokeWidth={2} className="text-purple-500" />}
-                        title="연못 확장권"
-                        description={`새로운 연못을 추가합니다. (최대 ${MAX_POND_COUNT}개)`}
-                        price={20000}
-                        onBuy={() => onBuyPond()}
-                        canAfford={() => zenPoints >= 20000}
-                        hasQuantity={false}
-                        disabled={pondCount >= MAX_POND_COUNT}
-                        disabledReason={pondCount >= MAX_POND_COUNT ? "최대 보유량 도달" : undefined}
-                    />
-                    <ShopItem
-                        icon={<Trophy size={32} strokeWidth={2} className="text-orange-600" />}
-                        title="명예 트로피"
-                        description="당신의 명예를 증명하는 트로피입니다. 랭킹에 반영됩니다!"
-                        price={TROPHY_PRICE}
-                        onBuy={(q) => onBuyTrophy(q)}
-                        canAfford={(q) => zenPoints >= TROPHY_PRICE * q}
-                        hasQuantity={true}
-                    />
-                </div>
+                <div className="space-y-4">
+                    <ShopSection title="먹이">
+                        <ZenShopItem
+                            icon={<FeedIcon size={30} className="text-orange-500" />}
+                            title="기본 사료 (50개)"
+                            description="가장 기본적인 물고기 사료입니다."
+                            price={FOOD_PACK_PRICE}
+                            zenPoints={zenPoints}
+                            onBuy={onBuyFood}
+                            hasQuantity
+                        />
+                        <ZenShopItem
+                            icon={<FeedIcon size={30} className="text-orange-500" />}
+                            title="기본 사료 대용량 (250개)"
+                            description="대용량으로 더 오랫동안 먹이를 줄 수 있습니다."
+                            price={FOOD_LARGE_PACK_PRICE}
+                            zenPoints={zenPoints}
+                            onBuy={onBuyFoodLarge}
+                            hasQuantity
+                        />
+                        <ZenShopItem
+                            icon={<CornIcon size={30} className="text-orange-600" />}
+                            title="프리미엄 옥수수 (50개)"
+                            description="일반 먹이보다 2배 효과! 코이가 빠르게 성장합니다."
+                            price={CORN_PACK_PRICE}
+                            zenPoints={zenPoints}
+                            onBuy={onBuyCorn}
+                            hasQuantity
+                        />
+                        <ZenShopItem
+                            icon={<CornIcon size={30} className="text-orange-600" />}
+                            title="프리미엄 옥수수 대용량 (250개)"
+                            description="옥수수 대량 팩입니다. 대규모 양식에 적합합니다."
+                            price={CORN_LARGE_PACK_PRICE}
+                            zenPoints={zenPoints}
+                            onBuy={onBuyCornLarge}
+                            hasQuantity
+                        />
+                    </ShopSection>
 
+                    {monetization.canWatchRewardedAds && (
+                        <ShopSection
+                            title="광고 보고 받기"
+                            note={`원할 때만 보는 광고예요. 오늘 ${monetization.rewardedAdsRemaining}/${REWARDED_ADS_PER_DAY}회 남았어요.`}
+                        >
+                            {(Object.keys(REWARDED_AD_REWARDS) as RewardedAdRewardKind[]).map(kind => (
+                                <ShopRow
+                                    key={kind}
+                                    icon={kind === 'food'
+                                        ? <FeedIcon size={30} className="text-sky-600" />
+                                        : <PlayCircle size={28} strokeWidth={2} className="text-sky-600" />}
+                                    title={REWARDED_AD_REWARDS[kind].label}
+                                    description="짧은 광고를 끝까지 보면 바로 받아요."
+                                    price={<span className="text-sky-700">무료</span>}
+                                >
+                                    <button
+                                        onClick={() => monetization.onWatchRewardedAd(kind)}
+                                        disabled={monetization.isWatchingAd || monetization.rewardedAdsRemaining <= 0}
+                                        className={AD_BUTTON}
+                                        aria-label={`광고 보고 ${REWARDED_AD_REWARDS[kind].label} 받기`}
+                                    >
+                                        {monetization.rewardedAdsRemaining <= 0 ? '오늘 모두 받음' : (monetization.isWatchingAd ? '광고 여는 중…' : '광고 보기')}
+                                    </button>
+                                </ShopRow>
+                            ))}
+                        </ShopSection>
+                    )}
+
+                    <ShopSection title="연못">
+                        <ZenShopItem
+                            icon={<Plus size={28} strokeWidth={2} className="text-purple-500" />}
+                            title="연못 확장권"
+                            description={`새로운 연못을 추가합니다. (젠 포인트로 최대 ${MAX_REGULAR_POND_COUNT}개)`}
+                            price={POND_EXPANSION_PRICE}
+                            zenPoints={zenPoints}
+                            onBuy={() => onBuyPond()}
+                            disabledReason={regularPondsFull ? '최대 보유량 도달' : undefined}
+                        />
+                        <ShopRow
+                            icon={<Sparkles size={28} strokeWidth={2} className="text-emerald-600" />}
+                            title="특별 연못 슬롯"
+                            description={`젠 포인트 연못과 별도로 특별 연못을 하나 더 받아요. 계정에 저장되어 재설치하거나 웹에서 로그인해도 유지돼요. (보유 ${monetization.paidPondSlots}/${MAX_PAID_POND_SLOTS})`}
+                            price={playPrice(PLAY_PRODUCT_IDS.pondSlot)}
+                        >
+                            <PlayPurchaseAction
+                                title="특별 연못 슬롯"
+                                productId={PLAY_PRODUCT_IDS.pondSlot}
+                                monetization={monetization}
+                                ownedReason={pondSlotsFull ? '최대 보유량 도달' : undefined}
+                            />
+                        </ShopRow>
+                    </ShopSection>
+
+                    <ShopSection title="광고 제거">
+                        <ShopRow
+                            icon={<Ban size={26} strokeWidth={2} className="text-emerald-600" />}
+                            title="광고 제거"
+                            description="한 번 사면 앱 하단 배너가 사라져요. 보상형 광고는 원할 때만 볼 수 있게 남아 있어요."
+                            price={playPrice(PLAY_PRODUCT_IDS.removeAds)}
+                        >
+                            <PlayPurchaseAction
+                                title="광고 제거"
+                                productId={PLAY_PRODUCT_IDS.removeAds}
+                                monetization={monetization}
+                                ownedReason={monetization.adFree ? '적용됨' : undefined}
+                            />
+                        </ShopRow>
+                    </ShopSection>
+
+                    <ShopSection title="명예">
+                        <ZenShopItem
+                            icon={<Trophy size={28} strokeWidth={2} className="text-orange-600" />}
+                            title="명예 트로피"
+                            description="당신의 명예를 증명하는 트로피입니다. 랭킹에 반영됩니다!"
+                            price={TROPHY_PRICE}
+                            zenPoints={zenPoints}
+                            onBuy={onBuyTrophy}
+                            hasQuantity
+                        />
+                    </ShopSection>
+
+                    {monetization.isNativeStore ? (
+                        <div className="border-t border-slate-200 pt-4">
+                            <button
+                                onClick={monetization.onRestorePurchases}
+                                disabled={monetization.busyProductId !== null}
+                                className="w-full h-11 rounded-lg text-sm font-medium text-slate-600 flex items-center justify-center gap-2 hover:bg-slate-100 disabled:opacity-50"
+                            >
+                                <RotateCcw size={16} aria-hidden="true" />
+                                {monetization.busyProductId === 'restore' ? '구매 내역 확인 중…' : '구매 복원'}
+                            </button>
+                        </div>
+                    ) : (
+                        <p className="border-t border-slate-200 pt-4 text-xs leading-relaxed text-slate-500 break-keep">
+                            특별 연못 슬롯과 광고 제거는 Android 앱에서 구매할 수 있어요. 앱에서 산 혜택은 같은 계정으로 로그인하면 웹에서도 적용돼요.
+                        </p>
+                    )}
+                </div>
             </div>
         </div>
     );

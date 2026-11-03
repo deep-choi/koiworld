@@ -3,8 +3,7 @@ import { useState, useCallback, useRef, useMemo, useEffect } from 'react';
 import { Koi, GeneType, Ponds, GrowthStage, Decoration, DecorationType, PondTheme, SpotShape } from '../types';
 import { audioManager } from '../utils/audio';
 import { createFixedSpotPhenotypeGenes } from '../utils/genetics';
-import { createEmptyPond, withDefaultPonds } from '../utils/savedGameState';
-import { MAX_POND_COUNT } from '../functions/src/saveValidation';
+import { canAddRegularPond, createEmptyPond, nextRegularPondNumber, withDefaultPonds, withPaidPonds } from '../utils/savedGameState';
 
 const POINTS_TO_JUVENILE = 15;
 const POINTS_TO_ADULT = 15;
@@ -226,12 +225,12 @@ export const useKoiPond = (initialState?: UseKoiPondInitialState) => {
 
     const koiList = useMemo(() => ponds[activePondId]?.kois || [], [ponds, activePondId]);
 
+    // 젠 포인트 확장권으로 일반 연못을 하나 더합니다. 유료 연못(pond-paid-N)은 세지 않습니다.
     const addPond = useCallback(() => {
         setPonds((prevPonds: Ponds) => {
-            const currentCount = Object.keys(prevPonds).length;
-            if (currentCount >= MAX_POND_COUNT) return prevPonds;
+            if (!canAddRegularPond(prevPonds)) return prevPonds;
 
-            const newPond = createEmptyPond(currentCount + 1);
+            const newPond = createEmptyPond(nextRegularPondNumber(prevPonds));
             const newPonds = {
                 ...prevPonds,
                 [newPond.id]: newPond,
@@ -240,6 +239,11 @@ export const useKoiPond = (initialState?: UseKoiPondInitialState) => {
             // (예전에는 빈 새 연못으로 자동 이동해서 코이가 전부 사라진 것처럼 보였습니다.)
             return newPonds;
         });
+    }, []);
+
+    // Google Play에서 산 연못 슬롯만큼 유료 연못이 있도록 채웁니다(이미 있으면 아무 일도 하지 않음).
+    const ensurePaidPonds = useCallback((paidPondSlots: number) => {
+        setPonds((prevPonds: Ponds) => withPaidPonds(prevPonds, paidPondSlots));
     }, []);
 
     const addKois = useCallback((kois: Koi[]) => {
@@ -555,6 +559,7 @@ export const useKoiPond = (initialState?: UseKoiPondInitialState) => {
         removeKoi,
         updateKoiPositions,
         addPond,
+        ensurePaidPonds,
         feedKoi,
         foodPellets,
         dropFood,

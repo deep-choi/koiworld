@@ -115,7 +115,8 @@ export const createInitialPonds = (): Ponds => {
         };
     });
 
-    // 새 게임은 연못 1개로 시작합니다. 연못을 늘리려면 상점의 연못 확장권(Google Play)을 삽니다.
+    // 새 버전에서 시작한 새 게임은 연못 1개입니다(무료 연못 1개). 기존 유저의 새 게임은 App이 가진 연못을 그대로 남깁니다.
+    // 연못을 늘리려면 상점의 연못 확장권(Google Play)을 삽니다.
     return withDefaultPonds({
         'pond-1': { ...createEmptyPond(1), kois: initialKois },
     });
@@ -123,7 +124,8 @@ export const createInitialPonds = (): Ponds => {
 
 export const useKoiPond = (initialState?: UseKoiPondInitialState) => {
     const [ponds, setPonds] = useState<Ponds>(() => {
-        // 불러온 저장본의 연못은 그대로 씁니다. 연못이 1개면 1개 그대로, 연못 2가 있으면 연못 2도 그대로 둡니다.
+        // 불러온 저장본은 이미 무료 연못 수(신규 1개, 기존 2개)에 맞춰져 있습니다(normalizeSavedGameState).
+        // 여기서는 일반 연못이 하나도 없을 때만 연못 1을 넣고, 있는 연못은 지우거나 숨기지 않습니다.
         const initial = withDefaultPonds(initialState?.ponds ?? createInitialPonds());
         // Migration: ensure all ponds have decorations array
         Object.values(initial).forEach(pond => {

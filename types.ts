@@ -182,6 +182,11 @@ export interface SavedGameState {
   };
   koiNameCounter: number;
   timestamp?: number; // Added for display
+  /**
+   * 이 게임의 무료 연못 수. 새 버전에서 처음 시작한 게임은 1, 이번 업데이트 전부터 있던 저장본은 2입니다.
+   * 새 버전은 모든 저장에 적고, 이 값이 없는 저장본(1.0.8 이하 앱)은 불러올 때 2로 봅니다(utils/savedGameState.ts).
+   */
+  freePondCount?: 1 | 2;
 }
 
 export type Ponds = Record<string, PondData>;

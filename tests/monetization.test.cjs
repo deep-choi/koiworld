@@ -171,7 +171,8 @@ test('the mock Google Play sheet runs the buy, cancel and pending paths', async 
     const waitFor = async predicate => { for (let i = 0; i < 400 && !predicate(); i++) await new Promise(resolve => setTimeout(resolve, 10)); };
 
     // 실제 앱처럼 가격만 보여 줍니다("예시" 같은 설명은 휴대폰 화면 바깥 패널에만).
-    assert.deepEqual(await backend.loadProductPrices(), { pond_slot: '₩2,500', remove_ads: '₩5,500' });
+    // 출시 예정 가격: 연못 확장권 ₩1,900, 광고 제거 ₩2,500
+    assert.deepEqual(await backend.loadProductPrices(), { pond_slot: '₩1,900', remove_ads: '₩2,500' });
 
     const bought = backend.purchase('monetization-mock', 'pond_slot');
     assert.deepEqual(mock.mockUiStore.getSnapshot().purchase, { productId: 'pond_slot', phase: 'choose', outcome: 'approve' });
@@ -411,7 +412,7 @@ const byLabel = (tree, label) => buttons(tree).find(node => (node.props['aria-la
 const rowTitles = tree => flatten(tree).filter(node => node.type === 'h4').map(text);
 
 test('the shop sells ponds only as one Google Play item, never for ZP', () => {
-    const { tree } = renderShop({ monetization: { isNativeStore: true, prices: { pond_slot: '₩2,500' }, paidPondSlots: 1 } });
+    const { tree } = renderShop({ monetization: { isNativeStore: true, prices: { pond_slot: '₩1,900' }, paidPondSlots: 1 } });
     const titles = rowTitles(tree);
     assert.equal(titles.filter(title => title.includes('연못')).length, 1);
     assert.ok(titles.includes('연못 확장권'));
@@ -434,11 +435,11 @@ test('web shows an app-purchase notice instead of Google Play buttons and still 
 
 test('the app shows Google Play buttons and restore; ad removal covers banner and video ads', () => {
     const { tree, calls } = renderShop({
-        monetization: { isNativeStore: true, prices: { pond_slot: '₩2,500', remove_ads: '₩5,500' } },
+        monetization: { isNativeStore: true, prices: { pond_slot: '₩1,900', remove_ads: '₩2,500' } },
     });
     const all = text(tree);
+    assert.match(all, /₩1,900/);
     assert.match(all, /₩2,500/);
-    assert.match(all, /₩5,500/);
     assert.match(all, /배너와 동영상 광고가 모두 사라져요/);
     assert.doesNotMatch(all, /보상형|광고 보고 받기/);
     byLabel(tree, '연못 확장권 Google Play로 구매하기').props.onClick();

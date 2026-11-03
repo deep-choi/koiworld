@@ -14,10 +14,10 @@ import type { MonetizationBackend } from './monetizationBackend';
 
 /** AdMob 작은 배너(320x50)가 차지하는 높이. 실제 배너와 같은 만큼 게임 화면을 올립니다. */
 export const MOCK_BANNER_HEIGHT = 50;
-/** 미리보기 결제 시트에 보여 줄 가격. 실제 가격은 Play Console에서 정합니다(바깥 패널에 안내). */
+/** 미리보기 결제 시트에 보여 줄 가격. 출시 예정 가격과 같게 맞췄고, 실제 가격은 Play Console에서 정합니다(바깥 패널에 안내). */
 export const MOCK_SAMPLE_PRICES: Record<PlayProductId, string> = {
-    [PLAY_PRODUCT_IDS.pondSlot]: '₩2,500',
-    [PLAY_PRODUCT_IDS.removeAds]: '₩5,500',
+    [PLAY_PRODUCT_IDS.pondSlot]: '₩1,900',
+    [PLAY_PRODUCT_IDS.removeAds]: '₩2,500',
 };
 export const MOCK_PRODUCT_NAMES: Record<PlayProductId, string> = {
     [PLAY_PRODUCT_IDS.pondSlot]: '연못 확장권',

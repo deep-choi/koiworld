@@ -2,7 +2,7 @@ import React, { useEffect, useState, useSyncExternalStore } from 'react';
 import { Minus, Plus, X } from 'lucide-react';
 import { VIDEO_AD_TRIGGERS } from '../../config/monetization';
 import { MAX_PAID_POND_SLOTS } from '../../functions/src/saveValidation';
-import type { MockPurchaseOutcome } from '../../services/mockMonetization';
+import { MOCK_SAMPLE_PRICES, type MockPurchaseOutcome } from '../../services/mockMonetization';
 import type { MockPreviewBridge } from '../../services/mockPreviewBridge';
 import { formatWait } from '../../utils/videoAdPolicy';
 
@@ -136,7 +136,9 @@ const PanelBody: React.FC<{ bridge: MockPreviewBridge }> = ({ bridge }) => {
                 >
                     열린 결제 창 닫기(취소)
                 </button>
-                <p className="mt-2 text-xs leading-relaxed text-slate-500 break-keep">가격(₩2,500, ₩5,500)은 예시예요. 실제 가격은 Play Console에서 정해요.</p>
+                <p className="mt-2 text-xs leading-relaxed text-slate-500 break-keep">
+                    가격(연못 확장권 {MOCK_SAMPLE_PRICES.pond_slot}, 광고 제거 {MOCK_SAMPLE_PRICES.remove_ads})은 미리보기용이에요. 실제 가격은 Play Console에서 정해요.
+                </p>
             </Section>
 
             <Section title="동영상 광고">

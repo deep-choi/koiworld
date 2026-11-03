@@ -53,6 +53,19 @@ export class GameStateRevisionConflictError extends Error {
     }
 }
 
+/**
+ * 서버가 연못 수 때문에 저장을 거절했습니다(saveGameState의 reason 'pond-allowance').
+ * 새 버전으로 저장한 계정의 기기 기록에, 구버전 앱에서 늘린 일반 연못이 들어 있을 때 생깁니다.
+ */
+export class PondAllowanceRejectedError extends Error {
+    readonly code = 'pond-allowance';
+
+    constructor(message: string) {
+        super(message);
+        this.name = 'PondAllowanceRejectedError';
+    }
+}
+
 export interface ProfileSnapshot {
     nickname: string | null;
     activeDeviceId: string | null;
@@ -315,8 +328,11 @@ export async function saveGameState(
             ? String((error as { code?: string }).code ?? '')
             : '';
         const details = typeof error === 'object' && error && 'details' in error
-            ? (error as { details?: { expectedRevision?: unknown; actualRevision?: unknown } }).details
+            ? (error as { details?: { expectedRevision?: unknown; actualRevision?: unknown; reason?: unknown } }).details
             : undefined;
+        if (code === 'functions/failed-precondition' && details?.reason === 'pond-allowance') {
+            throw new PondAllowanceRejectedError(error instanceof Error ? error.message : 'Pond allowance rejected.');
+        }
 
         if (code === 'functions/aborted') {
             throw new GameStateRevisionConflictError(

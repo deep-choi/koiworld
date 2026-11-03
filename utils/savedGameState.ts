@@ -1,5 +1,16 @@
 import { SavedGameState, GrowthStage, PondData, Ponds, PondTheme } from '../types';
-import { DEFAULT_FREE_POND_COUNT, countPonds, isPaidPondId, isValidGameStateCore, paidPondId, paidPondNumber } from '../functions/src/saveValidation';
+import {
+    LEGACY_FREE_POND_COUNT,
+    NEW_FREE_POND_COUNT,
+    countPonds,
+    freePondCountForAccount,
+    isPaidPondId,
+    isValidGameStateCore,
+    paidPondId,
+    paidPondNumber,
+    savedFreePondCount,
+    type FreePondCount,
+} from '../functions/src/saveValidation';
 import { migrateLegacyGinrin } from './genetics';
 
 export const CURRENT_GAME_STATE_SCHEMA_VERSION = 3;
@@ -28,10 +39,12 @@ export const isCompleteSavedGameState = (value: unknown): value is SavedGameStat
 };
 
 /**
- * 새 게임은 연못 1개로 시작합니다. 더 늘리려면 Google Play의 연못 확장권을 삽니다(유료 연못 pond-paid-N).
- * 1.0.7~1.0.8에서 받은 연못 2와 예전에 젠 포인트 확장권으로 산 일반 연못(pond-3, pond-4)은 그대로 남습니다.
+ * 새 버전에서 처음 시작한 게임의 무료 연못 수(1개). 더 늘리려면 Google Play의 연못 확장권을 삽니다(유료 연못 pond-paid-N).
+ * 이번 업데이트 전부터 있던 저장본(freePondCount 없음)은 기존 유저로 보고 무료 연못 2개를 그대로 줍니다(LEGACY_FREE_POND_COUNT).
+ * 예전에 젠 포인트 확장권으로 산 일반 연못(pond-3, pond-4)은 그대로 남습니다.
  */
-export const DEFAULT_POND_COUNT = DEFAULT_FREE_POND_COUNT;
+export const DEFAULT_POND_COUNT: FreePondCount = NEW_FREE_POND_COUNT;
+export { LEGACY_FREE_POND_COUNT };
 
 /** n번째 빈 일반 연못 (id: pond-n, 이름: 연못 n) */
 export const createEmptyPond = (n: number): PondData => ({
@@ -74,13 +87,13 @@ export const createPaidPond = (slot: number, displayNumber: number): PondData =>
 const regularPondCount = (ponds: Ponds) => countPonds(Object.keys(ponds)).regular;
 
 /**
- * 일반 연못이 DEFAULT_POND_COUNT개(1개)보다 적으면 비어 있는 번호로 빈 연못을 채워 넣습니다.
- * 일반 연못이 하나도 없는 이상한 저장본만 연못 1을 받습니다. 연못이 1개인 저장본에 연못 2를 더 채우지 않고,
+ * 일반 연못이 무료 연못 수(freePondCount)보다 적으면 비어 있는 번호로 빈 연못을 채워 넣습니다.
+ * 기존 유저(무료 2개)의 연못이 1개뿐인 예전 저장본은 1.0.7~1.0.8처럼 연못 2를 받고, 신규 유저(무료 1개)는 받지 않습니다.
  * 이미 있는 연못(연못 2, 예전에 산 연못)은 지우거나 숨기지 않습니다.
  */
-export const withDefaultPonds = (ponds: Ponds): Ponds => {
+export const withDefaultPonds = (ponds: Ponds, freePondCount: FreePondCount = DEFAULT_POND_COUNT): Ponds => {
     const result = { ...ponds };
-    for (let n = 1; regularPondCount(result) < DEFAULT_POND_COUNT; n++) {
+    for (let n = 1; regularPondCount(result) < freePondCount; n++) {
         if (!result[`pond-${n}`]) result[`pond-${n}`] = createEmptyPond(n);
     }
     return result;
@@ -121,12 +134,30 @@ export const pondsForNewGame = (current: Ponds, fresh: Ponds): Ponds => {
 
 export { isPaidPondId, paidPondNumber };
 
+/**
+ * 로그인한 계정의 무료 연못 수를 가입 시각에 맞춰 올립니다. 기준일 전에 가입한 계정(기존 유저)은 무료 2개입니다.
+ * 예: 기존 계정에 처음 로그인하면서 새 버전에서 시작한 게스트 진행도(무료 1개)를 옮기는 경우.
+ * 내리지는 않고, 가입 시각을 모르거나 바꿀 것이 없으면 받은 객체를 그대로 돌려줍니다(불필요한 저장을 막음).
+ * 서버(saveGameState)도 같은 가입 시각과 기준일로 검사하므로 올린 연못은 저장이 거절되지 않습니다.
+ */
+export const withAccountFreePonds = (state: SavedGameState, accountCreatedAt: number | null): SavedGameState => {
+    if (accountCreatedAt === null) return state;
+    const normalized = normalizeSavedGameState(state);
+    if (!normalized) return state;
+    const accountFree = freePondCountForAccount(accountCreatedAt);
+    if ((normalized.freePondCount ?? LEGACY_FREE_POND_COUNT) >= accountFree) return state;
+    return { ...normalized, freePondCount: accountFree, ponds: withDefaultPonds(normalized.ponds, accountFree) };
+};
+
 /** Upgrades a valid legacy payload; the server still decides progression authority. */
 export const normalizeSavedGameState = (value: unknown): SavedGameState | null => {
     if (!isValidSavedGameState(value)) return null;
     const state = value as SavedGameState;
+    // 무료 연못 수가 적혀 있지 않은 저장본은 이번 업데이트 전의 저장(기존 유저)이므로 2개입니다.
+    const freePondCount = savedFreePondCount(state) ?? LEGACY_FREE_POND_COUNT;
     return {
         ...state,
+        freePondCount,
         ponds: withDefaultPonds(Object.fromEntries(Object.entries(state.ponds).map(([id, pond]) => [id, {
             ...pond,
             decorations: pond.decorations ?? [],
@@ -141,7 +172,7 @@ export const normalizeSavedGameState = (value: unknown): SavedGameState | null =
                 // 1.0.6의 긴린 수치는 여기서 유전자 개수로 옮겨집니다.
                 genetics: migrateLegacyGinrin({ ...koi.genetics, lightness: koi.genetics.lightness ?? 50, saturation: koi.genetics.saturation ?? 50 }),
             })),
-        }]))),
+        }])), freePondCount),
         schemaVersion: CURRENT_GAME_STATE_SCHEMA_VERSION,
         cornCount: isFiniteNumber(state.cornCount) ? Math.max(0, Math.floor(state.cornCount)) : 0,
         honorPoints: isFiniteNumber(state.honorPoints) ? Math.max(0, Math.floor(state.honorPoints)) : 0,

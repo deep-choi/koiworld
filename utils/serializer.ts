@@ -40,8 +40,9 @@ type MinifiedKoi = [string, string, MinifiedGenetics, number, number, number, nu
 // Pond: [id, name, themeIdx, [kois...], waterQuality] 
 type MinifiedPond = [string, string, number, MinifiedKoi[], number];
 
-// State: [version, zenPoints, foodCount, cornCount, koisNameCounter, [ponds...], activePondId]
-type MinifiedState = [number, number, number, number, number, MinifiedPond[], string];
+// State: [version, zenPoints, foodCount, cornCount, koisNameCounter, [ponds...], activePondId, freePondCount?]
+// freePondCount(무료 연못 수 1·2)는 마지막에 덧붙여, 이 값이 없는 예전 백업 코드도 그대로 읽힙니다(없으면 기존 유저로 봄).
+type MinifiedState = [number, number, number, number, number, MinifiedPond[], string, (1 | 2)?];
 
 const CURRENT_VERSION = 3;
 
@@ -101,6 +102,7 @@ export const compressGameStateAsync = async (state: SavedGameState): Promise<str
         minPonds,
         state.activePondId
     ];
+    if (state.freePondCount === 1 || state.freePondCount === 2) minState.push(state.freePondCount);
 
     const json = JSON.stringify(minState);
 
@@ -224,6 +226,7 @@ export const decompressGameStateAsync = async (code: string): Promise<SavedGameS
             foodCount: minState[2],
             cornCount: minState[3],
             koiNameCounter: minState[4],
+            ...(minState[7] === 1 || minState[7] === 2 ? { freePondCount: minState[7] } : {}),
             timestamp: Date.now()
         };
 

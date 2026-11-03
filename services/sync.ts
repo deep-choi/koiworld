@@ -2,13 +2,14 @@ import { SavedGameState } from '../types';
 import {
     fetchUserSnapshot,
     GameStateRevisionConflictError,
+    PondAllowanceRejectedError,
     type GameStateSource,
     saveGameState,
     subscribeToUserGameState,
 } from './cloudData';
 import { isValidSavedGameState } from '../utils/savedGameState';
 
-export { GameStateRevisionConflictError };
+export { GameStateRevisionConflictError, PondAllowanceRejectedError };
 
 export const saveGameToCloud = async (
     userId: string,

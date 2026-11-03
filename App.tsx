@@ -24,7 +24,7 @@ import { SpotGeneticsDebugPanel } from './components/debug/SpotGeneticsDebugPane
 import { MONETIZATION_MOCK_LOGIN_MESSAGE, useAuth } from './contexts/AuthContext';
 import { AuthModal } from './components/AuthModal';
 import { startSession } from './services/session';
-import { GameStateRevisionConflictError, saveGameToCloud, loadUserDataOnce, listenToGameData } from './services/sync';
+import { GameStateRevisionConflictError, PondAllowanceRejectedError, saveGameToCloud, loadUserDataOnce, listenToGameData } from './services/sync';
 import { SessionConflictModal } from './components/SessionConflictModal';
 import { FORCE_CLEAR_KEY, SAVE_GAME_KEY, clearLocalGameSaves, getScopedSaveGameKey, isLocalGameSaveSuppressed, resumeLocalGameSave, suppressLocalGameSave } from './services/localSave';
 import { startTabLock, type TabLockController } from './services/tabLock';
@@ -39,7 +39,7 @@ import { SavePolicy, progressKey } from './services/savePolicy';
 import { trackEvent, trackOnce } from './services/analytics';
 import { useMonetization } from './hooks/useMonetization';
 import { useVideoAds } from './hooks/useVideoAds';
-import { hasMissingPaidPonds, pondsForNewGame } from './utils/savedGameState';
+import { DEFAULT_POND_COUNT, LEGACY_FREE_POND_COUNT, hasMissingPaidPonds, pondsForNewGame, withAccountFreePonds } from './utils/savedGameState';
 import { MONETIZATION_MOCK_SCOPE, isMonetizationMock } from './config/monetizationMock';
 import { MonetizationMockLayer } from './components/mock/MonetizationMockLayer';
 import { showMockNotice } from './services/mockMonetization';
@@ -63,8 +63,16 @@ const FOOD_LARGE_PACK_AMOUNT = 250;
 const CORN_LARGE_PACK_PRICE = 4000; // 20% bulk discount
 const CORN_LARGE_PACK_AMOUNT = 250;
 
+/** Firebase Auth 가입 시각(ms). 모르면(미리보기, 정보 없음) null */
+const accountCreatedAtOf = (user: { rawUser?: { metadata?: { creationTime?: string } } | null } | null): number | null => {
+  const createdAt = Date.parse(user?.rawUser?.metadata?.creationTime ?? '');
+  return Number.isFinite(createdAt) ? createdAt : null;
+};
+
 const createInitialGameState = (): SavedGameState => ({
   schemaVersion: CURRENT_GAME_STATE_SCHEMA_VERSION,
+  // 새 버전에서 처음 시작한 게임은 무료 연못 1개입니다.
+  freePondCount: DEFAULT_POND_COUNT,
   ponds: createInitialPonds(),
   activePondId: 'pond-1',
   zenPoints: import.meta.env.DEV ? 10000 : 2000,
@@ -298,6 +306,8 @@ export const App: React.FC = () => {
 
   const [selectedFoodType, setSelectedFoodType] = useState<'normal' | 'corn'>('normal');
   const [koiNameCounter, setKoiNameCounter] = useState(savedState?.koiNameCounter ?? 3);
+  // 이 게임의 무료 연못 수(신규 1개, 기존 2개). 모든 저장에 함께 적어 서버와 다음 불러오기가 신규·기존을 구분하게 합니다.
+  const [freePondCount, setFreePondCount] = useState<1 | 2>(savedState?.freePondCount ?? DEFAULT_POND_COUNT);
   const [isMuted, setIsMuted] = useState(false);
   const [notification, setNotification] = useState<{ message: string, type: 'success' | 'info' | 'error' } | null>(null);
 
@@ -520,8 +530,9 @@ export const App: React.FC = () => {
         claimedIds,
       },
       koiNameCounter,
+      freePondCount,
     };
-  }, [ponds, activePondId, zenPoints, foodCount, cornCount, honorPoints, achievementScore, unlockedIds, claimedIds, koiNameCounter]);
+  }, [ponds, activePondId, zenPoints, foodCount, cornCount, honorPoints, achievementScore, unlockedIds, claimedIds, koiNameCounter, freePondCount]);
 
   const persistLocalGameState = useCallback((state: SavedGameState, uid?: string | null) => {
     const payload = JSON.stringify(state);
@@ -596,7 +607,8 @@ export const App: React.FC = () => {
           if (generation !== saveGenerationRef.current) throw error;
           savePolicyRef.current.failed(Date.now());
           setHasPendingCloudSave(true);
-          if (error instanceof GameStateRevisionConflictError) {
+          // 연못 수 거절도 다시 불러오면 기기 기록을 복구용으로 남기고 클라우드 저장본을 써서 멈추지 않습니다(initSession).
+          if (error instanceof GameStateRevisionConflictError || error instanceof PondAllowanceRejectedError) {
             cloudSaveBlockedRef.current = true;
             localHydratedScopeRef.current = null;
             setIsCloudSyncReady(false);
@@ -711,7 +723,9 @@ export const App: React.FC = () => {
           return;
         }
         const local = readLocalSave(user.uid);
-        const fallbackState = local?.gameState ?? loadGameState(null) ?? createInitialGameState();
+        // 기준일 전에 가입한 계정(기존 유저)은 무료 연못 2개입니다. 서버도 같은 가입 시각으로 검사합니다.
+        const accountCreatedAt = accountCreatedAtOf(user);
+        const fallbackState = withAccountFreePonds(local?.gameState ?? loadGameState(null) ?? createInitialGameState(), accountCreatedAt);
         const existing = await loadUserDataOnce(user.uid);
         if (cancelled) return;
         let state: SavedGameState;
@@ -731,10 +745,20 @@ export const App: React.FC = () => {
             try { archiveLocalSave(user.uid); } catch { /* 클라우드 복구는 계속합니다. */ }
           }
           state = source === 'local' ? local!.gameState : existing.gameData;
-          if (source === 'local') {
-            const saved = await saveGameToCloud(user.uid, state, revision, 'auto');
-            revision = saved.revision;
-            state = saved.gameState;
+          const accountState = withAccountFreePonds(state, accountCreatedAt);
+          if (source === 'local' || accountState !== state) {
+            try {
+              const saved = await saveGameToCloud(user.uid, accountState, revision, 'auto');
+              revision = saved.revision;
+              state = saved.gameState;
+            } catch (error) {
+              if (source !== 'local' || !(error instanceof PondAllowanceRejectedError)) throw error;
+              // 새 버전으로 저장한 계정을 구버전 앱에서 일반 연못을 늘린 기기 기록은 서버가 받지 않습니다.
+              // 멈추지 않도록 그 기록은 복구용으로만 남기고 클라우드 저장본으로 계속합니다.
+              try { archiveLocalSave(user.uid); } catch { /* 클라우드 복구는 계속합니다. */ }
+              state = existing.gameData;
+              setNotification({ message: '이 기기에 남은 이전 기록에는 더 이상 늘릴 수 없는 연못이 있어, 클라우드 저장본을 불러왔어요.', type: 'info' });
+            }
           }
           if (existing.gameDataSource === 'backup') {
             setNotification({ message: '최근 클라우드 백업으로 저장 데이터를 복구했습니다.', type: 'info' });
@@ -892,6 +916,8 @@ export const App: React.FC = () => {
         claimedIds,
       },
       koiNameCounter: 3,
+      // 새 게임을 해도 무료 연못 수(기존 유저 2개)는 그대로입니다.
+      freePondCount,
     };
 
     if (user && !user.isAnonymous) {
@@ -943,6 +969,7 @@ export const App: React.FC = () => {
 
     setPonds(createInitialPonds());
     setActivePondId('pond-1');
+    setFreePondCount(DEFAULT_POND_COUNT);
     setZenPoints(import.meta.env.DEV ? 10000 : 2000);
     setFoodCount(20);
     setCornCount(0);
@@ -993,6 +1020,7 @@ export const App: React.FC = () => {
     setCornCount(mergedState.cornCount || 0);
     setHonorPoints(mergedState.honorPoints);
     setKoiNameCounter(mergedState.koiNameCounter);
+    setFreePondCount(mergedState.freePondCount ?? LEGACY_FREE_POND_COUNT);
     if (options.hydrateAchievements !== false) {
       setInitialAchievementData({
         unlockedIds: mergedState.achievements?.unlockedIds ?? [],

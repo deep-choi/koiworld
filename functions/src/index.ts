@@ -20,7 +20,13 @@ import {
     type CanonicalProgression,
 } from './progression.js';
 
-import { isValidGameStateCore, normalizeEntitlements, pondAllowanceError } from './saveValidation.js';
+import {
+    isValidGameStateCore,
+    keepFreePondCount,
+    needsAccountCreatedAt,
+    normalizeEntitlements,
+    pondAllowanceError,
+} from './saveValidation.js';
 import {
     PLAY_PACKAGE_NAME,
     PLAY_PRODUCTS,
@@ -129,6 +135,20 @@ const normalizeGameStateForSave = (value: unknown): GameState => {
     }
 
     return JSON.parse(serialized) as GameState;
+};
+
+/**
+ * Firebase Auth 계정 생성 시각(ms). 신규 유저(기준일 뒤 가입) 판단에 씁니다.
+ * 읽지 못하면 저장을 막지 않도록 null을 돌려주고, 검사는 기존 계정(무료 연못 2개)처럼 합니다.
+ */
+const readAccountCreatedAt = async (uid: string): Promise<number | null> => {
+    try {
+        const createdAt = Date.parse((await getAuth().getUser(uid)).metadata.creationTime);
+        return Number.isFinite(createdAt) ? createdAt : null;
+    } catch (error) {
+        console.warn('Could not read the account creation time; checking ponds as an existing account.', error);
+        return null;
+    }
 };
 
 const requireSaveRevision = (value: unknown): number => {
@@ -261,6 +281,8 @@ export const saveGameState = onCall(async request => {
         ])
         : [[], [], null];
 
+    // 트랜잭션이 다시 실행되어도 Firebase Auth는 한 번만 읽습니다.
+    let accountCreatedAt: number | null | undefined;
     return db.runTransaction(async transaction => {
         const [userSnapshot, stateSnapshot, entitlementsSnapshot] = await Promise.all([
             transaction.get(userReference),
@@ -279,15 +301,19 @@ export const saveGameState = onCall(async request => {
         }
 
         const currentGameState = userData.gameState;
-        // 연못 수 검사: 일반 연못은 서버에 저장되어 있던 수를 넘길 수 없고(새 앱은 1개로 시작하지만,
-        // 빈 연못 2를 채워 저장하는 1.0.8 이하 앱을 위해 최소 2개까지는 받습니다),
-        // 유료 연못은 산 연못 확장권 수까지만 새로 만들 수 있습니다. 이미 저장된 연못은 그대로 인정합니다.
-        // 저장본이 없는 새 계정의 첫 저장만, 게스트 시절 젠 포인트로 산 일반 연못을 함께 옮길 수 있습니다.
+        // 연못 수 검사(functions/src/saveValidation.ts):
+        // - 새 형식(freePondCount)으로 저장한 적이 없는 계정은 구버전 앱의 무료 연못 2와 젠 포인트 연못까지 일반 연못 4개를 받습니다.
+        // - 새 형식으로 저장한 적이 있는 계정은 일반 연못을 늘릴 수 없습니다. 이미 저장된 연못과
+        //   가입 시각 기준 무료 연못 수(기준일 전 2개, 뒤 1개)까지만 받습니다. 가입 시각은 그 차이가 결과를 바꿀 때만 읽습니다.
+        // - 유료 연못은 산 연못 확장권 수까지만 새로 만들 수 있습니다. 이미 저장된 연못은 그대로 인정합니다.
+        if (needsAccountCreatedAt(incomingGameState, currentGameState) && accountCreatedAt === undefined) {
+            accountCreatedAt = await readAccountCreatedAt(uid);
+        }
         const pondError = pondAllowanceError(
             incomingGameState,
             normalizeEntitlements(entitlementsSnapshot.exists ? entitlementsSnapshot.data() : undefined),
             currentGameState,
-            { carriesGuestProgress: saveReason === 'new-account' && currentGameState == null && currentRevision === 0 },
+            { accountCreatedAt },
         );
         if (pondError) {
             throw new HttpsError('failed-precondition', pondError, { reason: 'pond-allowance' });
@@ -315,7 +341,9 @@ export const saveGameState = onCall(async request => {
             ...progression,
             progressionProtocolVersion: PROGRESSION_PROTOCOL_VERSION,
         };
-        const gameState = gameStateWithRanking(incomingGameState, nextState);
+        // 구버전 앱의 저장에도 서버에 적혀 있던 무료 연못 수를 이어 붙여, 새 형식으로 저장한 계정이라는 표시를 지키고
+        // 새 버전이 다시 불러올 때 무료 연못 수가 바뀌지 않게 합니다.
+        const gameState = keepFreePondCount(gameStateWithRanking(incomingGameState, nextState), currentGameState);
         const dayKey = new Date().toISOString().slice(0, 10);
         let wroteDailyBackup = false;
 

@@ -1,5 +1,6 @@
 import { GoogleAuth } from 'google-auth-library';
 import type { PlayProductPurchase } from './playBilling.js';
+import type { VoidedPurchasePage } from './voidedPurchases.js';
 
 // Google Play Developer API(androidpublisher v3)의 인앱 상품 구매 엔드포인트만 감싼 작은 클라이언트입니다.
 // 큰 googleapis 패키지 대신 firebase-admin이 이미 쓰는 google-auth-library로 토큰만 받고 fetch로 호출합니다.
@@ -24,6 +25,7 @@ export type PlayDeveloperApi = {
     getProductPurchase(productId: string, purchaseToken: string): Promise<PlayProductPurchase>;
     acknowledgeProductPurchase(productId: string, purchaseToken: string): Promise<void>;
     consumeProductPurchase(productId: string, purchaseToken: string): Promise<void>;
+    listVoidedPurchases(pageToken?: string): Promise<VoidedPurchasePage>;
 };
 
 type FetchLike = (url: string, init: { method: string; headers: Record<string, string>; body?: string }) => Promise<{
@@ -83,6 +85,14 @@ export const createPlayDeveloperApi = (options: {
         },
         async consumeProductPurchase(productId, purchaseToken) {
             await request(productUrl(productId, purchaseToken, ':consume'), 'POST');
+        },
+        async listVoidedPurchases(pageToken) {
+            const params = new URLSearchParams({ includeQuantityBasedPartialRefund: 'true', maxResults: '1000' });
+            if (pageToken) params.set('token', pageToken);
+            // startTime을 생략하면 Play가 제공하는 최근 30일 전체를 검사합니다.
+            const url = `${API_ROOT}/${encodeURIComponent(options.packageName)}/purchases/voidedpurchases?${params}`;
+            const text = await request(url, 'GET');
+            return JSON.parse(text || '{}') as VoidedPurchasePage;
         },
     };
 };

@@ -4,6 +4,7 @@ import { getAuth } from 'firebase-admin/auth';
 import { FieldValue, getFirestore, type DocumentData, type Transaction } from 'firebase-admin/firestore';
 import { setGlobalOptions } from 'firebase-functions/v2';
 import { HttpsError, onCall, onRequest } from 'firebase-functions/v2/https';
+import { onSchedule } from 'firebase-functions/v2/scheduler';
 import type { Request, Response } from 'express';
 import {
     PROGRESSION_PROTOCOL_VERSION,
@@ -43,6 +44,7 @@ import {
     createPlayDeveloperApi,
     type PlayDeveloperApi,
 } from './googlePlay.js';
+import { scanVoidedPurchases, voidedEventId } from './voidedPurchases.js';
 
 initializeApp();
 
@@ -966,6 +968,59 @@ const getPlayApi = (): PlayDeveloperApi => {
     });
     return playApi;
 };
+
+/**
+ * Play 취소·환불 목록을 주기적으로 확인해 운영자 검토 목록에만 기록합니다.
+ * 연못에는 코이가 있을 수 있으므로 게임 데이터와 구매 혜택은 자동으로 변경하지 않습니다.
+ * 테스트 주문과 장부에 없는 취소도 구분해 기록하며, 구매 토큰은 해시만 보관합니다.
+ */
+export const monitorVoidedPlayPurchases = onSchedule({
+    schedule: 'every 6 hours',
+    timeZone: 'Asia/Seoul',
+    timeoutSeconds: 540,
+    memory: '256MiB',
+    maxInstances: 1,
+}, async () => {
+    let created = 0;
+    try {
+        const api = getPlayApi();
+        const examined = await scanVoidedPurchases(
+            pageToken => api.listVoidedPurchases(pageToken),
+            async event => {
+                const purchaseId = purchaseRecordId(event.purchaseToken);
+                const reviewRef = db.collection('playVoidedPurchaseReviews').doc(voidedEventId(event));
+                const added = await db.runTransaction(async transaction => {
+                    const [review, purchase] = await Promise.all([
+                        transaction.get(reviewRef), transaction.get(db.collection('playPurchases').doc(purchaseId)),
+                    ]);
+                    if (review.exists) return false;
+                    const data = purchase.data();
+                    transaction.create(reviewRef, {
+                        purchaseRecordId: purchaseId,
+                        uid: typeof data?.uid === 'string' ? data.uid : null,
+                        productId: isPlayProductId(data?.productId) ? data.productId : null,
+                        isTest: typeof data?.isTest === 'boolean' ? data.isTest : null,
+                        status: 'needs-review',
+                        matchedPurchase: purchase.exists,
+                        voidedTimeMillis: typeof event.voidedTimeMillis === 'string' ? event.voidedTimeMillis : null,
+                        voidedSource: Number.isInteger(event.voidedSource) ? event.voidedSource : null,
+                        voidedReason: Number.isInteger(event.voidedReason) ? event.voidedReason : null,
+                        voidedQuantity: Number.isInteger(event.voidedQuantity) ? event.voidedQuantity : null,
+                        createdAt: FieldValue.serverTimestamp(),
+                    });
+                    return true;
+                });
+                if (added) created++;
+            },
+        );
+        console.info('Play voided-purchase scan completed', { examined, newReviews: created });
+        if (created) console.warn('Play voided purchases require review', { newReviews: created });
+    } catch {
+        // Play의 응답이나 요청 URL에 토큰이 포함될 수 있으므로 오류 본문을 로그에 남기지 않습니다.
+        console.error('Play voided-purchase scan failed; it will be retried on the next schedule');
+        throw new Error('Play voided-purchase scan failed');
+    }
+});
 
 type PurchaseVerificationResult = {
     status: 'granted' | 'already-granted' | 'pending';

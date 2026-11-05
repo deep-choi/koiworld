@@ -1,7 +1,9 @@
 import { createHash } from 'node:crypto';
 import {
     MAX_PAID_POND_SLOTS,
+    ABSOLUTE_MAX_POND_COUNT,
     normalizeEntitlements,
+    pondCapacityUsed,
     type AccountEntitlements,
 } from './saveValidation.js';
 
@@ -100,7 +102,7 @@ const REJECT_MESSAGES: Record<RejectReason, string> = {
     'already-consumed': '이미 사용된 구매입니다.',
     'product-mismatch': '구매한 상품 정보가 맞지 않습니다.',
     'invalid-quantity': '구매 수량을 확인할 수 없습니다.',
-    'slot-limit': `연못 확장권은 계정당 ${MAX_PAID_POND_SLOTS}개까지 살 수 있어요. 이 구매는 적용되지 않으며 Google Play에서 자동으로 환불됩니다.`,
+    'slot-limit': `연못은 총 ${ABSOLUTE_MAX_POND_COUNT}개까지 보유할 수 있어요. 이 구매는 적용되지 않으며 Google Play에서 자동으로 환불됩니다.`,
 };
 
 const reject = (reason: RejectReason, entitlements: AccountEntitlements): GrantDecision =>
@@ -141,6 +143,7 @@ export const decidePurchaseGrant = (input: {
     purchase: PlayProductPurchase;
     existingRecord?: Partial<PurchaseRecord> | null;
     entitlements?: unknown;
+    pondIds?: string[];
 }): GrantDecision => {
     const { uid, productId, purchase } = input;
     const entitlements = normalizeEntitlements(input.entitlements);
@@ -152,7 +155,7 @@ export const decidePurchaseGrant = (input: {
     }
     if (purchase.purchaseState === 1) return reject('canceled', entitlements);
     if (purchase.purchaseState === 2) return { kind: 'pending', entitlements };
-    if (purchase.purchaseState !== undefined && purchase.purchaseState !== 0) {
+    if (purchase.purchaseState !== 0) {
         return reject('canceled', entitlements);
     }
     // 프로모션 코드처럼 앱 밖에서 받은 구매에는 계정 식별값이 없습니다. 그때는 처음 확인한 계정에 묶습니다.
@@ -179,6 +182,9 @@ export const decidePurchaseGrant = (input: {
     const nextEntitlements = applyBenefit(entitlements, productId, quantity);
     // 한도를 넘는 슬롯 구매는 승인하지 않습니다. Google Play는 3일 안에 승인되지 않은 구매를 자동 환불합니다.
     if (!nextEntitlements) return reject('slot-limit', entitlements);
+    if (productId === 'pond_slot' && pondCapacityUsed(input.pondIds ?? [], nextEntitlements) > ABSOLUTE_MAX_POND_COUNT) {
+        return reject('slot-limit', entitlements);
+    }
 
     const finish = finishActionFor(productId, purchase);
     return {

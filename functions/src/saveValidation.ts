@@ -44,9 +44,9 @@ export const MAX_REGULAR_POND_COUNT = 4;
 /** 예전 코드와의 호환용 이름. 일반 연못 한도와 같습니다. */
 export const MAX_POND_COUNT = MAX_REGULAR_POND_COUNT;
 /** 한 계정이 Google Play에서 살 수 있는 연못 슬롯의 최대 개수 */
-export const MAX_PAID_POND_SLOTS = 4;
+export const MAX_PAID_POND_SLOTS = 9;
 /** 어떤 계정도 넘을 수 없는 전체 연못 수(구조 검사용) */
-export const ABSOLUTE_MAX_POND_COUNT = MAX_REGULAR_POND_COUNT + MAX_PAID_POND_SLOTS;
+export const ABSOLUTE_MAX_POND_COUNT = 10;
 export const PAID_POND_ID_PREFIX = 'pond-paid-';
 
 const PAID_POND_ID_PATTERN = /^pond-paid-([1-9]\d*)$/;
@@ -84,12 +84,18 @@ export const normalizeEntitlements = (value: unknown): AccountEntitlements => {
 
 /** 이 계정이 가질 수 있는 전체 연못 수의 상한(예전에 젠 포인트로 산 일반 연못까지 포함한 최대치) */
 export const maxPondCountFor = (entitlements: AccountEntitlements | null | undefined): number =>
-    MAX_REGULAR_POND_COUNT + normalizeEntitlements(entitlements).paidPondSlots;
+    Math.min(ABSOLUTE_MAX_POND_COUNT, MAX_REGULAR_POND_COUNT + normalizeEntitlements(entitlements).paidPondSlots);
 
 /** 연못 id 목록을 일반/유료로 나눠 셉니다. */
 export const countPonds = (pondIds: string[]) => {
     const paidNumbers = pondIds.map(paidPondNumber).filter((n): n is number => n !== null);
     return { regular: pondIds.length - paidNumbers.length, paid: paidNumbers.length, paidNumbers };
+};
+
+/** 실제 연못과 아직 생성되지 않은 구매 슬롯을 모두 포함한 사용량입니다. */
+export const pondCapacityUsed = (pondIds: string[], entitlements: unknown): number => {
+    const { regular, paid } = countPonds(pondIds);
+    return Math.max(1, regular) + Math.max(paid, normalizeEntitlements(entitlements).paidPondSlots);
 };
 
 const pondIdsOf = (state: unknown): string[] =>
@@ -191,10 +197,10 @@ export function isValidGameStateCore(value: unknown): boolean {
         || !Object.hasOwn(value.ponds, value.activePondId)) return false;
     // 무료 연못 수는 없거나(구버전 형식) 1 또는 2입니다.
     if (value.freePondCount !== undefined && savedFreePondCount(value) === null) return false;
-    // 구조 검사: 일반 연못은 4개까지, 유료 연못은 pond-paid-1 ~ pond-paid-4만 허용합니다.
+    // 구조 검사: 일반 연못은 4개, 전체 연못은 10개까지 허용합니다.
     // 계정이 실제로 슬롯을 샀는지는 pondAllowanceError가 계정 혜택으로 따로 확인합니다.
     const pondCounts = countPonds(Object.keys(value.ponds));
-    if (pondCounts.regular > MAX_REGULAR_POND_COUNT
+    if (Object.keys(value.ponds).length > ABSOLUTE_MAX_POND_COUNT || pondCounts.regular > MAX_REGULAR_POND_COUNT
         || pondCounts.paidNumbers.some(slot => slot > MAX_PAID_POND_SLOTS)) return false;
     if (!['zenPoints', 'foodCount', 'koiNameCounter'].every(key => number(value[key]) && value[key] >= 0)) return false;
     if (!['cornCount', 'honorPoints', 'achievementPoints'].every(key => optionalNumber(value[key]) && (value[key] == null || value[key] >= 0))) return false;

@@ -253,7 +253,7 @@ test('the outside preview panel drives the game only through the bridge', () => 
     mockPreviewBridge.actions.setAdFree(true);
     assert.equal(mock.readMockEntitlements().adFree, true);
     mockPreviewBridge.actions.setPaidPondSlots(9);
-    assert.equal(mock.readMockEntitlements().paidPondSlots, 4);
+    assert.equal(mock.readMockEntitlements().paidPondSlots, 9);
     mockPreviewBridge.actions.resetPurchases();
     assert.deepEqual(mock.readMockEntitlements(), { paidPondSlots: 0, adFree: false });
     assert.deepEqual(calls, ['show', 'reset', 'remove']);
@@ -387,8 +387,8 @@ function renderShop(overrides = {}) {
         onBuyFood: () => {}, onBuyFoodLarge: () => {}, onBuyCorn: () => {}, onBuyCornLarge: () => {}, onBuyTrophy: () => {},
         ...overrides,
         monetization: {
-            isNativeStore: false, prices: {}, busyProductId: null, paidPondSlots: 0, adFree: false,
-            onPurchase: productId => calls.push(productId), onRestorePurchases: () => calls.push('restore'),
+            isNativeStore: false, prices: {}, busyProductId: null, paidPondSlots: 0, pondCount: 1, adFree: false,
+            onPurchase: productId => calls.push(productId),
             ...overrides.monetization,
         },
     };
@@ -417,7 +417,7 @@ test('the shop sells ponds only as one Google Play item, never for ZP', () => {
     assert.equal(titles.filter(title => title.includes('연못')).length, 1);
     assert.ok(titles.includes('연못 확장권'));
     assert.doesNotMatch(text(tree), /20,000 ZP|특별 연못|젠 포인트로 최대/);
-    assert.match(text(tree), /보유 1\/4/);
+    assert.match(text(tree), /연못 1\/10/);
     assert.ok(byLabel(tree, '연못 확장권 Google Play로 구매하기'));
 });
 
@@ -425,7 +425,7 @@ test('web shows an app-purchase notice instead of Google Play buttons and still 
     const { tree } = renderShop({ monetization: { paidPondSlots: 2, adFree: true } });
     const all = text(tree);
     assert.match(all, /앱에서 구매할 수 있어요/);
-    assert.match(all, /보유 2\/4/);
+    assert.match(all, /연못 1\/10/);
     assert.match(all, /적용됨/);
     assert.equal(byLabel(tree, '연못 확장권'), undefined);
     assert.equal(byLabel(tree, '광고 제거'), undefined);
@@ -433,7 +433,7 @@ test('web shows an app-purchase notice instead of Google Play buttons and still 
     assert.match(all, /연못 확장권과 광고 제거는 Android 앱에서 구매할 수 있어요/);
 });
 
-test('the app shows Google Play buttons and restore; ad removal covers banner and video ads', () => {
+test('the app shows Google Play buttons without a manual restore button; ad removal covers banner and video ads', () => {
     const { tree, calls } = renderShop({
         monetization: { isNativeStore: true, prices: { pond_slot: '₩1,900', remove_ads: '₩2,500' } },
     });
@@ -444,12 +444,12 @@ test('the app shows Google Play buttons and restore; ad removal covers banner an
     assert.doesNotMatch(all, /보상형|광고 보고 받기/);
     byLabel(tree, '연못 확장권 Google Play로 구매하기').props.onClick();
     byLabel(tree, '광고 제거 Google Play로 구매하기').props.onClick();
-    buttons(tree).find(node => text(node).includes('구매 복원')).props.onClick();
-    assert.deepEqual(calls, ['pond_slot', 'remove_ads', 'restore']);
+    assert.equal(buttons(tree).some(node => text(node).includes('구매 복원')), false);
+    assert.deepEqual(calls, ['pond_slot', 'remove_ads']);
 });
 
 test('limits disable the right Google Play buttons', () => {
-    const { tree } = renderShop({ monetization: { isNativeStore: true, paidPondSlots: 4, adFree: true } });
+    const { tree } = renderShop({ monetization: { isNativeStore: true, paidPondSlots: 6, pondCount: 10, adFree: true } });
     assert.equal(byLabel(tree, '연못 확장권').props.disabled, true);
     assert.match(byLabel(tree, '연못 확장권').props['aria-label'], /최대 보유량 도달/);
     assert.equal(byLabel(tree, '광고 제거').props.disabled, true);

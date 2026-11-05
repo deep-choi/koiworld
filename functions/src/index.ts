@@ -1015,9 +1015,10 @@ export const verifyPlayPurchase = onCall(async request => {
     const recordReference = playPurchaseRef(purchaseToken);
     const entitlementReference = entitlementsRef(uid);
     const decision: GrantDecision = await db.runTransaction(async transaction => {
-        const [recordSnapshot, entitlementSnapshot] = await Promise.all([
+        const [recordSnapshot, entitlementSnapshot, userSnapshot] = await Promise.all([
             transaction.get(recordReference),
             transaction.get(entitlementReference),
+            transaction.get(usersRef(uid)),
         ]);
         const result = decidePurchaseGrant({
             uid,
@@ -1025,6 +1026,7 @@ export const verifyPlayPurchase = onCall(async request => {
             purchase,
             existingRecord: recordSnapshot.exists ? recordSnapshot.data() : null,
             entitlements: entitlementSnapshot.exists ? entitlementSnapshot.data() : undefined,
+            pondIds: Object.keys(asRecord(asRecord(userSnapshot.data()?.gameState).ponds)),
         });
         if (result.kind === 'grant') {
             transaction.create(recordReference, {

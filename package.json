@@ -24,7 +24,7 @@
   "dependencies": {
     "@capacitor-community/admob": "^8.3.0",
     "@capacitor-firebase/authentication": "^8.3.0",
-    "@capacitor/android": "^8.5.0",
+    "@capacitor/android": "^8.6.0",
     "@capacitor/core": "^8.5.0",
     "@capacitor/splash-screen": "^8.0.2",
     "@capgo/native-purchases": "^8.9.6",

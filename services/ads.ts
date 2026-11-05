@@ -42,9 +42,9 @@ export const initializeAds = (): Promise<boolean> => {
                 }
                 return consent.canRequestAds;
             } catch (error) {
-                // 동의 정보를 못 받아도(네트워크 등) 동의가 필요 없는 지역에서는 광고를 요청할 수 있습니다.
+                // Do not request ads when consent eligibility is unknown.
                 console.warn('AdMob consent check failed:', error);
-                return true;
+                return false;
             }
         } catch (error) {
             console.warn('AdMob initialization failed:', error);

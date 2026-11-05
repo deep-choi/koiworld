@@ -124,8 +124,8 @@ const verifyTransaction = async (transaction: Transaction): Promise<PurchaseVeri
     return result;
 };
 
-/** Android 플러그인의 purchaseState: "1" 결제 완료, "0" 결제 대기(현금 결제 등) */
-const isPendingTransaction = (transaction: Transaction) => transaction.purchaseState === '0';
+/** Android BillingClient PurchaseState: 1 = purchased, 2 = pending. */
+const isPendingTransaction = (transaction: Transaction) => transaction.purchaseState === '2';
 
 /**
  * 상품 하나를 삽니다. 결제창에서 사용자가 취소하면 null을 돌려줍니다.
@@ -147,6 +147,9 @@ export const purchasePlayProduct = async (uid: string, productId: PlayProductId)
     } catch (error) {
         const message = error instanceof Error ? error.message.toLowerCase() : '';
         if (message.includes('cancel')) return null;
+        if (message.includes('pending')) {
+            return { status: 'pending', productId, entitlements: normalizeEntitlements(undefined), finished: false };
+        }
         throw new BillingError('Google Play 결제를 완료하지 못했습니다.', 'purchase-failed');
     }
     if (isPendingTransaction(transaction)) {

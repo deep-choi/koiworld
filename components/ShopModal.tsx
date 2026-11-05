@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { MAX_PAID_POND_SLOTS } from '../functions/src/saveValidation';
-import { X, ShoppingCart, Minus, Plus, Trophy, Smartphone, Ban, RotateCcw } from 'lucide-react';
+import { ABSOLUTE_MAX_POND_COUNT } from '../functions/src/saveValidation';
+import { X, ShoppingCart, Minus, Plus, Trophy, Smartphone, Ban } from 'lucide-react';
 import { CornIcon, FeedIcon } from './FoodIcons';
 import { MODAL_CLOSE } from './menuStyles';
 import { PLAY_PRODUCT_IDS, type PlayProductId } from '../config/monetization';
@@ -9,11 +9,11 @@ import { PLAY_PRODUCT_IDS, type PlayProductId } from '../config/monetization';
 export interface ShopMonetizationProps {
     isNativeStore: boolean;
     prices: Partial<Record<PlayProductId, string>>;
-    busyProductId: PlayProductId | 'restore' | null;
+    busyProductId: PlayProductId | null;
     paidPondSlots: number;
+    pondCount: number;
     adFree: boolean;
     onPurchase: (productId: PlayProductId) => void;
-    onRestorePurchases: () => void;
 }
 
 interface ShopModalProps {
@@ -155,7 +155,7 @@ const PlayPurchaseAction: React.FC<{
 export const ShopModal: React.FC<ShopModalProps> = ({
     onClose, zenPoints, onBuyFood, onBuyFoodLarge, onBuyCorn, onBuyCornLarge, onBuyTrophy, monetization,
 }) => {
-    const pondSlotsFull = monetization.paidPondSlots >= MAX_PAID_POND_SLOTS;
+    const pondSlotsFull = monetization.pondCount >= ABSOLUTE_MAX_POND_COUNT;
     const playPrice = (productId: PlayProductId) => monetization.isNativeStore ? (monetization.prices[productId] ?? '') : '';
 
     return (
@@ -226,7 +226,7 @@ export const ShopModal: React.FC<ShopModalProps> = ({
                         <ShopRow
                             icon={<Plus size={28} strokeWidth={2} className="text-purple-500" />}
                             title="연못 확장권"
-                            description={`연못을 하나 더 받아요. 계정에 저장되어 재설치하거나 웹에서 로그인해도 유지돼요. (보유 ${monetization.paidPondSlots}/${MAX_PAID_POND_SLOTS})`}
+                            description={`연못을 하나 더 받아요. 계정에 저장되어 재설치하거나 웹에서 로그인해도 유지돼요. (연못 ${monetization.pondCount}/${ABSOLUTE_MAX_POND_COUNT})`}
                             price={playPrice(PLAY_PRODUCT_IDS.pondSlot)}
                         >
                             <PlayPurchaseAction
@@ -266,18 +266,7 @@ export const ShopModal: React.FC<ShopModalProps> = ({
                         />
                     </ShopSection>
 
-                    {monetization.isNativeStore ? (
-                        <div className="border-t border-slate-200 pt-4">
-                            <button
-                                onClick={monetization.onRestorePurchases}
-                                disabled={monetization.busyProductId !== null}
-                                className="w-full h-11 rounded-lg text-sm font-medium text-slate-600 flex items-center justify-center gap-2 hover:bg-slate-100 disabled:opacity-50"
-                            >
-                                <RotateCcw size={16} aria-hidden="true" />
-                                {monetization.busyProductId === 'restore' ? '구매 내역 확인 중…' : '구매 복원'}
-                            </button>
-                        </div>
-                    ) : (
+                    {!monetization.isNativeStore && (
                         <p className="border-t border-slate-200 pt-4 text-xs leading-relaxed text-slate-500 break-keep">
                             연못 확장권과 광고 제거는 Android 앱에서 구매할 수 있어요. 앱에서 산 혜택은 같은 계정으로 로그인하면 웹에서도 적용돼요.
                         </p>

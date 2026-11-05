@@ -147,6 +147,17 @@ test('pond slots stop at the account limit and the extra purchase is left uncons
     assert.equal(tooMany.kind, 'reject');
 });
 
+test('the ten-pond limit includes legacy ponds and slots not yet saved in the game', () => {
+    const pondIds = ['pond-1', 'pond-2', 'pond-3', 'pond-4', 'pond-paid-1'];
+    const ninth = decidePurchaseGrant({ uid, productId: 'pond_slot', purchase: purchased(), pondIds, entitlements: { paidPondSlots: 5 } });
+    assert.equal(ninth.kind, 'grant');
+    const eleventh = decidePurchaseGrant({ uid, productId: 'pond_slot', purchase: purchased(), pondIds, entitlements: { paidPondSlots: 6 } });
+    assert.equal(eleventh.kind, 'reject');
+    if (eleventh.kind === 'reject') assert.equal(eleventh.reason, 'slot-limit');
+    const newcomerLast = decidePurchaseGrant({ uid, productId: 'pond_slot', purchase: purchased(), pondIds: ['pond-1'], entitlements: { paidPondSlots: 8 } });
+    assert.equal(newcomerLast.kind, 'grant');
+});
+
 test('product mismatches and broken quantities are rejected', () => {
     const mismatch = decidePurchaseGrant({ uid, productId: 'pond_slot', purchase: purchased({ productId: 'remove_ads' }) });
     assert.equal(mismatch.kind, 'reject');
@@ -216,4 +227,11 @@ test('Play API errors keep their status so invalid tokens are told apart from ou
         error instanceof PlayApiError && error.status === 404 && error.isInvalidPurchase);
     await assert.rejects(apiWith(503).getProductPurchase('pond_slot', 'token-123456'), (error: unknown) =>
         error instanceof PlayApiError && !error.isInvalidPurchase);
+});
+
+test('missing or unknown Play purchase state never grants a benefit', () => {
+    for (const purchaseState of [undefined, 3]) {
+        const result = decidePurchaseGrant({ uid, productId: 'pond_slot', purchase: purchased({ purchaseState }) });
+        assert.equal(result.kind, 'reject');
+    }
 });

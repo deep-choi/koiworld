@@ -559,9 +559,10 @@ test('saves may hold up to four regular ponds; a fifth is rejected', () => {
 });
 
 test('paid ponds live beside the four regular ponds and cannot exceed the slot catalog', () => {
-    const full = legacySave(['pond-1', 'pond-2', 'pond-3', 'pond-4', 'pond-paid-1', 'pond-paid-2', 'pond-paid-3', 'pond-paid-4']);
+    const full = legacySave(['pond-1', 'pond-2', 'pond-3', 'pond-4', ...Array.from({ length: 6 }, (_, i) => `pond-paid-${i + 1}`)]);
     assert.equal(Object.keys(full.ponds).length, ABSOLUTE_MAX_POND_COUNT);
     assert.equal(isValidGameStateCore(full), true);
+    assert.equal(isValidGameStateCore(legacySave([...Object.keys(full.ponds), 'pond-paid-7'])), false);
     assert.equal(isValidGameStateCore(legacySave(['pond-1', 'pond-2', `pond-paid-${MAX_PAID_POND_SLOTS + 1}`])), false);
     // 유료 연못이 있어도 일반 연못 5개는 여전히 거절합니다.
     assert.equal(isValidGameStateCore(legacySave(['pond-1', 'pond-2', 'pond-3', 'pond-4', 'pond-5', 'pond-paid-1'])), false);
@@ -671,7 +672,7 @@ test('entitlements are clamped and turn into the account pond limit', () => {
     assert.deepEqual(normalizeEntitlements({ paidPondSlots: -3, adFree: 1 }), { paidPondSlots: 0, adFree: false });
     assert.equal(maxPondCountFor(undefined), 4);
     assert.equal(maxPondCountFor({ paidPondSlots: 3 }), 7);
-    assert.equal(maxPondCountFor({ paidPondSlots: 99 }), 4 + MAX_PAID_POND_SLOTS);
+    assert.equal(maxPondCountFor({ paidPondSlots: 99 }), ABSOLUTE_MAX_POND_COUNT);
 });
 
 // ── 로그인: 기준일 전에 가입한 계정은 무료 연못 2개 ─────────────────────────────

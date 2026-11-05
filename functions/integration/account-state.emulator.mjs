@@ -184,6 +184,26 @@ try {
         error => String(error?.code).includes('aborted'),
     );
 
+    // 유료 연못이 4개를 넘어도 서버의 저장·복원 함수가 모두 같은 기준을 쓰는지 확인합니다.
+    stage = 'ten-pond-save-and-restore';
+    await adminDb.collection('entitlements').doc(uid).set({ uid, paidPondSlots: 9, adFree: false });
+    const beforeTen = (await loadAccountState({})).data;
+    const tenPonds = { ...beforeTen.gameState.ponds };
+    for (let slot = 1; slot <= 9; slot++) {
+        const id = `pond-paid-${slot}`;
+        tenPonds[id] = { ...coreState.ponds['pond-1'], id, name: `연못 ${slot + 1}`, kois: [] };
+    }
+    const tenSaved = (await saveGameState({
+        gameState: { ...beforeTen.gameState, ponds: tenPonds },
+        expectedRevision: beforeTen.gameStateRevision,
+        deviceId: 'ten-pond-test', reason: 'auto',
+    })).data;
+    const tenRestored = (await loadAccountState({})).data;
+    assert.equal(tenRestored.gameStateSource, 'primary');
+    assert.equal(tenRestored.gameStateRevision, tenSaved.revision);
+    assert.equal(Object.keys(tenRestored.gameState.ponds).length, 10);
+    assert.ok(tenRestored.gameState.ponds['pond-paid-9']);
+
     stage = 'ranking-rules';
     await assert.rejects(
         setDoc(doc(clientDb, 'rankings', uid), {
@@ -196,7 +216,7 @@ try {
 
     stage = 'reject-corrupted-save';
     const corruptState = { ...saved.gameState, ponds: { 'pond-1': { id: 'pond-1' } } };
-    await assert.rejects(saveGameState({ gameState: corruptState, expectedRevision: purchase.revision }),
+    await assert.rejects(saveGameState({ gameState: corruptState, expectedRevision: tenSaved.revision }),
         error => String(error?.code).includes('invalid-argument'));
 
     stage = 'recover-corrupted-primary';

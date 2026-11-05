@@ -477,6 +477,7 @@ export const App: React.FC = () => {
     setIsAuthModalOpen(true);
   }, []);
   const monetization = useMonetization({
+    pondIds: Object.keys(ponds),
     accountUid: isMonetizationMock ? MONETIZATION_MOCK_SCOPE : localSaveScope,
     isAccountReady: isMonetizationMock
       ? !isAccountRestoring
@@ -1839,9 +1840,9 @@ export const App: React.FC = () => {
               prices: monetization.prices,
               busyProductId: monetization.busyProductId,
               paidPondSlots,
+              pondCount: Object.keys(ponds).length,
               adFree: monetization.entitlements.adFree,
               onPurchase: productId => { void monetization.purchase(productId); },
-              onRestorePurchases: () => { void monetization.restorePurchases(); },
             }}
           />
         )

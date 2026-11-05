@@ -79,6 +79,28 @@ test('sending the same token again (retry or restore after reinstall) never gran
     if (afterFinish.kind === 'already-granted') assert.equal(afterFinish.finish, null);
 });
 
+test('a recorded purchase retries finishing if Play still reports it as unconsumed', () => {
+    const result = decidePurchaseGrant({
+        uid, productId: 'pond_slot', purchase: purchased({ consumptionState: 0 }),
+        existingRecord: { uid, productId: 'pond_slot', status: 'granted', finished: true },
+        entitlements: { paidPondSlots: 1 },
+    });
+    assert.equal(result.kind, 'already-granted');
+    if (result.kind === 'already-granted') {
+        assert.equal(result.finish, 'consume');
+        assert.equal(result.entitlements.paidPondSlots, 1);
+    }
+});
+
+test('a finished record is not finished again if Play omits the consumption state', () => {
+    const result = decidePurchaseGrant({
+        uid, productId: 'pond_slot', purchase: purchased({ consumptionState: undefined }),
+        existingRecord: { uid, productId: 'pond_slot', status: 'granted', finished: true },
+    });
+    if (result.kind !== 'already-granted') assert.fail('expected an existing purchase');
+    assert.equal(result.finish, null);
+});
+
 test('restoring remove_ads on a reinstall keeps the existing benefit', () => {
     const decision = decidePurchaseGrant({
         uid, productId: 'remove_ads', purchase: purchased({ acknowledgementState: 1 }),
@@ -222,11 +244,37 @@ test('Play API errors keep their status so invalid tokens are told apart from ou
         packageName: 'com.zenkoigarden.game',
         getAccessToken: async () => 'access-token',
         fetchImpl: async () => ({ ok: false, status, text: async () => '{"error":{}}' }),
+        sleep: async () => {},
     });
     await assert.rejects(apiWith(404).getProductPurchase('pond_slot', 'token-123456'), (error: unknown) =>
         error instanceof PlayApiError && error.status === 404 && error.isInvalidPurchase);
     await assert.rejects(apiWith(503).getProductPurchase('pond_slot', 'token-123456'), (error: unknown) =>
         error instanceof PlayApiError && !error.isInvalidPurchase);
+});
+
+test('temporary Play lookup errors are retried without retrying non-transient failures', async () => {
+    let calls = 0;
+    const waits: number[] = [];
+    const api = createPlayDeveloperApi({
+        packageName: 'com.zenkoigarden.game', getAccessToken: async () => 'token',
+        sleep: async milliseconds => { waits.push(milliseconds); },
+        fetchImpl: async () => {
+            calls++;
+            return calls < 3
+                ? { ok: false, status: 503, text: async () => '' }
+                : { ok: true, status: 200, text: async () => '{"purchaseState":0}' };
+        },
+    });
+    assert.deepEqual(await api.getProductPurchase('pond_slot', 'token-123456'), { purchaseState: 0 });
+    assert.equal(calls, 3);
+    assert.deepEqual(waits, [300, 900]);
+    let permanentCalls = 0;
+    const invalid = createPlayDeveloperApi({
+        packageName: 'com.zenkoigarden.game', getAccessToken: async () => 'token', sleep: async () => {},
+        fetchImpl: async () => { permanentCalls++; return { ok: false, status: 404, text: async () => '' }; },
+    });
+    await assert.rejects(invalid.getProductPurchase('pond_slot', 'token-123456'));
+    assert.equal(permanentCalls, 1);
 });
 
 test('missing or unknown Play purchase state never grants a benefit', () => {

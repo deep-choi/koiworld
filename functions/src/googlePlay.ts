@@ -36,8 +36,11 @@ export const createPlayDeveloperApi = (options: {
     packageName: string;
     getAccessToken: () => Promise<string>;
     fetchImpl?: FetchLike;
+    /** 테스트에서는 실제 지연 없이 재시도를 확인합니다. */
+    sleep?: (milliseconds: number) => Promise<void>;
 }): PlayDeveloperApi => {
     const fetchImpl: FetchLike = options.fetchImpl ?? ((url, init) => fetch(url, init));
+    const sleep = options.sleep ?? (milliseconds => new Promise<void>(resolve => setTimeout(resolve, milliseconds)));
     const productUrl = (productId: string, purchaseToken: string, action = '') =>
         `${API_ROOT}/${encodeURIComponent(options.packageName)}/purchases/products/`
         + `${encodeURIComponent(productId)}/tokens/${encodeURIComponent(purchaseToken)}${action}`;
@@ -62,8 +65,18 @@ export const createPlayDeveloperApi = (options: {
 
     return {
         async getProductPurchase(productId, purchaseToken) {
-            const text = await request(productUrl(productId, purchaseToken), 'GET');
-            return JSON.parse(text || '{}') as PlayProductPurchase;
+            for (let attempt = 0; ; attempt++) {
+                try {
+                    const text = await request(productUrl(productId, purchaseToken), 'GET');
+                    return JSON.parse(text || '{}') as PlayProductPurchase;
+                } catch (error) {
+                    const transient = error instanceof PlayApiError
+                        ? [429, 500, 502, 503, 504].includes(error.status)
+                        : error instanceof TypeError;
+                    if (!transient || attempt >= 2) throw error;
+                    await sleep(attempt === 0 ? 300 : 900);
+                }
+            }
         },
         async acknowledgeProductPurchase(productId, purchaseToken) {
             await request(productUrl(productId, purchaseToken, ':acknowledge'), 'POST');

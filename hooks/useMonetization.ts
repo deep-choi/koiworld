@@ -163,7 +163,9 @@ export const useMonetization = ({ accountUid, isAccountReady, pondIds, notify, o
             setEntitlementState({ uid: accountUid, value: result.entitlements, loaded: true });
             trackEvent('iap_purchase', { product_id: productId });
             notifyRef.current(productId === PLAY_PRODUCT_IDS.pondSlot
-                ? '연못이 하나 더 생겼어요! 연못 현황에서 코이를 옮길 수 있어요.'
+                ? result.status === 'already-granted'
+                    ? '이전 연못 구매를 확인했어요. 추가 구매는 잠시 후 다시 시도해 주세요.'
+                    : '연못이 하나 더 생겼어요! 연못 현황에서 코이를 옮길 수 있어요.'
                 : '광고 제거가 적용되었어요. 이제 배너와 동영상 광고가 나오지 않아요.', 'success');
         } catch (error) {
             const reason = error instanceof BillingError ? error.reason : '';

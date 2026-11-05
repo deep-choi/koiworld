@@ -164,10 +164,14 @@ export const decidePurchaseGrant = (input: {
     }
 
     if (existing?.status === 'granted') {
+        const playReportsUnfinished = PLAY_PRODUCTS[productId].type === 'consumable'
+            ? purchase.consumptionState === 0
+            : purchase.acknowledgementState === 0;
         return {
             kind: 'already-granted',
             entitlements,
-            finish: existing.finished === true ? null : finishActionFor(productId, purchase),
+            // 장부가 완료로 기록돼 있어도 Play가 아직 미소비·미승인으로 응답하면 마무리를 다시 시도합니다.
+            finish: existing.finished === true && !playReportsUnfinished ? null : finishActionFor(productId, purchase),
         };
     }
 

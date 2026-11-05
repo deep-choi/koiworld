@@ -96,6 +96,10 @@ const callVerify = async (productId: PlayProductId, purchaseToken: string): Prom
         return { ...result.data, entitlements: normalizeEntitlements(result.data.entitlements) };
     } catch (error) {
         const details = (error as FunctionsError | undefined)?.details as { reason?: string } | undefined;
+        const code = (error as FunctionsError | undefined)?.code;
+        if (code === 'functions/unavailable' || code === 'functions/deadline-exceeded') {
+            throw new BillingError('결제 확인이 지연되고 있어요. 다시 결제하지 말고 잠시 후 앱을 다시 열어 주세요.', 'verify-temporary');
+        }
         const message = error instanceof Error && error.message ? error.message : '구매를 확인하지 못했습니다.';
         throw new BillingError(message, details?.reason ?? 'verify-failed');
     }
@@ -146,9 +150,22 @@ export const purchasePlayProduct = async (uid: string, productId: PlayProductId)
         });
     } catch (error) {
         const message = error instanceof Error ? error.message.toLowerCase() : '';
-        if (message.includes('cancel')) return null;
+        const code = typeof error === 'object' && error && 'code' in error ? String(error.code) : '';
+        if (code === 'USER_CANCELED' || message.includes('cancel')) return null;
         if (message.includes('pending')) {
             return { status: 'pending', productId, entitlements: normalizeEntitlements(undefined), finished: false };
+        }
+        if (code === 'ITEM_ALREADY_OWNED' || message.includes('already owned')) {
+            // Play에 남은 구매를 서버에 다시 확인합니다. 새 결제창은 자동으로 열지 않습니다.
+            const { purchases } = await NativePurchases.getPurchases({ productType: PURCHASE_TYPE.INAPP });
+            const existing = purchases.find(item => item.productIdentifier === productId && !!item.purchaseToken);
+            if (!existing) throw new BillingError('이전 구매를 확인하고 있어요. 잠시 후 앱을 다시 열어 주세요.', 'purchase-recovery');
+            if (isPendingTransaction(existing)) {
+                return { status: 'pending', productId, entitlements: normalizeEntitlements(undefined), finished: false };
+            }
+            const recovered = await verifyTransaction(existing);
+            if (recovered) return recovered;
+            throw new BillingError('이전 구매 정보를 확인하지 못했어요. 잠시 후 앱을 다시 열어 주세요.', 'purchase-recovery');
         }
         throw new BillingError('Google Play 결제를 완료하지 못했습니다.', 'purchase-failed');
     }

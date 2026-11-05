@@ -67,7 +67,8 @@ export const showAdPrivacyOptions = async (): Promise<void> => {
  */
 export const initializeAds = (): Promise<boolean> => {
     if (!isAdSupported()) return Promise.resolve(false);
-    initialization ??= (async () => {
+    if (initialization) return initialization;
+    const attempt = (async () => {
         try {
             const usesTestAds = resolveAdUnit('banner', productionAdUnits).isTesting
                 || resolveAdUnit('interstitial', productionAdUnits).isTesting;
@@ -89,11 +90,13 @@ export const initializeAds = (): Promise<boolean> => {
             }
         } catch (error) {
             console.warn('AdMob initialization failed:', error);
-            initialization = null;
             return false;
         }
     })();
-    return initialization;
+    initialization = attempt;
+    // 일시적 네트워크 오류나 동의 대기라면 다음 광고 시도에서 다시 확인합니다.
+    void attempt.then(ready => { if (!ready && initialization === attempt) initialization = null; });
+    return attempt;
 };
 
 // bannerWanted: 지금 배너가 있어야 하는지(마지막 요청 기준). bannerVisible: 실제로 띄웠는지.

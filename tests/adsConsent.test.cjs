@@ -65,3 +65,19 @@ test('privacy changes clear the old initialization and refresh consent', async (
     assert.equal(forms, 1);
     assert.equal(requests, 2);
 });
+
+test('a temporary consent failure can be retried without requesting ads too soon', async () => {
+    let attempts = 0;
+    let initialized = 0;
+    const ads = loadAds({
+        requestConsentInfo: async () => {
+            if (++attempts === 1) throw new Error('temporary network failure');
+            return { status: 'NOT_REQUIRED', canRequestAds: true, privacyOptionsRequirementStatus: 'NOT_REQUIRED' };
+        },
+        initialize: async () => { initialized++; },
+    });
+    assert.equal(await ads.initializeAds(), false);
+    assert.equal(initialized, 0);
+    assert.equal(await ads.initializeAds(), true);
+    assert.equal(initialized, 1);
+});

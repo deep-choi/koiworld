@@ -209,7 +209,7 @@ export const AccountModal: React.FC<AccountModalProps> = ({
     const handleDeleteAccount = async () => {
         if (isDeletingAccount) return;
         const confirmed = window.confirm(
-            '계정을 삭제하면 Firebase 계정, 클라우드 게임 데이터, 랭킹 기록과 이 기기의 저장 데이터가 모두 삭제됩니다. 계속하시겠습니까?',
+            '계정을 삭제하면 Firebase 계정, 클라우드 게임 데이터, 랭킹 기록과 이 기기의 저장 데이터가 삭제됩니다.\n\n구매 기록과 혜택 기록은 별도로 보관되며, 다시 가입해도 구매한 혜택이 자동으로 복원되지 않습니다.\n\n계속하시겠습니까?',
         );
         if (!confirmed) return;
 

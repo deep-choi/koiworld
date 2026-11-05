@@ -228,16 +228,30 @@ try {
     assert.equal(recovered.canInitializeGameState, false);
 
     stage = 'account-delete';
+    const otherUid = `other-${randomUUID()}`;
+    const purchaseRef = adminDb.collection('playPurchases').doc(`test-${randomUUID()}`);
+    await Promise.all([
+        adminDb.collection('entitlements').doc(uid).set({ uid, paidPondSlots: 9, adFree: true }),
+        adminDb.collection('entitlements').doc(otherUid).set({ uid: otherUid, paidPondSlots: 2, adFree: true }),
+        purchaseRef.set({ uid, productId: 'remove_ads', status: 'granted', isTest: true }),
+    ]);
     const deleteAccountData = httpsCallable(functions, 'deleteAccountData');
     await deleteAccountData({});
-    const [userAfterDelete, backupAfterDelete, eventsAfterDelete] = await Promise.all([
+    const [userAfterDelete, backupAfterDelete, eventsAfterDelete, benefitsAfterDelete, otherBenefits, purchaseAfterDelete] = await Promise.all([
         adminDb.collection('users').doc(uid).get(),
         adminDb.collection('users').doc(uid).collection('gameStateBackups').get(),
         adminDb.collection('rankingEvents').where('uid', '==', uid).get(),
+        adminDb.collection('entitlements').doc(uid).get(),
+        adminDb.collection('entitlements').doc(otherUid).get(),
+        purchaseRef.get(),
     ]);
     assert.equal(userAfterDelete.exists, false);
     assert.equal(backupAfterDelete.empty, true);
     assert.equal(eventsAfterDelete.empty, true);
+    assert.equal(benefitsAfterDelete.exists, false);
+    assert.equal(otherBenefits.data().paidPondSlots, 2);
+    assert.equal(otherBenefits.data().adFree, true);
+    assert.equal(purchaseAfterDelete.data().uid, uid);
 
     stage = 'retry-profile-only-account';
     await adminDb.collection('users').doc(uid).set({ profile: { nickname: 'retry' } });

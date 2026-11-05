@@ -929,8 +929,8 @@ export const claimAchievement = onCall(async request => {
     });
 });
 
-// 게임 데이터 삭제는 저장본·랭킹·백업만 지웁니다. 유료 구매 기록(playPurchases)과
-// 그 결과인 혜택(entitlements)은 결제 기록 보관 의무와 구매 복원을 위해 남겨 둡니다.
+// 계정 삭제 시 저장본·랭킹·백업과 구매 혜택(entitlements)을 함께 지웁니다.
+// 구매 장부(playPurchases)는 결제 확인과 중복 사용 방지를 위해 별도로 보관합니다.
 // (개인정보처리방침에 적을 내용은 docs/유료화-콘솔-체크리스트.md 참고)
 export const deleteAccountData = onCall(async request => {
     const uid = requireAuth(request.auth?.uid);
@@ -945,6 +945,7 @@ export const deleteAccountData = onCall(async request => {
         userReference,
         stateReference,
         publicRankingReference,
+        entitlementsRef(uid),
         ...events.docs.map(snapshot => snapshot.ref),
         ...backups.docs.map(snapshot => snapshot.ref),
     ];

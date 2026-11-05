@@ -22,6 +22,44 @@ const productionAdUnits = {
 export const isAdSupported = (): boolean => Capacitor.getPlatform() === 'android';
 
 let initialization: Promise<boolean> | null = null;
+let privacyOptionsRequired = false;
+const privacyListeners = new Set<(required: boolean) => void>();
+let consentUpdate: ReturnType<typeof AdMob.requestConsentInfo> | null = null;
+
+const recordPrivacyOptions = (required: boolean) => {
+    privacyOptionsRequired = required;
+    privacyListeners.forEach(listener => listener(required));
+};
+
+/** UMP의 최신 지역별 설정을 공유해 중복 네트워크 요청을 피합니다. */
+const updateConsentInfo = async () => {
+    consentUpdate ??= AdMob.requestConsentInfo().finally(() => { consentUpdate = null; });
+    const consent = await consentUpdate;
+    recordPrivacyOptions(consent.privacyOptionsRequirementStatus === 'REQUIRED');
+    return consent;
+};
+
+export const refreshAdPrivacyStatus = async (): Promise<void> => {
+    if (!isAdSupported()) return;
+    await updateConsentInfo();
+};
+
+export const subscribeToAdPrivacyOptions = (listener: (required: boolean) => void): (() => void) => {
+    privacyListeners.add(listener);
+    listener(privacyOptionsRequired);
+    return () => { privacyListeners.delete(listener); };
+};
+
+/** 사용자가 Google의 개인정보 선택을 다시 열 수 있습니다. */
+export const showAdPrivacyOptions = async (): Promise<void> => {
+    if (!isAdSupported() || !privacyOptionsRequired) return;
+    await AdMob.showPrivacyOptionsForm();
+    // 변경한 선택을 반영한 새 광고를 다음 요청에 사용합니다.
+    initialization = null;
+    videoAdLoadedAt = null;
+    await removeBanner();
+    await refreshAdPrivacyStatus();
+};
 
 /**
  * AdMob을 한 번만 초기화합니다. 유럽 등 동의가 필요한 지역이면 Google UMP 동의 화면을 먼저 띄웁니다.
@@ -33,14 +71,17 @@ export const initializeAds = (): Promise<boolean> => {
         try {
             const usesTestAds = resolveAdUnit('banner', productionAdUnits).isTesting
                 || resolveAdUnit('interstitial', productionAdUnits).isTesting;
-            await AdMob.initialize({ initializeForTesting: usesTestAds });
             try {
-                const consent = await AdMob.requestConsentInfo();
+                const consent = await updateConsentInfo();
                 if (consent.status === AdmobConsentStatus.REQUIRED && consent.isConsentFormAvailable) {
                     const updated = await AdMob.showConsentForm();
-                    return updated.canRequestAds;
+                    recordPrivacyOptions(updated.privacyOptionsRequirementStatus === 'REQUIRED');
+                    if (!updated.canRequestAds) return false;
+                } else if (!consent.canRequestAds) {
+                    return false;
                 }
-                return consent.canRequestAds;
+                await AdMob.initialize({ initializeForTesting: usesTestAds });
+                return true;
             } catch (error) {
                 // Do not request ads when consent eligibility is unknown.
                 console.warn('AdMob consent check failed:', error);

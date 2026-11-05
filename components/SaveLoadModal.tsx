@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Music, Speaker, X, Megaphone, MessageCircle, Volume2, RotateCcw, ArrowLeft, ChevronRight } from 'lucide-react';
+import { Music, Speaker, X, Megaphone, MessageCircle, Volume2, RotateCcw, ArrowLeft, ChevronRight, Shield } from 'lucide-react';
 import { MENU_ICON, MENU_ICON_SIZE, MENU_LABEL, MENU_LIST, MENU_ROW, MENU_TRAILING, MODAL_BACK, MODAL_CLOSE, MODAL_TITLE } from './menuStyles';
 import { audioManager } from '../utils/audio';
 import type { CommunitySection } from './CommunityModal';
@@ -11,6 +11,8 @@ interface SaveLoadModalProps {
     onCommunityClick: (section: CommunitySection) => void;
     isNight: boolean;
     onToggleDayNight: () => void;
+    showAdPrivacyOptions?: boolean;
+    onAdPrivacyOptions?: () => void;
 }
 
 type SettingsView = 'menu' | 'sound' | 'new';
@@ -28,6 +30,8 @@ export const SaveLoadModal: React.FC<SaveLoadModalProps> = ({
     onCommunityClick,
     isNight,
     onToggleDayNight,
+    showAdPrivacyOptions,
+    onAdPrivacyOptions,
 }) => {
     const [view, setView] = useState<SettingsView>('menu');
     const [bgmVolume, setBgmVolume] = useState(0.3);
@@ -81,6 +85,7 @@ export const SaveLoadModal: React.FC<SaveLoadModalProps> = ({
         { label: '소식', Icon: Megaphone, onClick: () => onCommunityClick('news') },
         { label: '커뮤니티', Icon: MessageCircle, onClick: () => onCommunityClick('community') },
         { label: '사운드', Icon: Volume2, onClick: () => setView('sound') },
+        ...(showAdPrivacyOptions && onAdPrivacyOptions ? [{ label: '광고 개인정보 설정', Icon: Shield, onClick: onAdPrivacyOptions }] : []),
         { label: '새 게임', Icon: RotateCcw, onClick: () => setView('new') },
     ];
 

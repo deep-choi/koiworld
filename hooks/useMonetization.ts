@@ -4,6 +4,7 @@ import { ABSOLUTE_MAX_POND_COUNT, DEFAULT_ENTITLEMENTS, pondCapacityUsed, type A
 import { BillingError } from '../services/billing';
 import { monetizationBackend as backend } from '../services/monetizationBackend';
 import { trackEvent } from '../services/analytics';
+import { refreshAdPrivacyStatus, showAdPrivacyOptions, subscribeToAdPrivacyOptions } from '../services/ads';
 
 type Notify = (message: string, type: 'success' | 'info' | 'error') => void;
 
@@ -39,12 +40,32 @@ export const useMonetization = ({ accountUid, isAccountReady, pondIds, notify, o
     );
     const [prices, setPrices] = useState<Partial<Record<PlayProductId, string>>>({});
     const [busyProductId, setBusyProductId] = useState<PlayProductId | null>(null);
+    const [privacyOptionsRequired, setPrivacyOptionsRequired] = useState(false);
+    const [privacyOptionsVersion, setPrivacyOptionsVersion] = useState(0);
     const notifyRef = useRef(notify);
     notifyRef.current = notify;
 
     // 다른 계정으로 바뀌면 이전 계정 혜택을 즉시 버립니다.
     const entitlements = entitlementState.uid === accountUid ? entitlementState.value : DEFAULT_ENTITLEMENTS;
     const entitlementsLoaded = entitlementState.uid === accountUid && entitlementState.loaded;
+
+    useEffect(() => {
+        if (!backend.isAdSupported()) return;
+        const unsubscribe = subscribeToAdPrivacyOptions(setPrivacyOptionsRequired);
+        // 광고 제거를 샀어도 기존 광고 동의를 변경할 수 있어야 합니다.
+        void refreshAdPrivacyStatus().catch(error => console.warn('Ad privacy status could not be refreshed:', error));
+        return unsubscribe;
+    }, []);
+
+    const openAdPrivacyOptions = useCallback(async () => {
+        try {
+            await showAdPrivacyOptions();
+            setPrivacyOptionsVersion(value => value + 1);
+        } catch (error) {
+            console.warn('Ad privacy options failed:', error);
+            notifyRef.current('광고 개인정보 설정을 열지 못했어요. 잠시 후 다시 시도해 주세요.', 'error');
+        }
+    }, []);
 
     useEffect(() => {
         if (!accountUid) {
@@ -102,7 +123,7 @@ export const useMonetization = ({ accountUid, isAccountReady, pondIds, notify, o
             setHeight(0);
             void backend.removeBanner();
         };
-    }, [adsEnabled]);
+    }, [adsEnabled, privacyOptionsVersion]);
 
     const canPurchase = useCallback((): boolean => {
         if (!isNativeStore) {
@@ -162,6 +183,8 @@ export const useMonetization = ({ accountUid, isAccountReady, pondIds, notify, o
         adsEnabled,
         prices,
         busyProductId,
+        privacyOptionsRequired,
+        openAdPrivacyOptions,
         purchase,
     };
 };

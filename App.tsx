@@ -1873,6 +1873,8 @@ export const App: React.FC = () => {
       }
       {/* Settings Modal */}
       <SaveLoadModal
+        showAdPrivacyOptions={monetization.privacyOptionsRequired}
+        onAdPrivacyOptions={() => { void monetization.openAdPrivacyOptions(); }}
         onCommunityClick={(section) => { setIsSaveLoadModalOpen(false); setCommunitySection(section); setIsCommunityOpen(true); }}
         isOpen={isSaveLoadModalOpen}
         onClose={() => setIsSaveLoadModalOpen(false)}

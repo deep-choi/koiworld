@@ -25,8 +25,8 @@ android {
         applicationId "com.zenkoigarden.game"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 20
-        versionName "1.0.12"
+        versionCode 21
+        versionName "1.0.13"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // AdMob 앱 ID. 실제 값은 저장소에 넣지 않고 gradle 속성(-PKOIWORLD_ADMOB_APP_ID=…)이나
         // 같은 이름의 환경 변수로만 넣습니다. 비어 있으면 Google의 공개 테스트 앱 ID를 씁니다.

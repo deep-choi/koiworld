@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Music, Speaker, X, Megaphone, MessageCircle, Volume2, RotateCcw, ArrowLeft, ChevronRight, Shield } from 'lucide-react';
+import { Music, Speaker, X, Megaphone, MessageCircle, Volume2, RotateCcw, ArrowLeft, ChevronRight, Shield, FileText } from 'lucide-react';
 import { MENU_ICON, MENU_ICON_SIZE, MENU_LABEL, MENU_LIST, MENU_ROW, MENU_TRAILING, MODAL_BACK, MODAL_CLOSE, MODAL_TITLE } from './menuStyles';
 import { audioManager } from '../utils/audio';
 import type { CommunitySection } from './CommunityModal';
@@ -123,6 +123,16 @@ export const SaveLoadModal: React.FC<SaveLoadModalProps> = ({
                                     <ChevronRight size={18} className={MENU_TRAILING} />
                                 </button>
                             ))}
+                            <a
+                                href="https://koigarden.shop/privacy/"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className={MENU_ROW}
+                            >
+                                <FileText size={MENU_ICON_SIZE} className={MENU_ICON} />
+                                <span className={MENU_LABEL}>개인정보처리방침</span>
+                                <ChevronRight size={18} className={MENU_TRAILING} />
+                            </a>
                         </div>
                     )}
 
